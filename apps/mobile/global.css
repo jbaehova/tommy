@@ -1,0 +1,184 @@
+@import "tailwindcss";
+@import "uniwind";
+
+@import "heroui-native/styles";
+
+@import "@tommy/brand/tokens.css";
+@import "@tommy/brand/tokens-native.css";
+
+@theme inline {
+  --color-sheet: var(--tommy-bg-sheet);
+  --color-grouped: var(--tommy-bg-grouped);
+  --color-grouped-secondary: var(--tommy-text-grouped-secondary);
+  --color-grouped-border: var(--tommy-border-grouped);
+  --radius-grouped: var(--tommy-radius-grouped);
+  --color-canvas: var(--tommy-bg-native-canvas);
+  --color-sidebar: var(--tommy-bg-native-sidebar);
+  --color-control: var(--tommy-bg-control);
+  --color-control-active: var(--tommy-bg-control-active);
+  --color-raised: var(--tommy-bg-surface-raised);
+  --color-text-secondary: var(--tommy-text-secondary);
+  --color-text-dim: var(--tommy-text-dim);
+  --color-accent-text: var(--tommy-accent-text);
+  --color-success-text: var(--tommy-success-text);
+  --color-warning-text: var(--tommy-warning-text);
+  --color-danger-text: var(--tommy-danger-text);
+  --color-brand-logo: var(--tommy-logo-production);
+  --color-action: var(--tommy-action);
+  --color-action-foreground: var(--tommy-action-foreground);
+  --color-drawer-scrim: var(--tommy-drawer-scrim);
+  --color-scroll-edge-overlay: var(--tommy-scroll-edge-overlay);
+
+  --text-display: 1.75rem;
+  --text-display--line-height: 2.125rem;
+  --text-title: 1.125rem;
+  --text-title--line-height: 1.5rem;
+  --text-heading: 1.25rem;
+  --text-heading--line-height: 1.625rem;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.3125rem;
+  --text-label: 0.8125rem;
+  --text-label--line-height: 1.0625rem;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1rem;
+
+  --tracking-tommy-tight: var(--tommy-tracking-tight);
+  --tracking-tommy-wide: var(--tommy-tracking-wide);
+}
+
+@layer theme {
+  :root {
+    color-scheme: light dark;
+
+    /* uniwind reads theme values only from @variant blocks, so a plain :root alias
+     * loses to HeroUI's own near-black dark --background. */
+    @variant dark {
+      --background: var(--tommy-bg-native-canvas);
+      /* Only the Android menu draws on --overlay. HeroUI's light value is already #ffffff. */
+      --overlay: var(--tommy-bg-surface-raised);
+    }
+
+    /* HeroUI consumes these aliases; Tommy tokens remain the source of truth. */
+    --foreground: var(--tommy-text-primary);
+    --surface: var(--tommy-bg-surface);
+    --surface-foreground: var(--tommy-text-primary);
+    --surface-secondary: var(--tommy-bg-control);
+    --surface-secondary-foreground: var(--tommy-text-primary);
+    --surface-tertiary: var(--tommy-bg-surface-raised);
+    --surface-tertiary-foreground: var(--tommy-text-primary);
+    --overlay-foreground: var(--tommy-text-primary);
+    --backdrop: var(--tommy-bg-overlay);
+    --muted: var(--tommy-text-muted);
+    --default: var(--tommy-bg-control);
+    --default-foreground: var(--tommy-text-primary);
+    --accent: var(--tommy-accent);
+    --accent-foreground: var(--tommy-text-on-accent);
+    --success: var(--tommy-success);
+    --success-foreground: var(--tommy-text-on-status);
+    --warning: var(--tommy-warning);
+    --warning-foreground: var(--tommy-text-on-status);
+    --danger: var(--tommy-danger);
+    --danger-foreground: var(--tommy-text-on-accent);
+    --border: var(--tommy-border);
+    --separator: var(--tommy-border-strong);
+    --focus: var(--tommy-accent);
+    --link: var(--tommy-accent-text);
+    --field-background: var(--tommy-bg-control);
+    --field-foreground: var(--tommy-text-primary);
+    --field-placeholder: var(--tommy-text-muted);
+    --field-border: var(--tommy-border-strong);
+
+    /* A 4 pt base produces the 8 / 12 / 16 px radius family used on desktop. */
+    --radius: 0.25rem;
+    --field-radius: 0.75rem;
+    --surface-shadow: var(--tommy-shadow-card);
+    --overlay-shadow: var(--tommy-shadow-overlay);
+    --field-shadow: 0 0 0 0 transparent inset;
+  }
+}
+
+/* Pretendard: its Latin comes from Inter, the desktop font, and it has Hangul, which Inter does not.
+ * The expo-font plugin in app.json embeds it as one family, so `fontWeight` picks the face. HeroUI
+ * reads --font-normal to --font-bold. */
+@media ios {
+  :root {
+    --font-sans: Pretendard;
+    --font-normal: Pretendard;
+    --font-medium: Pretendard;
+    --font-semibold: Pretendard;
+    --font-bold: Pretendard;
+    --font-mono: ui-monospace;
+  }
+}
+
+@media android {
+  :root {
+    --font-sans: Pretendard;
+    --font-normal: Pretendard;
+    --font-medium: Pretendard;
+    --font-semibold: Pretendard;
+    --font-bold: Pretendard;
+    --font-mono: monospace;
+  }
+}
+
+/* HeroUI sets body text to 16 / 28, which reads as loose double spacing. These are the steps of the
+ * desktop scale. */
+@layer components {
+  .text__root--type-h1 {
+    font-size: 1.5rem;
+    line-height: 1.875rem;
+  }
+  .text__root--type-h2 {
+    font-size: 1.25rem;
+    line-height: 1.625rem;
+  }
+  .text__root--type-h3 {
+    font-size: 1.125rem;
+    line-height: 1.5rem;
+  }
+  .text__root--type-h4 {
+    font-size: 1rem;
+    line-height: 1.375rem;
+  }
+  .text__root--type-h5 {
+    font-size: 0.9375rem;
+    line-height: 1.25rem;
+  }
+  .text__root--type-h6 {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+  .text__root--type-body {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+  .text__root--type-body-sm {
+    font-size: 0.8125rem;
+    line-height: 1.125rem;
+  }
+  .text__root--type-body-xs {
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+
+  .button__root--size-sm {
+    height: 2.125rem;
+  }
+  .button__root--size-md {
+    height: 2.5rem;
+  }
+  .button__root--size-lg {
+    height: 2.875rem;
+  }
+
+  .button__root--variant-primary {
+    background-color: var(--tommy-action);
+  }
+  .button__label--variant-primary {
+    color: var(--tommy-action-foreground);
+  }
+  .button__label--variant-secondary {
+    color: var(--tommy-text-primary);
+  }
+}

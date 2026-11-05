@@ -1,0 +1,35 @@
+import { defineMessages } from "../../../message";
+
+export const messages = defineMessages("mobile.app", {
+  "mobile.app.route.scanQrCode": "Scan QR code",
+  "mobile.app.route.actionsNeeded": "Actions needed",
+  "mobile.app.route.newChannel": "New channel",
+  "mobile.app.route.createAgent": "Create an agent",
+  "mobile.app.route.newSection": "New folder",
+  "mobile.app.route.settings": "Settings",
+  "mobile.app.route.profile": "Profile",
+  "mobile.app.route.accountSessions": "Account sessions",
+  "mobile.app.route.about": "About",
+  "mobile.app.route.support": "Support",
+  "mobile.app.route.hiddenChats": "Hidden chats",
+  "mobile.app.route.share": "Share",
+  "mobile.app.route.deletedChannels": "Deleted channels",
+  "mobile.app.route.cropPhoto": "Move and Scale",
+  "mobile.app.route.queuedMessages": "Queued messages",
+  "mobile.app.route.thinking": "Thinking",
+  "mobile.app.route.messageOptions": "Message options",
+  "mobile.app.route.editMessage": "Edit message",
+  "mobile.app.route.serverOptions": "Server options",
+  "mobile.app.route.members": "Members",
+  "mobile.app.route.routines": "Routines",
+  "mobile.app.route.workflows": "Workflows",
+  "mobile.app.route.workflow": "Workflow",
+  "mobile.app.route.workflowRun": "Run",
+  "mobile.app.route.routine": "Routine",
+  "mobile.app.route.threads": "Threads",
+  "mobile.app.route.usage": "Usage",
+  // The quick actions of the app icon, which the phone shows when the icon is held.
+  "mobile.app.quickAction.routines": "Routines",
+  "mobile.app.quickAction.search": "Search",
+  // The update header on home. A store update names its version; a downloaded update restarts the app.
+});

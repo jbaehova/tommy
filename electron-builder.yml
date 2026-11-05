@@ -1,0 +1,134 @@
+appId: app.tommy.desktop
+productName: Tommy
+copyright: Copyright © 2026 Synthetify Labs spółka z ograniczoną odpowiedzialnością
+asar: true
+artifactName: ${productName}-${version}-${arch}.${ext}
+# The source of app updates, written into app-update.yml.
+publish:
+  provider: github
+  owner: jbaehova
+  repo: tommy
+electronFuses:
+  resetAdHocDarwinSignature: true
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  loadBrowserProcessSpecificV8Snapshot: false
+  grantFileProtocolExtraPrivileges: false
+files:
+  - out/**/*
+  - package.json
+  - LICENSE
+  - NOTICE
+  - "!node_modules/@anthropic-ai/claude-agent-sdk-darwin-*/**/*"
+  - "!node_modules/@anthropic-ai/claude-agent-sdk-linux-*/**/*"
+  - "!node_modules/@anthropic-ai/claude-agent-sdk-win32-*/**/*"
+asarUnpack:
+  # The database host is loaded by path as a separate process, not required into the main bundle.
+  - out/main/agent-database-host.js
+  # The unpacked host resolves Effect without loading any application module from asar.
+  - node_modules/effect/**/*
+  # The FFI addon that stops the Dynamic Island panel from activating the app on macOS.
+  - node_modules/@koromix/koffi-*/**/*
+extraResources:
+  - from: resources/managed-skills
+    to: managed-skills
+  # `tommy-cli.mjs` runs tasks on agents through the Local scripts API; see docs/automation.md.
+  - from: resources/cli
+    to: cli
+  # `cpu-limit.cjs` makes os.cpus() follow the CPU limit for the Node programs of agents on a server.
+  - from: resources/agent-runtime
+    to: agent-runtime
+  - from: build/icon-production.png
+    to: icons/icon-production.png
+  - from: build/icon-dev.png
+    to: icons/icon-dev.png
+  - from: build/icon-preview.png
+    to: icons/icon-preview.png
+  - from: node_modules/electron/dist/LICENSE
+    to: licenses/Electron-LICENSE
+  - from: node_modules/electron/dist/LICENSES.chromium.html
+    to: licenses/LICENSES.chromium.html
+directories:
+  output: dist
+toolsets:
+  # The static AppImage runtime (AppImage/type2-runtime) has libfuse built in, so the AppImage starts
+  # on Arch Linux, Omarchy and other systems with no libfuse.so.2. It needs only `fusermount3`
+  # from fuse3. The default toolset needs libfuse.so.2. `--appimage-extract` works with both.
+  appimage: "1.0.3"
+mac:
+  category: public.app-category.productivity
+  minimumSystemVersion: "13.0"
+  # For the developer only: no Developer ID, no notarization. Ad hoc signing is the arm64 minimum.
+  identity: "-"
+  notarize: false
+  hardenedRuntime: false
+  # Only the .icns: build/macos/Assets.car needs Xcode to compile, so the app does not use the old catalog.
+  icon: build/icon-production.icns
+  extraResources:
+    - from: build/icon-production-macos-safe-area.png
+      to: icons/icon-production-macos-safe-area.png
+    - from: build/icon-dev-macos-safe-area.png
+      to: icons/icon-dev-macos-safe-area.png
+    - from: build/icon-preview-macos-safe-area.png
+      to: icons/icon-preview-macos-safe-area.png
+    # The menu bar icon. macOS draws a `Template` image in the color of the menu bar.
+    - from: build/macos/tray
+      to: icons/tray
+      filter:
+        - "*.png"
+  darkModeSupport: true
+  extendInfo:
+    NSMicrophoneUsageDescription: Tommy uses the microphone for voice prompts.
+    NSUserActivityTypes:
+      - NSUserActivityTypeBrowsingWeb
+  # No `arch` here: a target's own `arch` list replaces the one given on the command line, so
+  # `--x64` would still build ARM64. With no flag, electron-builder builds for the machine it runs
+  # on.
+  target:
+    - dmg
+    - zip
+linux:
+  category: Development
+  icon: build/icon-production.png
+  synopsis: A multi-agent workspace.
+  extraResources:
+    - from: build/linux/tommy.apparmor
+      to: linux/tommy.apparmor
+    # A hosted server installs the packages, scripts and units of the release that it updates to.
+    - from: scripts/hosting
+      to: hosting
+      filter:
+        - "**/*"
+        - "!*.ts"
+  # Electron takes its Linux app id from `desktopName` in package.json, and the window manager
+  # matches a running window to the launcher through `StartupWMClass`. Syncing the two from one
+  # value is what makes the taskbar icon group with the window it belongs to.
+  syncDesktopName: true
+  target:
+    - target: AppImage
+      arch:
+        - x64
+        - arm64
+dmg:
+  title: ${productName} ${version}
+  # The art is 478 pt high, so it fills the window when Finder shows only the title bar.
+  # With the tab bar and status bar, the window shows the top 410 pt.
+  background: build/dmg-background.png
+  iconSize: 128
+  iconTextSize: 14
+  window:
+    x: 400
+    y: 467
+    width: 680
+    height: 506
+  contents:
+    - x: 190
+      y: 220
+    - x: 490
+      y: 220
+      type: link
+      path: /Applications

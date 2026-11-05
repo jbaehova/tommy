@@ -1,0 +1,158 @@
+import type { LoadSessionResponse, NewSessionRequest, RequestError } from "@agentclientprotocol/sdk";
+import { enableCursorMcpServers } from "./cursor-mcp-disabled";
+import { isRecord } from "./protocol";
+
+/** The custom endpoint that serves a model, as a turn's error names it. Never a credential itself. */
+export interface AcpCustomEndpoint {
+  readonly name: string;
+  /** Whether the endpoint has a saved API key or header. */
+  readonly hasCredentials: boolean;
+}
+
+/**
+ * What one ACP agent does differently from the protocol. `AcpAgentClient` reads each hook at the
+ * place that the agent's behavior changes; an absent hook is the protocol's own behavior. Add a hook
+ * only for an observed agent version, and name that version where the hook is set.
+ */
+export interface AcpFlavor {
+  /** The `clientInfo` that `initialize` sends. Absent: `TOMMY_ACP_CLIENT_INFO`. */
+  clientInfo?: { name: string; title: string; version: string };
+  /**
+   * Whether an error names this missing session. `null` gives the decision to the protocol's
+   * `-32002` rule. Another error code or another session must never replace a provider session.
+   */
+  sessionNotFound?(error: RequestError, sessionId: string): boolean | null;
+  /**
+   * The message of a failed turn, from the redacted failure text. `redact` masks more text, `log`
+   * writes a diagnostic that it redacts first, and `model` is the session's model. `endpoint` is the
+   * custom endpoint that serves that model, or null.
+   */
+  turnFailure?(
+    error: unknown,
+    detail: string,
+    redact: (text: string) => string,
+    log: (text: string) => void,
+    model: string | null,
+    endpoint: AcpCustomEndpoint | null,
+  ): string;
+  /** The message of a turn that ended with no answer text. Absent: such a turn succeeds. */
+  emptyAnswerFailure?(reasoned: boolean): string;
+  /**
+   * What to do when `session/load` or `session/resume` fails: wait once for a process that still
+   * starts, or list the sessions to find out whether this one exists. `null` reports the failure.
+   */
+  restoreFailure?(error: unknown, method: "load" | "resume"): "wait-for-start" | "list-sessions" | null;
+  /** A failed model refresh keeps the last list that the agent gave. */
+  keepModelsOnRefreshFailure?: true;
+  /**
+   * The model belongs to the agent's process, not to one session: a model set moves every session
+   * to it. A set of the model the process already runs on is not sent again.
+   */
+  processWideModel?: true;
+  /**
+   * A `session/set_model` failure after which the session already runs on the new model. The agent
+   * changes the session first and then fails to save the model as its default.
+   */
+  modelSetUnsaved?(error: RequestError): boolean;
+  /**
+   * The agent frees what a session holds only when its process ends, not at `session/close`. Model
+   * discovery then resumes one probe session for each process rather than opening another.
+   */
+  closeKeepsSession?: true;
+  /**
+   * Each session gets a process of its own, and an idle session is closed by ending that process.
+   * For an agent with `closeKeepsSession`.
+   */
+  sessionProcesses?: true;
+  /** An agent that sends a failed prompt as answer text and ends the turn as a success. */
+  sdkHarness?: {
+    /** The session whose prompt failed, from a stderr line. */
+    failedSession(stderrLine: string): string | undefined;
+    /** The start of an answer that is the failure text, when no stderr line came. */
+    answerIsFailure: RegExp;
+    /** The message of a turn that failed in this way, from the failure text. */
+    turnFailure(text: string): string;
+    /** The message of an answer chunk that reports an exhausted quota, or `null`. */
+    quota(text: string): string | null;
+    /** The MCP server whose failed start ended the turn, from the failure text, or `null`. */
+    mcpLoadFailure(text: string): { name: string; reason: string } | null;
+  };
+  /** A stop finishes the turn locally, and the next prompt opens the session again first. */
+  cancelLocallyThenResume?: true;
+  /** A turn that does not complete marks its open tool calls as stopped. */
+  interruptToolsOnStop?: true;
+  /** Answer text is shown at once, not only when `session/prompt` answers. */
+  streamAnswerBeforePromptReturns?: true;
+  /**
+   * A model can stream its reasoning between the tokens of one answer, so a thought does not end
+   * the answer text. A tool call or the end of the turn still does.
+   */
+  thoughtsInsideAnswer?: true;
+  /**
+   * `session/prompt` stays open with no update while background tasks run, so a silent turn is not
+   * stalled and Tommy does not end it (`ACP_TURN_STALL_MS`).
+   */
+  promptOpenForBackgroundTasks?: true;
+  /**
+   * The agent answers a finished background task in a turn of its own and sends no session update
+   * for it. Only its `session/load` replays that turn. A tool call that leaves a task running ends
+   * with `rawOutput.metadata.status` "running" and the task's `sessionID`.
+   */
+  unsentBackgroundTurns?: true;
+  /** Each answer message has its own `messageId`, so text of a new ID is a new message, not more text. */
+  messagePerId?: true;
+  /**
+   * The agent keeps one MCP server of each name for a directory, and a session that opens there
+   * replaces the server that the others in it use. Their Tommy servers then share one token.
+   */
+  mcpServersPerDirectory?: true;
+  /**
+   * The agent connects to each MCP server of a session before it answers `session/new` or
+   * `session/load`, and leaves out a server that did not load with no error. A session that Tommy's
+   * servers did not reach then fails, as the agent cannot use Tommy's tools.
+   */
+  mcpServersLoadWithSession?: true;
+  /** Turns Tommy's servers back on where the agent's own settings for `cwd` turned them off. */
+  enableMcpServers?(cwd: string, names: readonly string[]): void;
+  /** Tommy compacts by replacing the session, for an agent that reports `usage_update` and has no compact request. */
+  contextCompaction?: "handoff";
+  /** A whole answer chunk that is the agent's own transport error, not answer text. Tommy drops it. */
+  noiseChunk?: RegExp;
+  /**
+   * A whole answer chunk that tells that the agent's process lost its sign-in. Tommy fails the
+   * turn and ends the process, so the next turn starts a process that reads the sign-in again.
+   */
+  signInLostChunk?: RegExp;
+  /** The `_meta` of each `session/new`, `session/load` and `session/resume` request. */
+  sessionMeta?: NewSessionRequest["_meta"];
+  /**
+   * Tommy opens a saved session with `session/load`, also when the agent advertises
+   * `session/resume`, and this tells from a successful load reply that the session is missing.
+   */
+  loadInsteadOfResume?: { missing(response: LoadSessionResponse): boolean };
+}
+
+/**
+ * Cursor puts the missing session in `data.message` and reports only "Invalid params" in `message`.
+ * Other invalid parameters must not cause a provider session to be replaced.
+ */
+export const CURSOR_ACP_FLAVOR: AcpFlavor = {
+  sessionNotFound: (error, sessionId) =>
+    error.code === -32602 ? isRecord(error.data) && error.data.message === `Session "${sessionId}" not found` : null,
+  // Cursor 2026.10.22-27dcf5f sends "\n\nError: RetriableError: WritableIterable is closed" as one
+  // chunk after a turn that succeeded, and then ends the turn (#3334). Only the full chunk matches.
+  noiseChunk: /^\s*Error: (?:[\w$]+: )?WritableIterable is closed\s*$/u,
+  // Cursor 2026.10.22-27dcf5f keeps its access token in memory for the life of the process, and
+  // refreshes it there only with an API key. When its server refuses the token, each turn of each
+  // session sends only one of these chunks until the process ends. A new process reads the Keychain
+  // again (#4614).
+  signInLostChunk:
+    /^\n\n(?:Please sign in to continue|Error: \[unauthenticated\] Backend rejected authentication\.[^\n]*)$/u,
+  // Cursor 2026.10.22-27dcf5f asks its server for the model list on each model set, and reports a
+  // failed request as "Invalid model value" (#3800). One set per change, not one per turn.
+  processWideModel: true,
+  // Cursor 2026.10.22-27dcf5f leaves out a disabled or blocked server, and the agent turn then
+  // finds no Tommy tools (#3058).
+  mcpServersLoadWithSession: true,
+  enableMcpServers: enableCursorMcpServers,
+};

@@ -1,0 +1,74 @@
+/*
+ * The content of the plugin connect dialogs. The frame is the shared connect dialog,
+ * `WizardDialog` in `integration-layout.css`: the two logos, the title, and the buttons.
+ */
+
+/* One card of facts, its rows divided rather than spaced: a connection is one thing to read. */
+
+/* The steps that turn on a server another app runs. The heading leaves room for the setup link
+   that sits in the row's corner. */
+
+/* On the label's line, at the far end of it: the way out to the key page is a quiet aside, and it
+   is the size of the other links in the marketplace rather than the size of the field. */
+
+/* The mark that says the link leaves the app. It reads beside the words rather than over them,
+   so it is the size of every other external-link mark in the marketplace. */
+
+.mcp-connect-privacy {
+  display: flex;
+  align-items: center;
+  gap: var(--tommy-space-2);
+  font-size: var(--tommy-text-sm);
+  line-height: var(--tommy-leading-sm);
+}
+
+.mcp-connect-privacy svg {
+  flex: none;
+  width: var(--tommy-icon-sm);
+  height: var(--tommy-icon-sm);
+  color: var(--tommy-text-muted);
+}
+
+/* A joined server's sign-in page, drawn from the host's browser. The page keeps the shape of the host's frame. */
+.mcp-sign-in-page {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--tommy-border);
+  border-radius: var(--tommy-radius-lg);
+  background: var(--tommy-bg-surface);
+}
+
+.mcp-sign-in-page-note {
+  min-width: 0;
+  margin: 0;
+}
+
+/* A relayed sign-in: the page is in the user's own browser, so the dialog holds only the address field. */
+.mcp-sign-in-relay-open {
+  margin-top: var(--tommy-space-4);
+}
+
+.mcp-sign-in-relay-form {
+  margin-top: var(--tommy-space-4);
+}
+
+/* In the connect and provider sign-in dialogs, the body's gap spaces them. In the connect dialog, the
+   open button keeps the width of its words. */
+:is(.integration-wizard-body, .provider-code-login-body) > :is(.mcp-sign-in-relay-open, .mcp-sign-in-relay-form) {
+  margin-top: 0;
+}
+
+.integration-wizard-body > .mcp-sign-in-relay-open {
+  justify-self: start;
+}
+
+.mcp-sign-in-relay-row {
+  display: flex;
+  gap: var(--tommy-space-2);
+}
+
+.mcp-sign-in-relay-row > .ui-input {
+  flex: 1;
+  min-width: 0;
+}

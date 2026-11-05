@@ -1,0 +1,54 @@
+.conversation-interaction-card {
+  box-sizing: border-box;
+  min-width: 0;
+  border: 1px solid var(--tommy-border);
+  border-radius: var(--tommy-radius-card);
+  background: var(--tommy-bg-canvas);
+  color: var(--tommy-text-primary);
+  padding: var(--tommy-space-4);
+}
+
+.conversation-interaction-header {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--tommy-space-3);
+}
+
+.conversation-interaction-header > :is(strong, h2) {
+  min-width: 0;
+  margin: 0;
+  color: var(--tommy-text-secondary);
+  font-size: var(--tommy-text-lg);
+  font-weight: var(--tommy-weight-medium);
+  line-height: var(--tommy-leading-lg);
+  overflow-wrap: anywhere;
+}
+
+.conversation-interaction-status[data-slot="badge"] {
+  flex: 0 0 auto;
+  gap: var(--tommy-space-1-5);
+  border-radius: var(--tommy-radius-md);
+  font-size: var(--tommy-text-sm);
+  font-weight: var(--tommy-weight-medium);
+}
+
+.conversation-interaction-status svg {
+  width: var(--tommy-icon-sm);
+  height: var(--tommy-icon-sm);
+  flex: 0 0 auto;
+  stroke-width: var(--tommy-icon-stroke);
+}
+
+/* The badge says the card is waiting on the person, so its loader has to turn: a frozen spinner
+   reads as a stalled step rather than one that is ready for them. */
+.conversation-interaction-spinner {
+  animation: ui-spin 1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation-interaction-spinner {
+    animation: none;
+  }
+}

@@ -1,0 +1,113 @@
+/* Chat action card: the shell of a chat record the person can act on. Variants add a body. */
+
+/* Keyboard focus is a muted ring: an accent ring looks like a selection here. The same weight as
+ * the accent outline rule in auth.css, which loads earlier. */
+.chat-action-card :is(button, input, textarea):focus-visible {
+  outline: 0;
+}
+
+.chat-action-card .ui-button:focus-visible {
+  box-shadow: 0 0 0 1px var(--tommy-text-muted);
+}
+
+.chat-action-card.conversation-interaction-card {
+  min-width: min(100%, 320px);
+}
+
+.chat-action-card {
+  display: grid;
+  width: fit-content;
+  max-width: min(100%, 520px);
+  gap: var(--tommy-space-3);
+}
+
+.chat-action-card-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--tommy-space-2);
+}
+
+.chat-action-card-icon {
+  display: inline-flex;
+  width: var(--tommy-control-md);
+  height: var(--tommy-control-md);
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--tommy-radius-pill);
+  background: var(--tommy-accent);
+  color: var(--tommy-text-on-accent);
+}
+
+.chat-action-card-icon svg {
+  width: var(--tommy-icon-md);
+  height: var(--tommy-icon-md);
+}
+
+.chat-action-card-heading {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+
+.chat-action-card-eyebrow {
+  color: var(--tommy-text-muted);
+  font-size: var(--tommy-text-sm);
+  line-height: var(--tommy-leading-sm);
+}
+
+.chat-action-card-title {
+  overflow: hidden;
+  margin: 0;
+  color: var(--tommy-text-primary);
+  font-size: var(--tommy-text-lg);
+  font-weight: var(--tommy-weight-medium);
+  line-height: var(--tommy-leading-lg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-action-card-open svg {
+  width: var(--tommy-icon-sm);
+  height: var(--tommy-icon-sm);
+}
+
+.chat-action-card-footer {
+  display: flex;
+  min-height: var(--tommy-leading-md);
+  align-items: center;
+  color: var(--tommy-text-muted);
+  font-size: var(--tommy-text-md);
+  line-height: var(--tommy-leading-md);
+}
+
+/* Without a status the footer holds only its empty live region, so it takes no space. */
+.chat-action-card-footer-empty {
+  min-height: 0;
+  margin-top: calc(-1 * var(--tommy-space-3));
+}
+
+.chat-action-card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tommy-space-1-5);
+}
+
+.chat-action-card-status svg {
+  width: var(--tommy-icon-sm);
+  height: var(--tommy-icon-sm);
+}
+
+.chat-action-card-footer-action {
+  margin-left: auto;
+}
+
+.chat-action-card-error {
+  color: var(--tommy-danger-text);
+}
+
+.chat-action-card-removed .chat-action-card-title {
+  color: var(--tommy-text-muted);
+  text-decoration: line-through;
+}

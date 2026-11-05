@@ -1,0 +1,18 @@
+.app-logo {
+  --app-logo-background: var(--tommy-logo-production);
+  --app-logo-mark: var(--tommy-logo-production-mark);
+  position: relative;
+  display: inline-block;
+  overflow: hidden;
+  border-radius: var(--tommy-radius-logo);
+  isolation: isolate;
+}
+
+.app-logo-background {
+  fill: var(--app-logo-background);
+}
+
+.app-logo-mark {
+  fill: var(--app-logo-mark);
+  pointer-events: none;
+}

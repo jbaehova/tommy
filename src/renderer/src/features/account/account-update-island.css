@@ -1,0 +1,23 @@
+/* The island only enters the DOM once there is an update to announce, so it is
+   already `data-open="true"` on its first frame and the closed rule above never
+   applies. This gives that first frame something to slide in from. */
+
+@keyframes account-update-digit-pop-in {
+  0% {
+    transform: translate(
+      calc(var(--digit-distance) * var(--digit-dir-x)),
+      calc(var(--digit-distance) * var(--digit-dir-y))
+    );
+    opacity: 0.4;
+    filter: blur(var(--digit-blur));
+  }
+
+  100% {
+    transform: translate(0, 0);
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+/* In the sidebar there is no account box to come out of: the island is in the flow at the end of
+ * the sidebar, with four round corners and the same space above and below its button. */

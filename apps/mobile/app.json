@@ -1,0 +1,192 @@
+{
+  "expo": {
+    "name": "Tommy",
+    "slug": "tommy",
+    "platforms": ["android"],
+    "version": "1.4.5",
+    "orientation": "portrait",
+    "icon": "./assets/icons/app-icon.png",
+    "scheme": "tommy",
+    "backgroundColor": "#141414",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "package": "app.tommy.mobile",
+      "icon": "./assets/icons/app-icon.png",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icons/android-adaptive-foreground.png",
+        "backgroundImage": "./assets/icons/android-adaptive-background.png",
+        "monochromeImage": "./assets/icons/android-adaptive-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": ["android.permission.CAMERA"],
+      "blockedPermissions": [
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+      ]
+    },
+    "plugins": [
+      "./plugins/with-workspace-bundle-inputs",
+      "expo-router",
+      "expo-video",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F5F5F7",
+          "image": "./assets/splash/blank.png",
+          "imageWidth": 96,
+          "resizeMode": "contain",
+          "dark": {
+            "backgroundColor": "#141414",
+            "image": "./assets/splash/blank.png"
+          },
+          "android": {
+            "imageWidth": 96
+          }
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Tommy to use your camera to scan QR codes.",
+          "microphonePermission": "Allow Tommy to use the microphone to dictate messages.",
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Tommy to access the photos you choose to share.",
+          "cameraPermission": "Allow Tommy to use your camera to add photos.",
+          "microphonePermission": "Allow Tommy to use the microphone to dictate messages."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Tommy to access the photos you choose to share.",
+          "savePhotosPermission": "Allow Tommy to save images and videos you download from a chat to your photo library.",
+          "granularPermissions": ["photo"]
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icons/notification-icon.png",
+          "color": "#000000"
+        }
+      ],
+      [
+        "./plugins/with-notification-sounds",
+        {
+          "sounds": [
+            "./assets/sounds/tommy-task.wav",
+            "./assets/sounds/tommy-warm.wav",
+            "./assets/sounds/tommy-mech.wav",
+            "./assets/sounds/tommy-bubble.wav",
+            "./assets/sounds/tommy-press.wav"
+          ]
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Tommy to use Face ID to unlock the app."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true,
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ],
+      [
+        "expo-sharing",
+        {
+          "ios": {
+            "enabled": false
+          },
+          "android": {
+            "enabled": true,
+            "singleShareMimeTypes": ["text/*", "image/*", "application/*"],
+            "multipleShareMimeTypes": ["*/*"]
+          }
+        }
+      ],
+      [
+        "expo-font",
+        {
+          "android": {
+            "fonts": [
+              {
+                "fontFamily": "Pretendard",
+                "fontDefinitions": [
+                  {
+                    "path": "./assets/fonts/pretendard/Pretendard-Regular.otf",
+                    "weight": 400
+                  },
+                  {
+                    "path": "./assets/fonts/pretendard/Pretendard-Medium.otf",
+                    "weight": 500
+                  },
+                  {
+                    "path": "./assets/fonts/pretendard/Pretendard-SemiBold.otf",
+                    "weight": 600
+                  },
+                  {
+                    "path": "./assets/fonts/pretendard/Pretendard-Bold.otf",
+                    "weight": 700
+                  },
+                  {
+                    "path": "./assets/fonts/pretendard/Pretendard-ExtraBold.otf",
+                    "weight": 800
+                  }
+                ]
+              },
+              "katex/dist/fonts/KaTeX_AMS-Regular.ttf",
+              "katex/dist/fonts/KaTeX_Caligraphic-Regular.ttf",
+              "katex/dist/fonts/KaTeX_Fraktur-Regular.ttf",
+              "katex/dist/fonts/KaTeX_Main-Bold.ttf",
+              "katex/dist/fonts/KaTeX_Main-Italic.ttf",
+              "katex/dist/fonts/KaTeX_Main-Regular.ttf",
+              "katex/dist/fonts/KaTeX_Math-BoldItalic.ttf",
+              "katex/dist/fonts/KaTeX_Math-Italic.ttf",
+              "katex/dist/fonts/KaTeX_SansSerif-Regular.ttf",
+              "katex/dist/fonts/KaTeX_Size1-Regular.ttf",
+              "katex/dist/fonts/KaTeX_Size2-Regular.ttf",
+              "katex/dist/fonts/KaTeX_Typewriter-Regular.ttf"
+            ]
+          }
+        }
+      ],
+      "expo-image",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow Tommy to use the microphone to dictate messages.",
+          "speechRecognitionPermission": "Allow Tommy to turn your speech into message text."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {}
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "enabled": false
+    }
+  }
+}
