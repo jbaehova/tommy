@@ -1,0 +1,270 @@
+.server-settings-modal-shell .settings-modal-main {
+  background: var(--tommy-bg-canvas);
+}
+
+.server-settings-modal-shell .settings-modal-scroll-frame::before {
+  background: linear-gradient(
+    to bottom,
+    var(--tommy-bg-canvas) 0%,
+    var(--tommy-bg-canvas) 28%,
+    var(--tommy-bg-canvas-clear) 100%
+  );
+}
+
+.server-settings-modal-shell .settings-modal-scroll-frame::after {
+  background: linear-gradient(
+    to top,
+    var(--tommy-bg-canvas) 0%,
+    var(--tommy-bg-canvas) 28%,
+    var(--tommy-bg-canvas-clear) 100%
+  );
+}
+
+.server-settings-panel {
+  width: 100%;
+  gap: var(--tommy-space-6);
+  animation: none;
+}
+
+.server-settings-logo {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--tommy-border-strong);
+  border-radius: var(--tommy-radius-md);
+  background: var(--tommy-bg-control-hover);
+  color: var(--tommy-text-secondary);
+  font-size: var(--tommy-text-sm);
+  font-weight: var(--tommy-weight-semibold);
+  letter-spacing: var(--tommy-tracking-wide);
+}
+
+.server-settings-logo img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  outline: 1px solid var(--tommy-image-outline);
+  outline-offset: -1px;
+}
+
+.server-settings-logo-trigger {
+  border-radius: var(--tommy-radius-md);
+  color: var(--tommy-text-muted);
+}
+
+.server-settings-logo-trigger .server-settings-logo {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.server-settings-logo-placeholder {
+  width: var(--tommy-icon-md);
+  height: var(--tommy-icon-md);
+}
+
+.server-settings-item-error {
+  color: var(--tommy-danger);
+}
+
+.server-settings-readonly-name.ui-item {
+  min-height: 72px;
+}
+
+.server-settings-readonly-value {
+  min-width: 180px;
+  max-width: 300px;
+  overflow-wrap: anywhere;
+  color: var(--tommy-text-primary);
+  font-weight: var(--tommy-weight-medium);
+  text-align: right;
+  user-select: text;
+}
+
+.server-settings-error-toast {
+  position: absolute;
+  right: var(--tommy-space-6);
+  bottom: var(--tommy-space-6);
+  left: var(--tommy-space-6);
+  z-index: 3;
+  box-shadow: 0 12px 32px var(--tommy-shadow-dialog);
+}
+
+.server-settings-error-toast[data-with-save-bar] {
+  bottom: calc(60px + var(--tommy-space-3));
+}
+
+.server-settings-search {
+  position: relative;
+  width: 188px;
+  flex: 0 0 auto;
+}
+
+.server-settings-search > svg {
+  position: absolute;
+  top: 50%;
+  left: var(--tommy-space-3);
+  z-index: 1;
+  width: var(--tommy-icon-sm);
+  height: var(--tommy-icon-sm);
+  color: var(--tommy-text-muted);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.server-settings-search .ui-input {
+  padding-left: var(--tommy-space-8);
+}
+
+/* The hidden tab panels stay mounted for the slide animation, so without this the
+   slot sizes to the widest panel and the active one inherits its width as dead space. */
+
+.server-settings-routine-feed-row .ui-button > svg,
+.server-settings-routine-feed-actions .ui-button > svg {
+  width: var(--tommy-icon-sm);
+  height: var(--tommy-icon-sm);
+  flex: 0 0 auto;
+  stroke-width: var(--tommy-icon-stroke);
+}
+
+.server-settings-empty-row .ui-item-content {
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  .server-settings-readonly-name {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .server-settings-readonly-name .ui-item-actions {
+    width: 100%;
+    max-width: none;
+    justify-content: space-between;
+  }
+
+  .server-settings-readonly-value {
+    min-width: 0;
+    max-width: none;
+    text-align: left;
+  }
+
+  .server-settings-error-toast {
+    right: var(--tommy-space-4);
+    left: var(--tommy-space-4);
+  }
+}
+
+@media (max-width: 520px) {
+  .server-settings-search {
+    width: 100%;
+  }
+}
+
+@keyframes server-settings-invite-qr-in {
+  from {
+    opacity: 0;
+    transform: translateX(calc(-1 * var(--tommy-space-4)));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes server-settings-invite-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--tommy-space-3))) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.server-settings-routine-feed-row {
+  display: flex;
+  align-items: center;
+  gap: var(--tommy-space-2);
+}
+
+.server-settings-routine-feed-agent {
+  flex: none;
+  width: auto;
+}
+
+.server-settings-routine-feed-row .ui-input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--tommy-font-mono);
+  cursor: text;
+}
+
+.server-settings-routine-feed-text {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.server-settings-routine-feed-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--tommy-space-1);
+}
+
+/* The feed area before the first read answers. It fades in after a delay, so a fast answer does not flash it. */
+.server-settings-routine-feed-loading {
+  display: grid;
+  place-items: center;
+  padding: var(--tommy-space-6);
+  animation: server-settings-routine-feed-loading-in var(--tommy-duration-normal) var(--tommy-ease-out)
+    var(--tommy-loading-indicator-delay) both;
+}
+
+@keyframes server-settings-routine-feed-loading-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.server-settings-routine-feed-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tommy-space-2);
+}
+
+/* The empty pending list: sample invitations land behind the invite action. Both share one cell. */
+
+/* The middle of the faint list clears for the action, and the list fades out at the bottom. */
+
+@keyframes server-invites-empty-land {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+    transform: translateY(10px) scale(0.98);
+  }
+}
+
+@keyframes server-invites-empty-leave {
+  to {
+    opacity: 0;
+    filter: blur(3px);
+    transform: translateY(-4px);
+  }
+}
+
+/* The one handwritten word writes itself once. The app has no hand font, so it uses the system's. */
+
+@keyframes server-invites-empty-write {
+  to {
+    clip-path: inset(-0.4em -0.2em -0.4em -0.2em);
+  }
+}

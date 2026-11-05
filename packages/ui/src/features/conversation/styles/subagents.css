@@ -1,0 +1,381 @@
+/* The subagents of one turn: the chat card and the side panel pane. */
+
+.subagents-elapsed {
+  flex: 0 0 auto;
+  color: var(--tommy-text-muted);
+  font-size: var(--tommy-text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The live line: the icon of the current step and its text. */
+
+.subagents-live {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: var(--tommy-space-1-5);
+  color: var(--tommy-text-muted);
+  font-size: var(--tommy-text-sm);
+  line-height: var(--tommy-leading-sm);
+}
+
+.subagents-live-glyph {
+  width: var(--tommy-icon-xs);
+  height: var(--tommy-icon-xs);
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.subagents-live-text {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.subagents-live[data-state="failed"] {
+  color: var(--tommy-danger-text);
+}
+
+/* The group: the header with the progress, and the list. */
+
+.subagents-group {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: var(--tommy-space-1-5);
+}
+
+.subagents-group .subagents-group-header {
+  display: flex;
+  height: auto;
+  align-self: flex-start;
+  align-items: center;
+  gap: var(--tommy-space-2);
+  margin-left: calc(-1 * var(--tommy-space-1-5));
+  border-radius: var(--tommy-radius-sm);
+  padding: var(--tommy-space-0-5) var(--tommy-space-1-5);
+  color: inherit;
+  font-size: var(--tommy-text-md);
+  font-weight: var(--tommy-weight-regular);
+  line-height: var(--tommy-leading-md);
+  text-align: left;
+}
+
+/* The open list is not a lit toggle, so the header has no fill. */
+.subagents-group .subagents-group-header[aria-expanded="true"]:not(:hover) {
+  background: transparent;
+  color: inherit;
+}
+
+.subagents-group-chevron {
+  width: var(--tommy-icon-xs);
+  height: var(--tommy-icon-xs);
+  color: var(--tommy-text-muted);
+  transition: rotate var(--tommy-duration-fast) var(--tommy-ease-out);
+}
+
+.subagents-group-header[aria-expanded="true"] .subagents-group-chevron {
+  rotate: 90deg;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .subagents-group-chevron {
+    transition: none;
+  }
+}
+
+.subagents-group-title {
+  font-weight: var(--tommy-weight-medium);
+}
+
+.subagents-progress {
+  gap: var(--tommy-space-1-5);
+  font-variant-numeric: tabular-nums;
+}
+
+.subagents-ring {
+  width: var(--tommy-icon-xs);
+}
+
+.subagents-ring .ui-radial-progress-track,
+.subagents-ring .ui-radial-progress-indicator {
+  stroke-width: 7;
+}
+
+.subagents-ring .ui-radial-progress-indicator {
+  transition: stroke-dasharray var(--tommy-duration-slow) var(--tommy-ease-out);
+}
+
+.subagents-progress-failed {
+  color: var(--tommy-danger-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .subagents-ring .ui-radial-progress-indicator {
+    transition: none;
+  }
+}
+
+/* The list: one quiet card, as wide as the agent's message bubble. */
+
+.subagents-list {
+  display: flex;
+  width: var(--message-wide-bubble-width);
+  flex-direction: column;
+  margin: 0;
+  border: 1px solid var(--tommy-border);
+  border-radius: var(--tommy-radius-card);
+  background: var(--tommy-bg-canvas);
+  padding: var(--tommy-space-1);
+  list-style: none;
+}
+
+/* Two lines on one grid: the status and step icons share the first column, so both texts start
+   at the same x. */
+.subagents-list .subagents-row {
+  display: grid;
+  width: 100%;
+  height: auto;
+  align-items: start;
+  grid-template-columns: var(--tommy-icon-sm) minmax(0, 1fr) auto auto;
+  gap: 2px var(--tommy-space-2);
+  border: 0;
+  border-radius: var(--tommy-radius-sm);
+  background: transparent;
+  padding: var(--tommy-space-2);
+  color: inherit;
+  font-weight: var(--tommy-weight-regular);
+  line-height: inherit;
+  text-align: left;
+  white-space: normal;
+  cursor: pointer;
+}
+
+.subagents-list .subagents-row:hover {
+  background: var(--tommy-hover);
+}
+
+.subagents-list .subagents-row.subagents-row-selected {
+  background: var(--tommy-bg-surface);
+}
+
+.subagents-row:focus-visible {
+  outline: 2px solid var(--tommy-focus-ring);
+  outline-offset: -2px;
+}
+
+.subagents-row-copy,
+.subagents-row .subagents-live {
+  display: contents;
+}
+
+.subagents-row-title {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: var(--tommy-text-md);
+  font-weight: var(--tommy-weight-medium);
+  line-height: var(--tommy-leading-md);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.subagents-row .subagents-elapsed {
+  line-height: var(--tommy-leading-md);
+}
+
+.subagents-row .subagents-live-glyph {
+  grid-column: 1;
+  grid-row: 2;
+  align-self: center;
+  justify-self: center;
+  margin-top: 0;
+}
+
+.subagents-row .subagents-live-text {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.subagents-row-chevron {
+  width: var(--tommy-icon-xs);
+  height: var(--tommy-icon-xs);
+  flex: 0 0 auto;
+  margin-top: 4px;
+  color: var(--tommy-text-muted);
+  opacity: 0;
+  transition: opacity var(--tommy-duration-fast) var(--tommy-ease-out);
+}
+
+.subagents-row:hover .subagents-row-chevron,
+.subagents-row:focus-visible .subagents-row-chevron,
+.subagents-row.subagents-row-selected .subagents-row-chevron {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .subagents-row-chevron {
+    transition: none;
+  }
+}
+
+/* The side panel pane: the steps of one subagent. */
+
+.subagents-panel {
+  overflow: hidden;
+}
+
+.subagents-panel-detail {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--tommy-space-3);
+  overflow-y: auto;
+  padding: var(--tommy-space-4);
+}
+
+.subagents-panel-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--tommy-space-2);
+}
+
+.subagents-panel-head h3 {
+  margin: 0;
+  font-size: var(--tommy-text-lg);
+  font-weight: var(--tommy-weight-semibold);
+  line-height: var(--tommy-leading-lg);
+  overflow-wrap: anywhere;
+}
+
+.subagents-panel-meta {
+  margin: 0;
+  color: var(--tommy-text-muted);
+  font-size: var(--tommy-text-sm);
+}
+
+.subagents-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tommy-space-2);
+}
+
+.subagents-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  border-left: 2px solid var(--tommy-border-strong);
+  padding-left: var(--tommy-space-2);
+  color: var(--tommy-text-secondary);
+  font-size: var(--tommy-text-sm);
+  line-height: var(--tommy-leading-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.subagents-prompt-label {
+  color: var(--tommy-text-muted);
+  font-weight: var(--tommy-weight-medium);
+}
+
+.subagents-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tommy-space-1-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.subagents-step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--tommy-space-2);
+  color: var(--tommy-text-secondary);
+  font-size: var(--tommy-text-sm);
+  line-height: var(--tommy-leading-sm);
+  overflow-wrap: anywhere;
+}
+
+.subagents-step-glyph {
+  width: var(--tommy-icon-xs);
+  height: var(--tommy-icon-xs);
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--tommy-text-muted);
+}
+
+.subagents-step[data-kind="thinking"] .subagents-step-text {
+  color: var(--tommy-text-muted);
+  font-style: italic;
+}
+
+.subagents-step[data-kind="text"] .subagents-step-text {
+  color: var(--tommy-text-primary);
+}
+
+.subagents-step-text.agent-activity-label {
+  -webkit-line-clamp: unset;
+}
+
+.subagents-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--tommy-space-2);
+  margin: 0;
+  color: var(--tommy-danger-text);
+  font-size: var(--tommy-text-sm);
+  line-height: var(--tommy-leading-sm);
+}
+
+.subagents-error-icon {
+  width: var(--tommy-icon-xs);
+  height: var(--tommy-icon-xs);
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+/* Status icons: the same icons and colours as the chat action markers. */
+
+.subagents-status {
+  display: inline-flex;
+  width: var(--tommy-icon-sm);
+  height: var(--tommy-leading-md);
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+}
+
+.subagents-status-icon {
+  width: var(--tommy-icon-sm);
+  height: var(--tommy-icon-sm);
+}
+
+.subagents-status[data-state="running"] {
+  color: var(--tommy-accent);
+}
+
+.subagents-status[data-state="running"] .subagents-status-icon {
+  animation: ui-spin 1s linear infinite;
+}
+
+.subagents-status[data-state="completed"] {
+  color: var(--tommy-success);
+}
+
+.subagents-status[data-state="failed"] {
+  color: var(--tommy-danger);
+}
+
+.subagents-status[data-state="stopped"] {
+  color: var(--tommy-text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .subagents-status[data-state="running"] .subagents-status-icon {
+    animation: none;
+  }
+}

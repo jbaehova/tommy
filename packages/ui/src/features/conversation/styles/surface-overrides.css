@@ -1,0 +1,59 @@
+.settings-panel,
+.browser-panel {
+  background: var(--tommy-bg-canvas);
+}
+
+.composer-reply-preview {
+  border-color: var(--tommy-border);
+  background: var(--tommy-bg-surface);
+  color: var(--tommy-text-primary);
+}
+
+.message-reaction-pill {
+  border-color: var(--tommy-border);
+  background: transparent;
+  color: var(--tommy-text-primary);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .message-reaction-pill:not(.message-reaction-pill-readonly):hover {
+    background: var(--tommy-hover);
+  }
+}
+
+.composer {
+  background: var(--tommy-bg-surface);
+}
+.voice-button:active,
+.voice-button-active:active {
+  transform: scale(0.97);
+}
+
+/* A filled field with no border, in the menu item shape. */
+.provider-model-search {
+  height: var(--tommy-control-md);
+  flex-shrink: 0;
+  margin-bottom: var(--ui-menu-padding);
+  border-color: transparent;
+  border-radius: var(--ui-menu-item-radius);
+  background: var(--ui-menu-item-hover);
+  padding-inline: var(--ui-menu-inset);
+  font-size: var(--tommy-text-md);
+}
+
+.provider-model-search:focus-visible {
+  border-color: var(--ui-menu-edge);
+}
+
+.provider-model-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.provider-model-group {
+  padding: var(--tommy-space-2) var(--ui-menu-inset) var(--tommy-space-1);
+  color: var(--tommy-text-muted);
+  font-size: var(--tommy-text-sm);
+  font-weight: 500;
+}

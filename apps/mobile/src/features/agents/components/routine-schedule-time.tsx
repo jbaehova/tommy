@@ -1,0 +1,55 @@
+import { DateTimePicker } from "@expo/ui/community/datetime-picker";
+import { Typography } from "heroui-native";
+import { useState } from "react";
+import { useUniwind } from "uniwind";
+import { SettingsRow } from "@/features/settings/components/settings-content";
+import { useText } from "@/shared/lib/text";
+
+export function RoutineTimePicker({
+  time,
+  label,
+  disabled,
+  onChange,
+}: {
+  time: string;
+  /** The row label. Defaults to "Time". */
+  label?: string;
+  disabled: boolean;
+  onChange: (time: string) => void;
+}) {
+  const { t } = useText();
+  const title = label ?? t("mobile.agent.record.time");
+  const { theme } = useUniwind();
+  const [open, setOpen] = useState(false);
+  const [hour, minute] = time.split(":").map(Number);
+  // This is a wall-clock time in the routine's zone, not an instant to convert to the phone's zone.
+  const value = new Date(2000, 0, 1, hour, minute);
+  const picker = (
+    <DateTimePicker
+      value={value}
+      mode="time"
+      display={"default"}
+      disabled={disabled}
+      themeVariant={theme === "dark" ? "dark" : "light"}
+      onDismiss={() => setOpen(false)}
+      onChange={(event, next) => {
+        setOpen(false);
+        if (event.type !== "set" || !next) return;
+        onChange(`${String(next.getHours()).padStart(2, "0")}:${String(next.getMinutes()).padStart(2, "0")}`);
+      }}
+    />
+  );
+  return (
+    <>
+      <SettingsRow
+        disabled={disabled}
+        disclosure={false}
+        onPress={() => setOpen(true)}
+        trailing={<Typography.Paragraph className="text-grouped-secondary">{time}</Typography.Paragraph>}
+      >
+        <Typography.Paragraph>{title}</Typography.Paragraph>
+      </SettingsRow>
+      {open ? picker : null}
+    </>
+  );
+}

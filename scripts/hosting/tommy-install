@@ -1,0 +1,71 @@
+#!/bin/bash
+# Installs the unpacked Linux build as Tommy, as root, from the root of a built checkout:
+#
+#   bash scripts/hosting/tommy-install dist/linux-unpacked
+#
+# Each path, the user and the unit are its own, so a Tommy install on the same computer keeps
+# running. Run it again to upgrade. The data in /var/lib/tommy stays.
+set -euo pipefail
+
+SOURCE=$(cd "$(dirname "$0")" && pwd)
+RELEASE=${1:?Name the unpacked build.}
+INSTALL=/opt/Tommy
+USER_NAME=tommy
+
+[ "$(id -u)" -eq 0 ] || { echo "Run this as root." >&2; exit 1; }
+[ -x "$RELEASE/tommy" ] || { echo "$RELEASE has no tommy executable." >&2; exit 1; }
+id "$USER_NAME" >/dev/null 2>&1 ||
+  useradd --system --create-home --home-dir "/var/lib/$USER_NAME" --shell /bin/bash "$USER_NAME"
+
+systemctl stop tommy.service 2>/dev/null || true
+install -d -m 0755 "$INSTALL" "$INSTALL/hosted"
+staged="$INSTALL/app.new"
+rm -rf "$staged"
+cp -a "$RELEASE" "$staged"
+chown -R root:root "$staged"
+# Chromium refuses a sandbox helper with other modes, and `--no-sandbox` is never the answer.
+chmod -R u+rwX,go=rX "$staged"
+chmod 4755 "$staged/chrome-sandbox"
+rm -rf "$INSTALL/app.old"
+[ ! -e "$INSTALL/app" ] || mv "$INSTALL/app" "$INSTALL/app.old"
+mv "$staged" "$INSTALL/app"
+rm -rf "$INSTALL/app.old"
+
+install -m 0755 "$SOURCE/tommy-server" "$INSTALL/hosted/tommy-server"
+install -m 0755 "$SOURCE/tommy" "$INSTALL/hosted/tommy"
+ln -sfn "$INSTALL/hosted/tommy" /usr/local/bin/tommy
+
+# T3 Code on this server, when it is installed. The agents reach it only through tommy-t3.
+if [ -x /home/t3code/.local/bin/t3 ]; then
+  install -m 0755 "$SOURCE/tommy-t3" "$INSTALL/hosted/tommy-t3"
+  install -m 0755 "$SOURCE/tommy-t3-rpc" "$INSTALL/hosted/tommy-t3-rpc"
+  install -m 0755 "$SOURCE/tommy-t3-mac" "$INSTALL/hosted/tommy-t3-mac"
+  ln -sfn "$INSTALL/hosted/tommy-t3" /usr/local/bin/vps-t3
+  rule=$(mktemp)
+  echo "$USER_NAME ALL=(t3code) NOPASSWD: $INSTALL/hosted/tommy-t3" >"$rule"
+  visudo -cf "$rule" >/dev/null
+  install -m 0440 "$rule" /etc/sudoers.d/tommy-t3
+  rm -f "$rule"
+fi
+install -m 0644 "$SOURCE/tommy.service" /etc/systemd/system/tommy.service
+# The keys that the agents use (OP_SERVICE_ACCOUNT_TOKEN and others), one per line. Each agent gets them.
+install -d -o "$USER_NAME" -g "$USER_NAME" -m 0700 "/var/lib/$USER_NAME/.config" "/var/lib/$USER_NAME/.config/tommy"
+install -d -o "$USER_NAME" -g "$USER_NAME" -m 0755 "/var/lib/$USER_NAME/bin"
+
+# Ubuntu 24.04 limits user namespaces. This profile lets the Chromium sandbox make them.
+cat >/etc/apparmor.d/tommy <<EOF
+abi <abi/4.0>,
+include <tunables/global>
+
+profile tommy $INSTALL/app/tommy flags=(unconfined) {
+  userns,
+  network,
+}
+EOF
+if command -v apparmor_parser >/dev/null && [ -d /sys/kernel/security/apparmor ]; then
+  apparmor_parser --replace /etc/apparmor.d/tommy
+fi
+
+systemctl daemon-reload
+systemctl enable --now tommy.service
+echo "Installed Tommy. Pair a device with: sudo tommy pair"

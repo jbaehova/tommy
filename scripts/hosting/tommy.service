@@ -1,0 +1,32 @@
+# Tommy on the VPS. `tommy-install` installs this unit. Nginx holds TLS on port 443 and forwards
+# the device paths to the gateway on loopback. See nginx-tommy.conf.
+[Unit]
+Description=Tommy server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=tommy
+RuntimeDirectory=tommy
+RuntimeDirectoryMode=0700
+Environment=XDG_RUNTIME_DIR=/run/tommy
+Environment=TOMMY_PUBLIC_URL=https://tommy.modurouter.today
+# The command line tools of the agents and the one key file. See scripts/hosting/tommy-install.
+Environment=PATH=/var/lib/tommy/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=-/var/lib/tommy/.config/tommy/agent.env
+# Provider CLIs do not send error reports or telemetry from this server.
+Environment=CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+ExecStart=/opt/Tommy/hosted/tommy-server
+# Stops the app before its virtual displays, so that it closes its database first.
+ExecStop=/opt/Tommy/hosted/tommy-server --stop
+Restart=always
+RestartSec=10
+TimeoutStopSec=60
+# The memory of this unit has a limit, so that it cannot stop the other services of the computer. An
+# agent that is killed does not stop the unit.
+MemoryMax=5G
+OOMPolicy=continue
+
+[Install]
+WantedBy=multi-user.target

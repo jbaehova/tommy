@@ -1,0 +1,121 @@
+/* Marketplace suggestion: an app or skill an agent suggests in the chat, with its connect action. */
+
+.marketplace-suggestion.conversation-interaction-card {
+  display: grid;
+  container-type: inline-size;
+  width: 100%;
+  max-width: 520px;
+  gap: var(--tommy-space-3);
+  padding: var(--tommy-space-3);
+}
+
+.marketplace-suggestion-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--tommy-space-3);
+}
+
+/* The listing icon keeps its tile border here, as on a dark chat its own fill meets the card. */
+
+.marketplace-suggestion-heading {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+
+/* In a narrow chat the action takes its own row, so the name keeps the width. */
+@container (max-width: 360px) {
+  .marketplace-suggestion-header {
+    flex-wrap: wrap;
+  }
+
+  .marketplace-suggestion-heading {
+    flex-basis: calc(100% - var(--tommy-control-lg) - var(--tommy-control-md) - 2 * var(--tommy-space-3));
+  }
+
+  .marketplace-suggestion-action {
+    order: 1;
+    width: 100%;
+  }
+
+  .marketplace-suggestion-action > .ui-button {
+    width: 100%;
+  }
+}
+
+.marketplace-suggestion-title {
+  overflow: hidden;
+  margin: 0;
+  color: var(--tommy-text-primary);
+  font-size: var(--tommy-text-md);
+  font-weight: var(--tommy-weight-medium);
+  line-height: var(--tommy-leading-md);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marketplace-suggestion-description {
+  overflow: hidden;
+  color: var(--tommy-text-muted);
+  font-size: var(--tommy-text-sm);
+  line-height: var(--tommy-leading-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marketplace-suggestion-action {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+/*
+ * Connect, its busy step and Connected are one button. Both labels share one grid cell; the stage
+ * takes the width of the label on screen, and the cell keeps that width, so the wider label
+ * overflows on both sides instead of pushing the other one off-centre.
+ */
+
+/* Connected is a status: the success fill holds under the pointer. On-light text keeps AA on the dark-theme fill. */
+
+/* On-light text on the light-theme success fill is 3:1. The darker success-text fill keeps AA. */
+
+/* The spinner takes no room until the step is busy. */
+
+/*
+ * The motion of a change the user started. With reduced motion, only the fill and the labels fade.
+ * The busy step: the spinner grows in and the button widens. Connected: the success fill comes in, the
+ * old label lifts away as the new one rises, the check draws from its short stroke, and Dismiss
+ * folds so the button glides to the edge.
+ */
+
+.marketplace-suggestion-done[data-slot="badge"] {
+  gap: var(--tommy-space-1-5);
+  border-radius: var(--tommy-radius-pill);
+  font-size: var(--tommy-text-sm);
+  font-weight: var(--tommy-weight-medium);
+}
+
+.marketplace-suggestion-done svg {
+  width: var(--tommy-icon-sm);
+  height: var(--tommy-icon-sm);
+}
+
+.marketplace-suggestion-unavailable {
+  display: flex;
+  margin: 0;
+  gap: var(--tommy-space-2);
+  border-top: 1px solid var(--tommy-border);
+  padding-top: var(--tommy-space-3);
+  color: var(--tommy-text-secondary);
+  font-size: var(--tommy-text-sm);
+  line-height: var(--tommy-leading-sm);
+}
+
+.marketplace-suggestion-unavailable svg {
+  width: var(--tommy-icon-sm);
+  height: var(--tommy-icon-sm);
+  flex: 0 0 auto;
+  margin-top: var(--tommy-space-0-5);
+  color: var(--tommy-text-muted);
+}

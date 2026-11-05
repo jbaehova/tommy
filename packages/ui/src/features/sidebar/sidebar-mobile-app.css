@@ -1,0 +1,75 @@
+/* The mobile app announcement at the bottom of the sidebar. It is a quiet
+ * surface card rather than an accent one: an announcement is not an action. The body text and the
+ * button use the full card width, so a narrow sidebar wraps the text instead of making a thin
+ * column beside the icon. */
+.sidebar-mobile-app {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: var(--tommy-space-2);
+  margin: var(--tommy-space-2) var(--tommy-space-3);
+  border: 1px solid var(--tommy-border);
+  border-radius: var(--tommy-radius-lg);
+  background: var(--tommy-bg-surface);
+  padding: var(--tommy-space-3);
+  color: var(--tommy-text-primary);
+  font-size: var(--tommy-text-sm);
+  line-height: var(--tommy-leading-sm);
+}
+
+.sidebar-mobile-app-dismiss {
+  margin-right: calc(var(--tommy-space-1) * -1);
+  color: var(--tommy-text-muted);
+}
+
+.sidebar-mobile-app-body {
+  margin: 0;
+  color: var(--tommy-text-muted);
+}
+
+.sidebar-mobile-app > .ui-button {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The community invitation uses the same card. Discord takes the free width; X is an icon button. */
+
+/* The storage card uses the same card. At "full" the card uses the danger tone, and the ring follows the level. */
+.sidebar-storage[data-level="full"] {
+  border-color: var(--tommy-danger-border);
+  background: var(--tommy-danger-soft);
+}
+
+.sidebar-storage-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--tommy-space-3);
+}
+
+.sidebar-storage-row > .sidebar-mobile-app-dismiss {
+  align-self: start;
+}
+
+.sidebar-storage-ring {
+  width: 48px;
+}
+
+.sidebar-storage-percent {
+  font-size: var(--tommy-text-sm);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--tommy-weight-semibold);
+  line-height: 1;
+}
+
+.sidebar-storage-text {
+  display: grid;
+  min-width: 0;
+  gap: var(--tommy-space-0-5);
+}
+
+.sidebar-storage-text > strong {
+  font-weight: var(--tommy-weight-semibold);
+}

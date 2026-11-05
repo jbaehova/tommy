@@ -1,0 +1,136 @@
+/* UserAvatar has no style of its own: the initials, or GitHub's picture when the account has one. */
+.github-connector-avatar {
+  display: inline-grid;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: var(--tommy-radius-pill);
+  background: linear-gradient(135deg, var(--tommy-accent-strong), var(--tommy-onboarding-desktop-indigo));
+  color: var(--tommy-text-primary);
+  font-size: var(--tommy-text-sm);
+  font-weight: var(--tommy-weight-semibold);
+}
+
+.github-connector-avatar > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.github-connector-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.github-connector-search > svg {
+  position: absolute;
+  left: var(--tommy-space-3);
+  width: var(--tommy-icon-sm);
+  height: var(--tommy-icon-sm);
+  color: var(--tommy-text-muted);
+  pointer-events: none;
+}
+
+.github-connector-search input {
+  width: 100%;
+  padding-left: calc(var(--tommy-space-3) * 2 + var(--tommy-icon-sm));
+}
+
+/* A long list scrolls inside the card, so Disconnect stays near the top of the tab. The rows' hover fill goes past
+   the text, so the names line up with the search field. */
+.github-connector-repository-list {
+  display: grid;
+  max-height: 260px;
+  margin: 0 calc(var(--tommy-space-2) * -1);
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.github-connector-repository {
+  display: flex;
+  gap: var(--tommy-space-2);
+  align-items: center;
+  justify-content: space-between;
+  /* The same height with and without the Private badge. */
+  min-height: 36px;
+  padding: 0 var(--tommy-space-2);
+  border-radius: var(--tommy-radius-md);
+  transition: background-color var(--tommy-duration-fast) var(--tommy-ease-out);
+}
+
+.github-connector-repository:hover {
+  background: var(--tommy-hover);
+}
+
+.github-connector-repository-name {
+  min-width: 0;
+}
+
+.github-connector-repository-owner {
+  color: var(--tommy-text-muted);
+}
+
+.github-connector-private {
+  flex: none;
+  gap: var(--tommy-space-1);
+}
+
+/* ------------------------------------------------ connect dialog */
+
+.github-connector-center {
+  display: grid;
+  min-height: 96px;
+  place-items: center;
+}
+
+/* The code is about to be typed on another screen, so each character has its own tile. */
+.github-connector-code {
+  display: flex;
+  gap: var(--tommy-space-1-5);
+  justify-content: center;
+}
+
+.github-connector-code-char {
+  display: inline-grid;
+  width: 36px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid var(--tommy-border);
+  border-radius: var(--tommy-radius-md);
+  background: var(--tommy-bg-surface);
+  font-family: var(--tommy-font-mono);
+  font-size: var(--tommy-text-xl);
+  font-weight: var(--tommy-weight-semibold);
+}
+
+.github-connector-code-char[data-separator="true"] {
+  width: 12px;
+  border-color: var(--tommy-transparent);
+  background: var(--tommy-transparent);
+  color: var(--tommy-text-muted);
+}
+
+.github-connector-waiting {
+  display: flex;
+  gap: var(--tommy-space-2);
+  align-items: center;
+  justify-content: center;
+}
+
+.github-connector-done {
+  display: flex;
+  gap: var(--tommy-space-3);
+  align-items: center;
+  padding: var(--tommy-space-3) var(--tommy-space-4);
+  border-radius: var(--tommy-radius-lg);
+  background: var(--tommy-success-wash);
+}
+
+.github-connector-done > div {
+  display: grid;
+  flex: 1;
+}

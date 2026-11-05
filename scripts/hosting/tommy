@@ -1,0 +1,90 @@
+#!/bin/bash
+# The terminal command of the Tommy server. It talks to the running app over the control socket in
+# src/main/server-mode.ts. The socket is in /run/tommy, so run this with sudo or as the service user.
+set -euo pipefail
+umask 077
+
+SOCKET=/run/tommy/control.sock
+UNIT=tommy.service
+
+fail() {
+  echo "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage: tommy <command>
+  status               Show the state of the server.
+  pair                 Show a one-time code and a QR code that pair a device with this server.
+  devices              List the paired devices.
+  revoke-device <id>   Remove a paired device and close its connection.
+  logs                 Follow the log of the service.
+  restart              Restart the service (sudo).
+EOF
+}
+
+# control <method> <path> [--data <body>]. Sets `response` to the answer lines and a last status line.
+control() {
+  local second
+  for ((second = 0; second < 30; second++)); do
+    [ -S "$SOCKET" ] && break
+    if [ -d /run/tommy ] && [ ! -x /run/tommy ]; then fail "Run this with sudo, or as the user tommy."; fi
+    systemctl is-active --quiet "$UNIT" || fail "Tommy is not running. Read the log with: tommy logs"
+    sleep 1
+  done
+  [ -S "$SOCKET" ] || fail "Tommy does not answer. Read the log with: tommy logs"
+  response=$(curl --silent --show-error --max-time 120 --unix-socket "$SOCKET" -X "$@" \
+    --write-out 'status=%{http_code}\n') || fail "Tommy does not answer. Read the log with: tommy logs"
+}
+
+value() {
+  sed -n "s/^$1=//p" <<<"$response" | head -n 1
+}
+
+check_answer() {
+  [ "$(value status)" = 200 ] && return 0
+  fail "Tommy refused the request: $(value message)$(value error)"
+}
+
+case ${1:-} in
+  status)
+    control GET http://tommy/v1/status
+    check_answer
+    sed '/^status=/d' <<<"$response"
+    ;;
+  pair)
+    control POST http://tommy/v1/pair
+    check_answer
+    expires_at=$(value expires_at)
+    [[ $expires_at =~ ^[0-9]+$ ]] || fail "Tommy sent an invalid pairing code."
+    value qr | base64 -d
+    echo "Android: select Scan QR code in the app and scan this code."
+    echo "Mac: enter this address and code in the app."
+    echo "  Address: $(value url)"
+    echo "  Code:    $(value code)"
+    echo "It works once and expires in $((expires_at / 1000 - $(date +%s))) seconds."
+    ;;
+  devices)
+    control GET http://tommy/v1/devices
+    check_answer
+    sed '/^status=/d' <<<"$response"
+    ;;
+  revoke-device)
+    [ "$#" -eq 2 ] || fail "Add a device ID. List them with: tommy devices"
+    [[ $2 =~ ^[A-Za-z0-9_-]+$ ]] || fail "The device ID is not valid."
+    control POST http://tommy/v1/devices/revoke --header 'content-type: application/x-www-form-urlencoded' --data "id=$2"
+    check_answer
+    echo "The device is removed."
+    ;;
+  logs) exec journalctl --unit "$UNIT" --follow ;;
+  restart)
+    [ "$(id -u)" -eq 0 ] || fail "Run this with sudo."
+    exec systemctl restart "$UNIT"
+    ;;
+  -h | --help | help | "") usage ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac

@@ -1,0 +1,56 @@
+#!/bin/bash
+# tommy.service runs this as the service user. It starts a D-Bus session with an unlocked keyring,
+# so that Electron `safeStorage` works, and runs Tommy on a virtual display. The agents work on a
+# second virtual display. Nothing here touches a Tommy install on the same computer.
+set -euo pipefail
+umask 077
+
+APP=/opt/Tommy/app/tommy
+
+# ExecStop of the unit. An Xvfb that stops first ends the app before it closes its database, so the
+# signal goes to the app only, and the unit stops the rest after it.
+if [ "${1:-}" = --stop ]; then
+  pid=$(cat "$XDG_RUNTIME_DIR/tommy.pid" 2>/dev/null) || exit 0
+  [[ $pid =~ ^[1-9][0-9]*$ && /proc/$pid/exe -ef $APP ]] || exit 0
+  kill -TERM "$pid" 2>/dev/null || exit 0
+  while [ -e "/proc/$pid" ]; do sleep 0.2; done
+  exit 0
+fi
+
+state="$HOME/.config/tommy"
+if [ "${1:-}" != --in-session ]; then
+  mkdir -p "$state"
+  chmod 0700 "$state"
+  exec dbus-run-session -- "$0" --in-session
+fi
+
+export TOMMY_SERVER=1
+
+# The password only lets the daemon open the keyring without a person. A keyring with no password
+# file is not new: a new password cannot open it, so the service stops.
+keyrings="$state/keyring-data/keyrings"
+if [ ! -s "$state/keyring-password" ] && [ -e "$keyrings/login.keyring" ]; then
+  echo "The keyring exists, but its password file is missing." >&2
+  exit 1
+fi
+if [ ! -s "$state/keyring-password" ]; then
+  temporary=$(mktemp "$state/keyring-password.XXXXXX")
+  head -c 32 /dev/urandom | base64 | tr -d '\n' >"$temporary"
+  mv -f "$temporary" "$state/keyring-password"
+fi
+export XDG_DATA_HOME="$state/keyring-data"
+mkdir -p "$keyrings"
+printf login >"$keyrings/default"
+# An assignment first, so `set -e` stops the start when the daemon fails.
+unlocked=$(gnome-keyring-daemon --unlock --components=secrets <"$state/keyring-password")
+eval "$unlocked"
+started=$(gnome-keyring-daemon --start --components=secrets)
+eval "$started"
+unset XDG_DATA_HOME
+export GNOME_KEYRING_CONTROL
+
+# The outer xvfb-run starts the agent display. The inner one starts the display of the app.
+exec xvfb-run -a -s "-screen 0 1280x800x24 -nolisten tcp" \
+  bash -c 'export TOMMY_AGENT_DISPLAY=$DISPLAY; exec xvfb-run -a -f "$XAUTHORITY" -s "-screen 0 1280x800x24 -nolisten tcp" "$@"' \
+  tommy-server \
+  bash -c 'echo "$$" >"$XDG_RUNTIME_DIR/tommy.pid" && exec "$@"' tommy-server "$APP" --password-store=gnome-libsecret

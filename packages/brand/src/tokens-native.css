@@ -1,0 +1,154 @@
+/*
+ * The mobile theme layer. Only apps/mobile imports this file. The desktop app and
+ * the web client have their own light layer, tokens-light.css, which a root
+ * attribute turns on; the public site is always dark.
+ *
+ * It cannot be folded into tokens.css. `@variant light` is not a Tailwind v4
+ * variant at all; uniwind registers it as a custom variant, so desktop and web
+ * would fail to compile the block. And `@variant dark` in stock Tailwind means
+ * `prefers-color-scheme: dark`, which would turn the public site light for anyone
+ * running a light system.
+ *
+ * The dark block repeats the base values from tokens.css instead of inheriting
+ * them, which looks like something to tidy up. It is not. uniwind hard-codes its
+ * theme list to ['light', 'dark'] and discovers a theme's variables only by
+ * reading `@variant` at-rules, so a name present in one block and absent from the
+ * other is a theme that cannot resolve it. uniwind notices, but only writes a red
+ * line to the console - it does not fail the build. Keep every value here equal to
+ * the base, so that mobile dark does not drift away from desktop.
+ */
+
+:root {
+  @variant light {
+    --tommy-bg-canvas: #f5f5f7;
+    --tommy-bg-native-canvas: #f5f5f7;
+    --tommy-bg-native-sidebar: #ffffff;
+    --tommy-bg-sidebar: #ffffff;
+    --tommy-bg-surface: #ffffff;
+    --tommy-bg-surface-raised: #f0f0f3;
+    --tommy-bg-control: #e9e9ed;
+    --tommy-bg-control-active: #dedee4;
+    --tommy-bg-overlay: rgba(20, 20, 20, 0.28);
+    --tommy-border: rgba(20, 20, 20, 0.1);
+    --tommy-border-strong: rgba(20, 20, 20, 0.16);
+    --tommy-text-primary: #141414;
+    --tommy-text-secondary: rgba(20, 20, 20, 0.72);
+    --tommy-text-muted: rgba(20, 20, 20, 0.64);
+    --tommy-text-dim: rgba(20, 20, 20, 0.34);
+    --tommy-text-on-accent: #ffffff;
+    --tommy-text-on-light: #141414;
+    --tommy-text-on-status: #07130c;
+    --tommy-action: #141414;
+    --tommy-action-foreground: #f2f2f2;
+    --tommy-accent: #6960f1;
+    --tommy-accent-text: #5b52df;
+    --tommy-logo-production: #000000;
+    --tommy-logo-production-mark: #ffffff;
+    --tommy-success: #32a85d;
+    --tommy-warning: #c58a23;
+    --tommy-danger: #d85f58;
+    --tommy-success-text: #1e6f3b;
+    --tommy-warning-text: #865700;
+    --tommy-danger-text: #b02a2f;
+    --tommy-drawer-scrim: #000000;
+    --tommy-scroll-edge-overlay: rgba(245, 245, 247, 0.46);
+    --tommy-shadow-card: 0 1px 2px rgba(20, 20, 20, 0.05);
+    --tommy-shadow-overlay: 0 12px 32px rgba(20, 20, 20, 0.12);
+
+    /* Not a colour, and identical in both themes. uniwind only ever learns a
+     * variable from a @variant block, so a token @theme inline reaches through
+     * var() has to be declared here or the utility resolves to nothing on native.
+     * These two back tracking-tommy-tight and tracking-tommy-wide. */
+    --tommy-tracking-tight: -0.1px;
+    --tommy-tracking-wide: 0.02em;
+    --tommy-bg-sheet: #fcfcfc;
+    --tommy-bg-grouped: #f2f2f2;
+    --tommy-text-grouped-secondary: #69696e;
+    --tommy-border-grouped: #dddddf;
+    --tommy-radius-grouped: 16px;
+    --tommy-bg-chrome-glass: rgba(250, 250, 252, 0.94);
+    --tommy-border-chrome-glass: rgba(20, 20, 20, 0.1);
+    --tommy-bg-chrome-blur: rgba(255, 255, 255, 0.55);
+    /* File references: the same hues as dark, darker so the name reads on a light surface. */
+    --tommy-file-blue: #1f6fd1;
+    --tommy-file-blue-soft: rgba(31, 111, 209, 0.12);
+    --tommy-file-yellow: #865700;
+    --tommy-file-yellow-soft: rgba(197, 138, 35, 0.14);
+    --tommy-file-orange: #b55a1f;
+    --tommy-file-orange-soft: rgba(181, 90, 31, 0.12);
+    --tommy-file-teal: #1c7f92;
+    --tommy-file-teal-soft: rgba(28, 127, 146, 0.12);
+    --tommy-file-green: #1e6f3b;
+    --tommy-file-green-soft: rgba(50, 168, 93, 0.14);
+    --tommy-file-red: #b02a2f;
+    --tommy-file-red-soft: rgba(216, 95, 88, 0.14);
+    --tommy-file-pink: #a3478f;
+    --tommy-file-pink-soft: rgba(163, 71, 143, 0.12);
+    --tommy-file-default: #5b52df;
+    --tommy-file-default-soft: rgba(91, 82, 223, 0.12);
+  }
+
+  @variant dark {
+    /* biome-ignore lint/suspicious/noDuplicateCustomProperties: Theme variants intentionally share semantic token names. */
+    --tommy-bg-canvas: #1a1a1a;
+    --tommy-bg-native-canvas: #141414;
+    --tommy-bg-native-sidebar: #141414;
+    --tommy-bg-sidebar: #1a1a1a;
+    --tommy-bg-surface: #212121;
+    --tommy-bg-surface-raised: #242424;
+    --tommy-bg-control: #212121;
+    --tommy-bg-control-active: #2a2a2a;
+    --tommy-bg-overlay: rgba(26, 26, 26, 0.92);
+    --tommy-border: rgba(255, 255, 255, 0.035);
+    --tommy-border-strong: rgba(255, 255, 255, 0.045);
+    --tommy-text-primary: #ffffff;
+    --tommy-text-secondary: #dcdcdc;
+    --tommy-text-muted: #979797;
+    --tommy-text-dim: #6a6a6a;
+    --tommy-text-on-accent: #ffffff;
+    --tommy-text-on-light: #141414;
+    --tommy-text-on-status: #07130c;
+    --tommy-action: #f0f0f0;
+    --tommy-action-foreground: #141414;
+    --tommy-accent: #007cf7;
+    --tommy-accent-text: #42a0ff;
+    --tommy-logo-production: #000000;
+    --tommy-logo-production-mark: #ffffff;
+    --tommy-success: #31cf76;
+    --tommy-warning: #ff9412;
+    --tommy-danger: #fd2f3b;
+    --tommy-success-text: #31cf76;
+    --tommy-warning-text: #ff9412;
+    --tommy-danger-text: #ff6069;
+    --tommy-drawer-scrim: #000000;
+    --tommy-scroll-edge-overlay: rgba(0, 0, 0, 0.72);
+    --tommy-shadow-card: 0 0 0 transparent;
+    --tommy-shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.48);
+    --tommy-tracking-tight: -0.1px;
+    --tommy-tracking-wide: 0.02em;
+    --tommy-bg-sheet: #141414;
+    --tommy-bg-grouped: #212121;
+    --tommy-text-grouped-secondary: #96969b;
+    --tommy-border-grouped: #333335;
+    --tommy-radius-grouped: 16px;
+    --tommy-bg-chrome-glass: rgba(38, 38, 40, 0.96);
+    --tommy-border-chrome-glass: rgba(255, 255, 255, 0.08);
+    --tommy-bg-chrome-blur: rgba(26, 26, 28, 0.62);
+    --tommy-file-blue: #74b9ff;
+    --tommy-file-blue-soft: rgba(116, 185, 255, 0.14);
+    --tommy-file-yellow: #ff9412;
+    --tommy-file-yellow-soft: rgba(255, 148, 18, 0.12);
+    --tommy-file-orange: #f0a06a;
+    --tommy-file-orange-soft: rgba(240, 160, 106, 0.14);
+    --tommy-file-teal: #6bc7d9;
+    --tommy-file-teal-soft: rgba(107, 199, 217, 0.14);
+    --tommy-file-green: #31cf76;
+    --tommy-file-green-soft: rgba(49, 207, 118, 0.12);
+    --tommy-file-red: #fd2f3b;
+    --tommy-file-red-soft: rgba(253, 47, 59, 0.16);
+    --tommy-file-pink: #d98ac9;
+    --tommy-file-pink-soft: rgba(217, 138, 201, 0.14);
+    --tommy-file-default: #42a0ff;
+    --tommy-file-default-soft: rgba(0, 124, 247, 0.14);
+  }
+}

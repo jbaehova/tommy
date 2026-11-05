@@ -1,0 +1,72 @@
+/* Spoken replies: the speaking bar above the composer, and the voice pane in the side panel. */
+
+@keyframes speaking-bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* The face is drawn low in its own box; the app lifts it by the same share. */
+
+/* A soft glow of the accent colour behind the face, brighter while the agent speaks. */
+
+@keyframes voice-panel-think {
+  to {
+    opacity: 0.15;
+  }
+}
+
+/* The waveform keeps its place when it is hidden, so the captions do not move. */
+/* A muted microphone: the agent's face dims until the user speaks again. */
+
+/* Under a message of a spoken turn: plays the user's recording, or reads the reply aloud again. */
+.voice-player {
+  display: flex;
+  align-items: center;
+  gap: var(--tommy-space-2);
+  margin-top: var(--tommy-space-2);
+  color: var(--tommy-text-secondary);
+}
+
+.voice-player-toggle {
+  flex: none;
+  border-radius: var(--tommy-radius-pill);
+}
+
+.voice-player-toggle svg {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+}
+
+.voice-player-track {
+  flex: none;
+}
+
+.voice-player-bars {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+}
+
+.voice-player-bar {
+  width: 2px;
+  height: calc(3px + var(--voice-peak, 0) * 17px);
+  border-radius: var(--tommy-radius-pill);
+  background: currentColor;
+  opacity: 0.45;
+}
+
+.voice-player-bar[data-played] {
+  background: var(--tommy-accent);
+  opacity: 1;
+}
+
+.voice-player-time {
+  min-width: 3ch;
+  color: var(--tommy-text-muted);
+  font-size: var(--tommy-text-sm);
+  font-variant-numeric: tabular-nums;
+}
