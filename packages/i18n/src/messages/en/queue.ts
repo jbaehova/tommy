@@ -11,6 +11,8 @@ export const messages = defineMessages("queue", {
   "queue.item.editing": "Editing",
   "queue.item.steerLabel": "Steer queued message {position}",
   "queue.item.steerTooltip": "Steer message",
+  "queue.item.steerTooltipMac": "Steer message (⌘⇧Enter)",
+  "queue.item.steerTooltipWin": "Steer message (Ctrl+Shift+Enter)",
   "queue.item.steering": "Steering",
   "queue.item.steer": "Steer",
   "queue.item.notSteered": "Not steered",

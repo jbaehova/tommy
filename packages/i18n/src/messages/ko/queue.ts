@@ -12,6 +12,8 @@ export const messages = {
   "queue.item.editing": "편집 중",
   "queue.item.steerLabel": "대기 중인 메시지 {position}에 방향 지시",
   "queue.item.steerTooltip": "메시지로 방향 지시",
+  "queue.item.steerTooltipMac": "메시지로 방향 지시 (⌘⇧Enter)",
+  "queue.item.steerTooltipWin": "메시지로 방향 지시 (Ctrl+Shift+Enter)",
   "queue.item.steering": "방향 지시 중",
   "queue.item.steer": "방향 지시",
   "queue.item.notSteered": "방향 지시 안 됨",

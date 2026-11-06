@@ -134,6 +134,7 @@
     "./features/conversation/MessageRendering": "./src/features/conversation/MessageRendering.tsx",
     "./features/conversation/PendingSendStatus": "./src/features/conversation/PendingSendStatus.tsx",
     "./features/conversation/QueuePanel": "./src/features/conversation/QueuePanel.tsx",
+    "./features/conversation/queue-order": "./src/features/conversation/queue-order.ts",
     "./features/conversation/ReplyQuote": "./src/features/conversation/ReplyQuote.tsx",
     "./features/conversation/RichMessageText": "./src/features/conversation/RichMessageText.tsx",
     "./features/conversation/RoutineResultDestinationField": "./src/features/conversation/RoutineResultDestinationField.tsx",

@@ -1,8 +1,10 @@
 import {
   parseSendShortcutMode,
   resolveSendShortcut,
+  resolveSteerShortcut,
   type SendShortcut,
   type SendShortcutMode,
+  type SteerShortcut,
   sendShortcutAriaKey,
   sendShortcutHintKey,
 } from "@tommy/ui/features/conversation/send-shortcut";
@@ -90,4 +92,9 @@ export function setSendShortcutMode(mode: SendShortcutMode): void {
  */
 export function deviceSendShortcut(appPlatform?: "darwin" | "linux"): SendShortcut {
   return resolveSendShortcut(sendShortcutMode(), appPlatform ?? currentDevicePlatform());
+}
+
+/** The steer chord for this page, resolved like {@link deviceSendShortcut}. */
+export function deviceSteerShortcut(appPlatform?: "darwin" | "linux"): SteerShortcut {
+  return resolveSteerShortcut(appPlatform ?? currentDevicePlatform());
 }

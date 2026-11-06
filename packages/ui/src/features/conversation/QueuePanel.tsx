@@ -10,6 +10,8 @@ import { useText } from "../../text";
 import { fileBadge } from "./AttachmentCards";
 import { EditIcon, QueueIcon, SteerIcon, TrashIcon } from "./ConversationIcons";
 import { createSmoothHeightResize } from "./createSmoothHeightResize";
+import { firstSteerableDelivery, queueOrder } from "./queue-order";
+import type { SteerShortcut } from "./send-shortcut";
 
 interface QueuePanelProps {
   deliveries: QueueDelivery[];
@@ -21,6 +23,8 @@ interface QueuePanelProps {
   canSteer: boolean;
   /** Steers a queued message into the running turn. Absent where the agent's provider cannot steer. */
   onSteer?: ((deliveryId: string) => void) | undefined;
+  /** The chord that steers the first queued message from the composer. Its tooltip names it. */
+  steerShortcut?: SteerShortcut | undefined;
   /** Starts a separate task with a queued message. Absent where the host keeps no tasks. */
   onRunAsTask?: ((deliveryId: string) => void) | undefined;
   onCancel: (deliveryId: string) => void;
@@ -60,12 +64,9 @@ export function QueuePanel(props: QueuePanelProps) {
   const sourceDeliveries = createMemo(() =>
     props.deliveries
       .filter((delivery) => delivery.status === "queued" || delivery.status === "starting")
-      .sort((left, right) => {
-        const leftPosition = left.position ?? Number.MAX_SAFE_INTEGER;
-        const rightPosition = right.position ?? Number.MAX_SAFE_INTEGER;
-        return leftPosition - rightPosition || left.createdAt.localeCompare(right.createdAt);
-      }),
+      .sort(queueOrder),
   );
+  const firstSteerableId = createMemo(() => firstSteerableDelivery(props.deliveries, props.editingDeliveryId)?.id);
   const initialSourceDeliveries = untrack(sourceDeliveries);
   const [renderedDeliveries, setRenderedDeliveries] = createSignal<QueueDelivery[]>(initialSourceDeliveries);
   const visibleDeliveries = createMemo(() =>
@@ -503,7 +504,13 @@ export function QueuePanel(props: QueuePanelProps) {
                       </Show>
                       <Show when={props.onSteer}>
                         {(steer) => (
-                          <LabelTooltip content={t("queue.item.steerTooltip")}>
+                          <LabelTooltip
+                            content={
+                              props.steerShortcut && delivery.id === firstSteerableId()
+                                ? t(STEER_SHORTCUT_TOOLTIP[props.steerShortcut])
+                                : t("queue.item.steerTooltip")
+                            }
+                          >
                             <LabelTooltipTrigger
                               as={Button}
                               variant="ghost"
@@ -596,6 +603,11 @@ export function QueuePanel(props: QueuePanelProps) {
     </>
   );
 }
+
+const STEER_SHORTCUT_TOOLTIP = {
+  "meta-shift-enter": "queue.item.steerTooltipMac",
+  "ctrl-shift-enter": "queue.item.steerTooltipWin",
+} as const satisfies Record<SteerShortcut, AppTextKey>;
 
 const STEER_FALLBACK_REASON = {
   "provider-unsupported": "queue.item.steerFallback.providerUnsupported",

@@ -67,7 +67,13 @@ import {
   syncSkillTokens,
   truncateComposerValue,
 } from "./composer-tokens";
-import { isSendShortcutKey, type SendShortcut } from "./send-shortcut";
+import {
+  isSendShortcutKey,
+  isSteerShortcutKey,
+  type SendShortcut,
+  type SteerShortcut,
+  steerShortcutAriaKey,
+} from "./send-shortcut";
 
 interface ComposerEditorProps {
   agentId: string | undefined;
@@ -95,6 +101,13 @@ interface ComposerEditorProps {
   onSubmit: () => void;
   /** Tab sends the message into the agent's running turn. Absent, Tab moves the focus as usual. */
   onSteer?: (() => void) | undefined;
+  /**
+   * The steer chord (the platform modifier with Shift and Enter) steers the running turn: with the
+   * draft, or with the first queued message when the draft is empty. Absent, the chord adds a line.
+   */
+  onSteerShortcut?: (() => void) | undefined;
+  /** The chord for `onSteerShortcut`. The renderer resolves the platform and passes it. */
+  steerShortcut?: SteerShortcut | undefined;
   /**
    * Which chord sends the message. Enter keeps the current behavior; the platform modifier with
    * Enter sends and plain Enter adds a line. The renderer resolves the platform and passes it.
@@ -765,6 +778,11 @@ export function ComposerEditor(props: ComposerEditorProps) {
      */
     if (isComposing || event.isComposing || event.keyCode === 229 || event.key === "Process") return;
     if (handleMentionPickerKeyDown(event)) return;
+    if (props.onSteerShortcut && props.steerShortcut && isSteerShortcutKey(event, props.steerShortcut)) {
+      event.preventDefault();
+      props.onSteerShortcut();
+      return;
+    }
     if (event.key === "Tab" && props.onSteer && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
       event.preventDefault();
       props.onSteer();
@@ -936,7 +954,14 @@ export function ComposerEditor(props: ComposerEditorProps) {
         aria-label={props.ariaLabel}
         aria-disabled={props.disabled ? "true" : "false"}
         aria-multiline="true"
-        aria-keyshortcuts={props.onSteer ? "Tab" : undefined}
+        aria-keyshortcuts={
+          [
+            props.onSteer ? "Tab" : undefined,
+            props.onSteerShortcut && props.steerShortcut ? steerShortcutAriaKey(props.steerShortcut) : undefined,
+          ]
+            .filter(Boolean)
+            .join(" ") || undefined
+        }
         spellcheck="true"
         data-cuelume-type=""
         onFocus={ensureEditorSelection}
