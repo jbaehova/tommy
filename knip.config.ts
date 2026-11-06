@@ -16,8 +16,6 @@ const config: KnipConfig = {
     "packages/contracts/src/team-protocol/v*.ts": ["exports", "types"],
     "packages/contracts/src/team-protocol/*-v*.ts": ["exports", "types"],
     "packages/contracts/src/team-protocol/provider-aware-codec.ts": ["exports", "types"],
-    // A generator writes this file.
-    "apps/auth-api/src/lib/plugin-catalog.generated.ts": ["exports", "types"],
   },
   // Host tools that scripts and tests call. They are not npm packages.
   ignoreBinaries: [
@@ -61,9 +59,6 @@ const config: KnipConfig = {
         // Each file in scripts/ is a command that package.json, CI or another script runs.
         "scripts/**/*.ts",
         "tools/**/*.ts",
-        // The prototype skill builds its stories on this helper. No story on main uses it, because
-        // prototype stories are deleted after the decision (.agents/skills/prototype/SKILL.md).
-        "src/renderer/stories/prototype-support.tsx",
       ],
       project: ["src/**/*.{ts,tsx,css}", "scripts/**/*.ts", "tools/**/*.ts"],
       ignoreDependencies: [
@@ -84,18 +79,6 @@ const config: KnipConfig = {
       // root. Every file in scripts/ is already an entry.
       ignoreUnresolved: ["scripts/.+\\.ts"],
     },
-    "apps/auth-api": {
-      // The wrangler plugin of knip reads `main` (src/worker-entry.ts) from wrangler.jsonc only. The
-      // email relay Worker's `main` is in wrangler.email-relay.jsonc.
-      entry: ["*.ts", "src/email-relay-entry.ts"],
-      project: ["src/**/*.{ts,tsx,css}", "test/**/*.ts", "*.ts"],
-      // `cloudflare:workers` is a runtime module of the Workers platform, not an npm package.
-      ignoreDependencies: ["cloudflare"],
-    },
-    // The wrangler plugin of knip reads `main` from wrangler.jsonc.
-    "apps/site-router": {
-      project: ["src/**/*.ts"],
-    },
     "apps/mobile": {
       entry: [
         "src/app/**/*.{ts,tsx}",
@@ -104,8 +87,6 @@ const config: KnipConfig = {
         "src/shims/*.ts",
         // metro.config.js loads this stylesheet by path (`cssEntryFile`).
         "global.css",
-        // scripts/mobile-share-sender.ts builds the share extension page from this file by path.
-        "src/features/share/extension/share-sender.ts",
       ],
       project: ["src/**/*.{ts,tsx}", "plugins/**/*.{js,ts}"],
       ignoreDependencies: [
@@ -120,14 +101,7 @@ const config: KnipConfig = {
         "expo-symbols",
       ],
     },
-    // src/index.ts is a default entry of knip. The capacity-report Compose service runs
-    // src/capacity-report.ts.
-    "remote/api": {
-      entry: ["src/capacity-report.ts"],
-      project: ["src/**/*.ts"],
-    },
     "packages/i18n": {
-      // apps/auth-api/vite.config.ts puts this file in place of the static catalog modules by path.
       // Metro resolves mobile-catalogs.native.ts in place of mobile-catalogs.ts.
       entry: ["src/lazy-catalogs.ts", "src/mobile-catalogs.native.ts"],
       project: ["src/**/*.{ts,tsx,css}"],

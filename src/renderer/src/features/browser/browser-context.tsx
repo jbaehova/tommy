@@ -1,6 +1,5 @@
 import type { BrowserControlState, BrowserDisplayState, BrowserTab, ServerSummary } from "@tommy/contracts/ipc";
 import { createSignal } from "solid-js";
-import { usePlatform } from "../../platform";
 import { createScopeGuard } from "../../scope-lifetime";
 import { createSimpleContext } from "../../simple-context";
 import { serverSupportsCapability } from "../servers/server-capabilities";
@@ -38,7 +37,6 @@ import { activeTabAfterLoad, browserTabsAfterClose } from "./browser-tab-reconci
 const BrowserTabs = createSimpleContext({
   name: "Browser tabs",
   init: () => {
-    const { landingPreview } = usePlatform();
     const { currentServerSelection } = useServers();
     const { browserVisibilitySuspended: switchHidesBrowser } = useServerSwitch();
     const windowPage = useWindowPage();
@@ -55,7 +53,7 @@ const BrowserTabs = createSimpleContext({
     let browserChangeRevision = 0;
 
     function supportsBrowser(server: ServerSummary | undefined): boolean {
-      return !landingPreview && serverSupportsCapability(server, "browser-control");
+      return serverSupportsCapability(server, "browser-control");
     }
 
     function loadDisplayState(server: ServerSummary | undefined): Promise<BrowserDisplayState> {

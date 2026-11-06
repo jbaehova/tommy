@@ -22,5 +22,5 @@ Keep platform features in typed content slots or adapters, not environment check
 Biome rejects desktop preload access as well as application imports; keep its boundary fixtures
 in `tools/ui-foundation/fixtures` when extending the rule.
 
-Check affected desktop, public web, preview, and Storybook consumers. Run focused checks only, as
+Check affected desktop consumers. Run focused checks only, as
 required by the root instructions. Native mobile consumes shared brand tokens and contracts, not this UI.

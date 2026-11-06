@@ -5,11 +5,7 @@ import { type AppProps, AppProviders } from "./app-providers";
 export function App(props: AppProps = {}) {
   return (
     <>
-      <AppProviders
-        landingPreview={props.landingPreview}
-        peopleEnabled={props.peopleEnabled}
-        chatWindow={props.chatWindow}
-      >
+      <AppProviders peopleEnabled={props.peopleEnabled} chatWindow={props.chatWindow}>
         <AppAccessGate />
       </AppProviders>
       <Toaster />

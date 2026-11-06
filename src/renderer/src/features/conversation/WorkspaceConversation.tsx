@@ -544,9 +544,7 @@ export function WorkspaceConversation(props: { account: () => CentralAuthUser })
           });
         }}
         // The browser and the remote desktop show in the main window only.
-        browserEnabled={
-          !platform.landingPreview && !platform.chatWindow && activeServerSupportsCapability("browser-control")
-        }
+        browserEnabled={!platform.chatWindow && activeServerSupportsCapability("browser-control")}
         openLinksInBrowser={generalSettings().externalLinkTarget.kind === "tommy"}
         prompt={activePrompt()}
         promptUiBlock={activePromptUiBlock()}

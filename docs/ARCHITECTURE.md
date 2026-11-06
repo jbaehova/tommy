@@ -59,6 +59,5 @@ The architecture notes are in one file for each topic:
   - [How a sign-in reaches Tommy](architecture/integrations.md#how-a-sign-in-reaches-tommy)
   - [Remote sign-in: the callback relay](architecture/integrations.md#remote-sign-in-the-callback-relay)
   - [Add a provider](architecture/integrations.md#add-a-provider)
-  - [Add an application](architecture/integrations.md#add-an-application)
   - [Add a connector](architecture/integrations.md#add-a-connector)
   - [Add a Team API capability](architecture/integrations.md#add-a-team-api-capability)

@@ -207,11 +207,9 @@ export function AgentEventBridge() {
         refreshRoutineIds(event.agentId, activeServerId());
         return;
       case "browser-changed":
-        if (platform.landingPreview) return;
         applyBrowserChange(event.tabs, event.activeTabId);
         return;
       case "browser-control-changed":
-        if (platform.landingPreview) return;
         setBrowserControlState(event.state);
         return;
       case "turn-started":

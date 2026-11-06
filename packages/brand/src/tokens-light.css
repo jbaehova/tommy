@@ -12,7 +12,6 @@
  * Not here, on purpose:
  * - The native-only tokens (bg-native-canvas, chrome-*): mobile has its own light theme in
  *   tokens-native.css. The desktop uses the native sidebar, sheet and grouped tokens, so they are here.
- * - The landing-page materials (price-*, hero-grid, download-card-*): the public site is dark only.
  * - The paper-* tokens: they stay on paper that is always light, such as a QR code.
  * - Illustration and brand colors (logo-*, onboarding-*, sound-*, provider logos): a drawing
  *   keeps its colors in both themes.

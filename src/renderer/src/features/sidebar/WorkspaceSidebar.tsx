@@ -303,11 +303,7 @@ export function WorkspaceSidebar() {
       onHideAgent={hideAllowed() ? (agentId) => void setAgentHiddenByUser(agentId, true) : undefined}
       onRestoreAgent={hideAllowed() ? (agentId) => void setAgentHiddenByUser(agentId, false) : undefined}
       onNewAgentThread={newAgentThread()}
-      onOpenAgentWindow={
-        platform.landingPreview
-          ? undefined
-          : (agentId) => void appPort().openChatWindow({ serverId: activeServerId(), agentId })
-      }
+      onOpenAgentWindow={(agentId) => void appPort().openChatWindow({ serverId: activeServerId(), agentId })}
       windowAgentIds={windowAgentIds()}
       compact={layout.leftPanelCompact()}
       onExpand={layout.expandSidebar}

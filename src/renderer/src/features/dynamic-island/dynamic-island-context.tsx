@@ -65,7 +65,7 @@ const DynamicIsland = createSimpleContext({
 
     function publishPresentation(): void {
       // The main window owns the island; main rejects a publish from a chat window.
-      if (platform.landingPreview || platform.chatWindow || presentationScheduled) return;
+      if (platform.chatWindow || presentationScheduled) return;
       presentationScheduled = true;
       queueMicrotask(() => {
         presentationScheduled = false;
