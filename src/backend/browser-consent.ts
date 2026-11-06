@@ -41,6 +41,8 @@ const REJECT_LABEL = new RegExp(
     "odrzuć(?: wszystkie)?",
     "(?:alles )?weigeren",
     "rejeitar(?: tudo| todos)?",
+    "(?:모두 |전체 )?거부(?:하기)?",
+    "(?:필수|필요한) 쿠키만(?: (?:허용|사용|수락))?",
   ].join("|")})$`,
   "u",
 );
@@ -49,7 +51,7 @@ const REJECT_LABEL = new RegExp(
  * Text that a cookie banner shows. Banners in these languages use the word "cookie". Words such as
  * "consent" also show on sign-in and terms dialogs, where a "Decline" button must stay.
  */
-const COOKIE_TEXT = /cookie|ciasteczk/iu;
+const COOKIE_TEXT = /cookie|ciasteczk|쿠키/iu;
 
 /** An id or class of a consent container. */
 const CONSENT_NAME = /cookie|consent|gdpr|cmp/iu;
