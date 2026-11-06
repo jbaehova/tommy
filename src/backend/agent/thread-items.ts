@@ -1,6 +1,6 @@
 import { RequestError } from "@agentclientprotocol/sdk";
 import { INPUT_LIMITS } from "@tommy/contracts/input-limits";
-import { agentProviderName, COMPUTER_USE_MCP_SERVER_NAME, DEFAULT_PROVIDER_ACCOUNT_ID } from "@tommy/contracts/ipc";
+import { AGENT_DESKTOP_MCP_SERVER_NAME, agentProviderName, DEFAULT_PROVIDER_ACCOUNT_ID } from "@tommy/contracts/ipc";
 import { type DynamicRecord, isString } from "@tommy/contracts/runtime-values";
 import { sourceText } from "@tommy/i18n/source";
 import {
@@ -379,10 +379,13 @@ export function toolProgressText(item: ThreadItem, completed: boolean): string |
     .filter(isString)
     .join(" ")
     .toLowerCase();
-  // Before the generic words below, because a driver tool such as `get_window_state` matches them.
+  // Before the generic words below, because a driver tool such as `desktop_get` matches them.
   // The completed text is what the user reads while the model decides the next action, so a long
   // wait after it is the model, not the driver.
-  if (getString(item, "server") === COMPUTER_USE_MCP_SERVER_NAME || descriptor.includes(COMPUTER_USE_MCP_SERVER_NAME)) {
+  if (
+    getString(item, "server") === AGENT_DESKTOP_MCP_SERVER_NAME ||
+    descriptor.includes(AGENT_DESKTOP_MCP_SERVER_NAME)
+  ) {
     return sourceText(completed ? "status.computerUse.progressDeciding" : "status.computerUse.progressActing");
   }
   // Tommy's own memory and skill tools, before the generic words too. A memory search reports what

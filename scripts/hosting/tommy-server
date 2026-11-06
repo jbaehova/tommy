@@ -25,6 +25,9 @@ if [ "${1:-}" != --in-session ]; then
 fi
 
 export TOMMY_SERVER=1
+# Tommy shares the session bus with the agents. Without these it stays off the accessibility tree that
+# Computer Use reads; the agent processes get them from Tommy (agent-display.ts).
+unset ACCESSIBILITY_ENABLED QT_ACCESSIBILITY
 
 # The password only lets the daemon open the keyring without a person. A keyring with no password
 # file is not new: a new password cannot open it, so the service stops.
@@ -50,7 +53,8 @@ unset XDG_DATA_HOME
 export GNOME_KEYRING_CONTROL
 
 # The outer xvfb-run starts the agent display. The inner one starts the display of the app.
+# A window manager runs on the agent display: Computer Use matches windows to apps only under one.
 exec xvfb-run -a -s "-screen 0 1280x800x24 -nolisten tcp" \
-  bash -c 'export TOMMY_AGENT_DISPLAY=$DISPLAY; exec xvfb-run -a -f "$XAUTHORITY" -s "-screen 0 1280x800x24 -nolisten tcp" "$@"' \
+  bash -c 'export TOMMY_AGENT_DISPLAY=$DISPLAY; if command -v openbox >/dev/null; then openbox >/dev/null 2>&1 & fi; exec xvfb-run -a -f "$XAUTHORITY" -s "-screen 0 1280x800x24 -nolisten tcp" "$@"' \
   tommy-server \
   bash -c 'echo "$$" >"$XDG_RUNTIME_DIR/tommy.pid" && exec "$@"' tommy-server "$APP" --password-store=gnome-libsecret

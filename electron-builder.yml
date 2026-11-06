@@ -26,6 +26,8 @@ files:
   - "!node_modules/@anthropic-ai/claude-agent-sdk-darwin-*/**/*"
   - "!node_modules/@anthropic-ai/claude-agent-sdk-linux-*/**/*"
   - "!node_modules/@anthropic-ai/claude-agent-sdk-win32-*/**/*"
+# Stages the pinned agent-desktop build of each target before its resources are copied.
+beforePack: ./scripts/agent-desktop-stage.mjs
 asarUnpack:
   # The database host is loaded by path as a separate process, not required into the main bundle.
   - out/main/agent-database-host.js
@@ -42,6 +44,9 @@ extraResources:
   # `cpu-limit.cjs` makes os.cpus() follow the CPU limit for the Node programs of agents on a server.
   - from: resources/agent-runtime
     to: agent-runtime
+  # The Computer Use driver of this target, which `beforePack` stages from native-runtime.lock.json.
+  - from: .tommy-build/agent-desktop
+    to: agent-desktop
   - from: build/icon-production.png
     to: icons/icon-production.png
   - from: build/icon-dev.png

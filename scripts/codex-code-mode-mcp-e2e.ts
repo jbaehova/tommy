@@ -1,16 +1,15 @@
 // Runs the code-mode MCP checks end to end on the real `codex app-server`: a code-mode-only model, as
 // Codex describes GPT-6, and a Tommy MCP server. Codex defers such a model's MCP tools into its
 // `exec` cell. Before, each MCP namespace was direct-only, so each request carried the schema of every
-// MCP tool. Now only Computer Use stays direct; the model finds another server's tools in
+// MCP tool. Now every MCP server is deferred; the model finds its tools in
 // `ALL_TOOLS` inside `exec`, as the developer instructions tell it. The payload is the one
-// `codexDisabledServers`, `codexMcpServers`, `codexThreadMcpServers` and `codexDirectMcpNamespaces`
+// `codexDisabledServers`, `codexMcpServers` and `codexThreadMcpServers`
 // build for a thread. A local server that speaks the Responses API stands in for the model: it records
 // the top-level namespaces, calls a direct MCP tool when Codex offers it, and otherwise calls the tool
 // from `exec`, so no account or key is used. A thread started with every MCP namespace direct keeps
 // them on `thread/resume`.
-// A direct call gives the model the result's `structuredContent` alone when the server
-// sends it, and drops each image of `content`. A result without it keeps its images. The image steps
-// record this Codex behavior, so a Codex update that changes it fails here.
+// The image steps check that a Computer Use screenshot reaches the model from `exec` when the model
+// forwards the image block with `image()`, as the developer instructions tell it.
 // `bun scripts/codex-code-mode-mcp-e2e.ts`. Writes .tommy-build/codex-code-mode-mcp-e2e/report.json.
 import assert from "node:assert/strict";
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -20,7 +19,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { COMPUTER_USE_MCP_SERVER_ID, COMPUTER_USE_MCP_SERVER_NAME, type McpServerConfig } from "@tommy/contracts/ipc";
+import { AGENT_DESKTOP_MCP_SERVER_ID, AGENT_DESKTOP_MCP_SERVER_NAME, type McpServerConfig } from "@tommy/contracts/ipc";
 import { readCodexMcpConfig } from "../src/backend/agent/codex-mcp-config";
 import { VISIBLE_DYNAMIC_TOOLS } from "../src/backend/agent/tool-catalog";
 import { CodexAppServerClient } from "../src/backend/app-server-client";
@@ -28,7 +27,6 @@ import { resolveCodexCli } from "../src/backend/cli";
 import { runCauseEffect } from "../src/backend/effect-boundary";
 import {
   type CodexOwnTransports,
-  codexDirectMcpNamespaces,
   codexDisabledServers,
   codexMcpServers,
   codexThreadMcpServers,
@@ -126,11 +124,13 @@ interface Offer {
   hasImage: boolean;
 }
 
-// What a model writes in `exec` when the MCP tool is not direct: it finds the tool in `ALL_TOOLS`.
+// What a model writes in `exec` when the MCP tool is not direct: it finds the tool in `ALL_TOOLS`, and
+// forwards each image block with `image()`, as the developer instructions tell it.
 const EXEC_CALL = [
   `const tool = ALL_TOOLS.find((t) => t.name.startsWith("mcp__") && t.name.endsWith("__${TOOL}"));`,
   "const result = await tools[tool.name]({});",
-  "text(JSON.stringify(result));",
+  "text(JSON.stringify(result.structuredContent ?? result.content.filter((block) => block.type === 'text')));",
+  "for (const block of result.content ?? []) if (block.type === 'image') image(block);",
 ].join(NL);
 
 /**
@@ -272,9 +272,9 @@ function row(name: string, fields: Partial<McpServerConfig> = {}): McpServerConf
   };
 }
 
-/** A server under Computer Use's id and name, which stays direct. */
+/** A server under Computer Use's id and name, which Codex defers like any other server. */
 function computerUse(url = httpUrl): McpServerConfig {
-  return row(COMPUTER_USE_MCP_SERVER_NAME, { id: COMPUTER_USE_MCP_SERVER_ID, url });
+  return row(AGENT_DESKTOP_MCP_SERVER_NAME, { id: AGENT_DESKTOP_MCP_SERVER_ID, url });
 }
 
 interface Case {
@@ -367,7 +367,7 @@ async function run(test: Case): Promise<Outcome> {
     );
     const servers = keyed(own.transports);
     const tommy = VISIBLE_DYNAMIC_TOOLS.map((namespace) => namespace.name);
-    const current = [...tommy, ...codexDirectMcpNamespaces(servers)];
+    const current = tommy;
     // The old list: Codex's name for each server key.
     const everyServer = [...tommy, ...Object.keys(servers).map((key) => `mcp__${key.replace(/[^A-Za-z0-9_]/gu, "_")}`)];
     const params = (directOnly: string[]) => ({
@@ -485,14 +485,11 @@ try {
     },
   );
   await step(
-    "Computer Use stays direct: the model sees its namespace and calls it",
+    "Computer Use is deferred too: the request has no schema of it, and exec reaches it",
     { name: "computer-use", rows: [computerUse()] },
     (o) => {
-      assert.ok(
-        o.directOnly.includes(`mcp__${COMPUTER_USE_MCP_SERVER_NAME}`),
-        `direct-only ${o.directOnly.join(", ")}`,
-      );
-      assert.deepEqual(o.offered, [`mcp__${COMPUTER_USE_MCP_SERVER_NAME}`]);
+      assert.ok(!o.directOnly.some((namespace) => namespace.startsWith("mcp__")), o.directOnly.join(", "));
+      assert.deepEqual(o.offered, []);
       assert.deepEqual(o.calls, [TOOL]);
       assert.equal(o.resultReturned, true, "the model did not get the MCP result");
     },
@@ -508,7 +505,7 @@ try {
     },
   );
   await step(
-    "a direct MCP image without structuredContent reaches the model with the text",
+    "a Computer Use image reaches the model from exec through image(), with the text",
     { name: "image", rows: [computerUse(`${httpOrigin}/image`)] },
     (o) => {
       assert.deepEqual(o.calls, [TOOL]);
@@ -517,14 +514,12 @@ try {
     },
   );
   await step(
-    "beside structuredContent, a direct call gives the model the structured JSON alone",
+    "beside structuredContent, exec still forwards the image of content",
     { name: "structured-image", rows: [computerUse(`${httpOrigin}/structured-image`)] },
     (o) => {
       assert.deepEqual(o.calls, [TOOL]);
       assert.equal(o.structuredReturned, true, "the model did not get structuredContent");
-      // A failure below means Codex now sends `content` too, which fixes this case upstream.
-      assert.equal(o.resultReturned, false, "the model got the text of content");
-      assert.equal(o.imageReturned, false, "the model got the image of content");
+      assert.equal(o.imageReturned, true, "the model did not get the image of content");
     },
   );
 

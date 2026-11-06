@@ -17,7 +17,11 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { INPUT_LIMITS } from "@tommy/contracts/input-limits";
-import { type AgentContextCategoryUsage, defaultProviderModel } from "@tommy/contracts/ipc";
+import {
+  AGENT_DESKTOP_MCP_SERVER_NAME,
+  type AgentContextCategoryUsage,
+  defaultProviderModel,
+} from "@tommy/contracts/ipc";
 import { type DynamicRecord, isDynamicRecord, isNumber, isOneOf, isString } from "@tommy/contracts/runtime-values";
 import { sourceText } from "@tommy/i18n/source";
 import { createTommyLogger } from "@tommy/logging";
@@ -151,6 +155,31 @@ const CLAUDE_NATIVE_SCHEDULING = [
  * background agent fleet. Their schemas cost about 1.9k tokens in each request.
  */
 const CLAUDE_DUPLICATE_TOOLS = ["ListAgents", "Workflow"];
+/**
+ * agent-desktop tools that an agent cannot use or does not need, which Tommy hides from Claude. Claude
+ * loads each MCP schema in each request, and the driver has 67 tools (about 41 KB). The press and
+ * release halves of a key or a button need a daemon that `agent-desktop mcp` does not run, and the
+ * trace, session, overlay, version and health tools are for the driver's own debugging; Tommy reads
+ * the health itself. This removes about 9.5 KB.
+ */
+const CLAUDE_HIDDEN_DESKTOP_TOOLS = [
+  "key_down",
+  "key_up",
+  "mouse_down",
+  "mouse_up",
+  "trace_export",
+  "trace_show",
+  "session_start",
+  "session_end",
+  "session_list",
+  "session_gc",
+  "cursor_overlay_enable",
+  "cursor_overlay_disable",
+  "skills_path",
+  "version",
+  "status",
+  "permissions",
+].map((tool) => `mcp__${AGENT_DESKTOP_MCP_SERVER_NAME}__desktop_${tool}`);
 /**
  * Names Tommy to Claude. Without `CLAUDE_CODE_ENTRYPOINT` the SDK labels each request `sdk-ts`, and
  * Claude's 5-hour window counts `sdk-*` requests about twice as heavily (anthropics/claude-code#97074).
@@ -971,7 +1000,13 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
             : {}),
           ...(config.profileGeneration
             ? { tools: [] }
-            : { disallowedTools: [...CLAUDE_NATIVE_SCHEDULING, ...CLAUDE_DUPLICATE_TOOLS] }),
+            : {
+                disallowedTools: [
+                  ...CLAUDE_NATIVE_SCHEDULING,
+                  ...CLAUDE_DUPLICATE_TOOLS,
+                  ...CLAUDE_HIDDEN_DESKTOP_TOOLS,
+                ],
+              }),
           settingSources: config.profileGeneration
             ? []
             : config.workspaceOnly

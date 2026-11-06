@@ -29,7 +29,7 @@ export const MCP_SERVERS_CAPABILITY = "mcp-servers-v1";
 export const RESERVED_MCP_SERVER_NAMES = ["tommy", "tommy_browser"] as const;
 
 /**
- * The name and id Tommy gives the Computer Use driver when it hands it to a provider.
+ * The name and id Tommy gives the Computer Use driver (agent-desktop) when it hands it to a provider.
  *
  * Deliberately not in `RESERVED_MCP_SERVER_NAMES`. That list means "Tommy's own in-process
  * bridges, which never leave this process", and `usableMcpServers` uses it as a drop filter. This
@@ -37,8 +37,8 @@ export const RESERVED_MCP_SERVER_NAMES = ["tommy", "tommy_browser"] as const;
  * would delete the entry on its way out. A user still may not take the name, which
  * `mcpConfigErrors` enforces on its own below.
  */
-export const COMPUTER_USE_MCP_SERVER_NAME = "computer_use";
-export const COMPUTER_USE_MCP_SERVER_ID = "tommy-computer-use";
+export const AGENT_DESKTOP_MCP_SERVER_NAME = "agent_desktop";
+export const AGENT_DESKTOP_MCP_SERVER_ID = "tommy-agent-desktop";
 
 /**
  * The id and address of the GitHub MCP server that the built-in GitHub connection hands to agents.
@@ -216,7 +216,7 @@ export function mcpConfigErrors(config: McpServerConfig): McpConfigErrors {
   if (!name) errors.name = "Enter a name for this MCP server.";
   else if (name.length > INPUT_LIMITS.mcpServerName)
     errors.name = `Use ${INPUT_LIMITS.mcpServerName} characters or fewer for the name.`;
-  else if (isReservedMcpServerName(name) || name.toLowerCase() === COMPUTER_USE_MCP_SERVER_NAME)
+  else if (isReservedMcpServerName(name) || name.toLowerCase() === AGENT_DESKTOP_MCP_SERVER_NAME)
     errors.name = `Tommy already uses the name ${name}.`;
   if (config.transport === "stdio") {
     if (!config.command.trim()) errors.command = "Enter the command that launches this server.";

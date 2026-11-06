@@ -289,7 +289,7 @@ export function developerInstructions(
     "For GitHub issues, pull requests, and comments, use gh as the signed-in user.",
     ...(options.deferredMcpServers?.length
       ? [
-          `Your MCP servers: ${options.deferredMcpServers.join(", ")}. When a tool of one is not in your tool list, find it with tool_search. When you have exec instead, read ALL_TOOLS in an exec cell, where MCP tool names start with mcp__, and call the tool on tools.`,
+          `Your MCP servers: ${options.deferredMcpServers.join(", ")}. When a tool of one is not in your tool list, find it with tool_search. When you have exec instead, read ALL_TOOLS in an exec cell, where MCP tool names start with mcp__, and call the tool on tools; forward an image block with image(result.content[0])`,
         ]
       : []),
     ...(options.httpMcpServers

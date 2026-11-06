@@ -76,6 +76,7 @@
   },
   "scripts": {
     "prepare": "bun scripts/install-git-hooks.ts",
+    "prepare:agent-desktop": "bun scripts/agent-desktop-stage.mjs",
     "postinstall": "bun scripts/electron-dist-cache.ts restore && bun scripts/install-electron.ts && bun scripts/electron-dist-cache.ts save && bun scripts/stamp-install.ts",
     "dev:prepare": "bun scripts/prepare-dev-environment.ts",
     "dev": "bun scripts/dev-services.ts app",

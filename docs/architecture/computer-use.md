@@ -2,105 +2,117 @@
 
 ## Computer Use
 
-Computer Use is `cua-driver`, a third-party MIT binary, and Tommy owns how it runs.
-`cua-driver-runtime.ts` in the main process starts one long-lived `serve` daemon and holds it; each
-provider CLI spawns its own short-lived `cua-driver mcp --socket` proxy against that daemon. All
-screen capture, accessibility reads, and input posting happen inside the daemon, so the proxy's own
-identity does not matter.
+Computer Use is `agent-desktop` (https://github.com/vercel-labs/agent-desktop), a third-party
+Apache-2.0 binary. It reads apps through the operating system accessibility tree: AT-SPI on Linux and
+the AX API on macOS. Tommy runs no process for it. `AgentDesktopRuntime`
+(`src/main/agent-desktop-runtime.ts`) asks the driver once at startup, before the agent service is
+made, and each provider spawns its own `agent-desktop mcp` when it starts a session.
 
-The daemon is spawned directly, and never through `open(1)` or `NSWorkspace`. macOS finds the
-responsible process by walking up the launch chain, so a direct spawn puts Tommy at the top of it
-and the user grants Screen Recording and Accessibility to Tommy rather than to somebody else's
-helper. `CUA_DRIVER_EMBEDDED=1` tells the driver to stay on that path instead of relaunching itself
-as its own application. Anything that launches the daemon another way breaks the attribution, which
-is the reason the earlier Codex helper was replaced.
+`check()` runs `agent-desktop status` with the agent environment. The capability is `ready` only when
+`permissions.accessibility.state` is `granted`: on Linux that means the AT-SPI bus of the session
+answers, and on macOS that Tommy has the Accessibility grant. A driver that answers with anything
+else is `setup-required`, and no driver or no answer is `unavailable`. The check runs once, so a fix
+(a package installed, a grant given) applies at the next start of Tommy.
 
-Startup calls `warmUp()`, which reads the state once and keeps the daemon only when both grants are
-there. A user who granted them keeps the tools after a restart, and a remote request or a scheduled
-task — neither of which opens a window — reaches them too. A user who granted nothing keeps no
-process, and no prompt is raised either way: only using the driver asks for a grant. Every other
-start is lazy, on a state read from the panel.
+One MCP entry reaches every provider. While the capability is `ready`,
+`AgentDesktopRuntime.mcpServerConfig()` returns the `agent_desktop` entry (id
+`tommy-agent-desktop`), and `AgentService.enabledMcpServers()` appends it. Codex, Claude and ACP all
+read that function. The name is not in `RESERVED_MCP_SERVER_NAMES`, which is a drop filter, and a
+user may not save a server with it (`mcpConfigErrors`). Migration 51 moved saved servers with that
+name, in any case, to `agent_desktop_saved` or the first free `agent_desktop_saved_<n>`. Migration 21
+did the same for `computer_use`, the name of the earlier driver (cua-driver); that name is free again.
+`workingDirectory` stays empty, because ACP has no field for one and drops an entry that has one.
 
-The control socket lives in the private per-user runtime directory, mode `0o700`, not in `/tmp`:
-whoever reaches it can drive the whole desktop. It cannot live under `userData`, because
-`sockaddr_un.sun_path` holds 104 bytes on macOS and an isolated development profile spends most of
-them on the worktree hash. Windows uses a named pipe, which has no such limit; its name is random,
-because Windows lets a second process add an instance to a name it can guess, and it is kept in the
-profile so that it is random once rather than once per launch. The endpoint has to hold still: it
-reaches each proxy as an argument, and the arguments are folded into the stored Codex tool
-fingerprint, so a name that moves at each launch replaces every session after a restart. The command
-has to hold still for the same reason: the packaged Linux build is an AppImage, whose resources are
-mounted somewhere else at each launch, so there the proxies are given a link below the profile that
-the runtime points at this run's driver.
+The entry has to hold still, because Codex folds the MCP entries into its stored tool fingerprint and
+replaces a session when it changes. The command is the packaged path, and the arguments are fixed.
+`DISPLAY` is an explicit value, the agent display. The session bus address, the runtime directory and
+the other variables the driver reads are passthrough names, read from Tommy's environment at each
+spawn, so a session bus address that changes at each start does not replace every session.
 
-One MCP entry reaches every provider. `CuaDriverRuntime.mcpServerConfig()` returns a config only
-while the daemon runs, and `AgentService.enabledMcpServers()` appends it, which is the one function
-Codex, Claude, and ACP all read. Two properties keep it there: the name is not in
-`RESERVED_MCP_SERVER_NAMES`, which is a drop filter rather than a marker, and `workingDirectory`
-stays empty, because ACP has no field for one, so an entry with one would vanish for ACP providers
-with no error. Codex staleness needs no separate signal, because
-`toolFingerprint` already folds the MCP entries and a changed fingerprint forces a replacement
-session. `onMcpServerChanged` is what refreshes the agent runtimes, which deactivates every
-stored provider session: the next turn starts a new one, which keeps the public thread and loses
-what the provider held privately. So it reports two moments only — the entry appearing on a start a
-user asked for, and the daemon dying under Tommy. It is quiet for a grant given while the daemon
-serves, which changes the state and not the tool set; for the startup warm-up, which settles the
-entry the stored sessions already had; and for the stop at teardown, which happens at order 55,
-before the agent service at 110, and would otherwise deactivate on every quit the sessions the next
-run is meant to resume.
+On a display that no person uses (an agent display on a server), the entry is
+`agent-desktop mcp --headed`. The driver may then take focus and send real pointer and key input,
+and nobody is disturbed. Everywhere else the entry is `agent-desktop mcp`, which acts only through
+accessibility calls and never moves the pointer or takes focus. Measured with agent-desktop 1.2.0
+on the server (Xvfb, openbox, an Electron page):
 
-`capabilities.computerUse` is pushed by main from the daemon's own permission answer. It is no
-longer probed from Codex `plugin/list`, which is why the capability now reports the same state for
-every provider.
+| Action | Headless | `--headed` |
+| --- | --- | --- |
+| Click a native control (a menu button) | works | works (XTEST) |
+| Click an element of web content | works | `TIMEOUT`: the hit test reports `sibling_overlap` and does not fall back |
+| Type into a web field | `POLICY_DENIED` | works |
+| `scroll-to` | works | works |
+| Coordinate click (`mouse-click`) | `POLICY_DENIED` | works |
 
-The driver is packaged, not downloaded on demand, so it is pinned in `native-runtime.lock.json` like
-the other native runtimes rather than managed like a provider CLI. The pinned file list is an
-allowlist: `scripts/install-cua-driver.ts` copies only the named paths and checks each digest, so an
-upstream layout change fails the build instead of shipping a surprise file. Each installer carries
-only its own target. On macOS `mac.signIgnore` keeps the vendor's Developer ID signature, because
-re-signing under Tommy's inherited entitlements would drop the Automation entitlement the driver
-needs. A packaged build reads the copy under `resources/cua-driver` and nothing else, because the release
-is pinned and signed against that build and an environment variable must not decide which program
-drives the user's desktop; a release without the binary reports no driver. In a checkout
-`resolveCuaDriver` also reads an override, an install directory and `PATH`, so a developer can point
-`TOMMY_CUA_DRIVER_PATH` at another build.
+Neither mode does everything. Headed has a way for each action: when a click on web content times
+out, the agent reads the element's bounds (`desktop_get`) and clicks its center with
+`desktop_mouse_click`. So the server uses `--headed`.
 
-Tommy draws the agent cursor in its own per-display overlays for every display layout. The
-runtime starts `serve` with `--no-overlay`. The driver's overlay covers only the main display and
-cannot follow a display connected after startup. Keeping cursor ownership in Tommy lets the
-highlight controller add, resize, and remove display overlays without restarting the daemon or
-changing provider sessions.
+The MCP server offers 67 tools (`desktop_snapshot`, `desktop_click`, and so on) with about 41 KB of
+schemas, and its instructions tell the agent to read `desktop_skills_get` first. The tools are named
+after the CLI commands, so the driver's bundled skills apply as written.
+
+The driver is packaged, not downloaded at run time. `native-runtime.lock.json` pins it under
+`agentDesktop`: the release tag, the digest of each archive, and an allowlist of the files in it with
+their digests. `scripts/agent-desktop-stage.mjs` is the `beforePack` hook of electron-builder. For each
+target it downloads the archive (cached under `.tommy-build/agent-desktop-cache`), checks the digests,
+and copies only the named files and the license to `.tommy-build/agent-desktop`, which
+`extraResources` copies to `resources/agent-desktop`. An upstream layout change stops the build. A
+target with no pinned build (Windows) gets an empty folder and reports no driver.
+
+A packaged build reads only `resources/agent-desktop/agent-desktop`, because the release is pinned to
+it and an environment variable must not decide which program drives the desktop. A checkout reads
+`TOMMY_AGENT_DESKTOP_PATH`, else the build that `bun run prepare:agent-desktop` stages for this
+computer.
+
+On macOS the grant belongs to the responsible process. The provider CLI that spawns
+`agent-desktop mcp` is a child of Tommy, so the grant is expected to be Tommy's. This was not tested
+with a packaged build, and a development build asks as Electron. The driver ships
+`agent-desktop-macos-helper` beside it.
 
 ### Agent display on a server
 
-A self-hosted server and the container start two Xvfb displays, and name the agent display in
-`TOMMY_AGENT_DISPLAY`. A boat hosted server names its desktop `:0`, and Tommy runs on an Xvfb
-display. Electron keeps its own `DISPLAY`: the built-in browser draws its tabs in
-the Tommy window, and under Xvfb a hidden view gives no capture and no clicks, so Tommy cannot
-only hide its window. On Linux, `agent-display.ts` sets `DISPLAY` to the agent display for the
-driver daemon, for Sunshine, and in `agentEnvironment` for every agent process. The driver and
-Sunshine open the display that `DISPLAY` names, so a screenshot, an input event and the remote
-desktop stream all use the agent display, and a program that an agent starts opens there. The
-per-display overlays are Tommy windows, so with an agent display they are not started: nothing
-draws the agent cursor or the rim there. `capture_screen` and `list_capture_sources` use Electron's
-`desktopCapturer`, which sees only the Tommy display, so with an agent display they are not
-available, and agents take screenshots with the driver.
+`tommy-server` starts two Xvfb displays, and names the agent display in `TOMMY_AGENT_DISPLAY`.
+Electron keeps its own `DISPLAY`: the built-in browser draws its tabs in the Tommy window, and under
+Xvfb a hidden view gives no capture and no clicks, so Tommy cannot only hide its window. On Linux,
+`agent-display.ts` sets `DISPLAY` to the agent display in `agentEnvironment` for every agent process
+and in the driver's entry, so a screenshot, an input event and a program that an agent starts all use
+the agent display. `capture_screen` and `list_capture_sources` use Electron's `desktopCapturer`,
+which sees only the Tommy display, so with an agent display they are not available, and agents take
+screenshots with the driver.
 
-`tommy.service` holds the Xvfb displays too, and a stop signals each process of the unit at the
-same time. An Xvfb that stops first ends Tommy before it closes its database. So the unit's
-`ExecStop` runs `tommy-hosted-server --stop`: it sends `SIGTERM` to Tommy only, whose PID the
-script writes to `$XDG_RUNTIME_DIR/tommy.pid`, and waits for it. The container does not need this:
-tini signals only Tommy.
+The driver needs two things on the server. `tommy-install` installs `at-spi2-core`, `libatk-adaptor`
+and `openbox` when they are missing. `tommy-server` starts `openbox` on the agent display, because
+without a window manager the driver cannot match a window to its app and `list-apps` and `snapshot`
+fail. The session bus is the one `dbus-run-session` starts for the unit, and the AT-SPI bus starts on
+it by D-Bus activation at the first `status`.
 
-Because the driver draws no cursor, its motion styles do not apply. The renderer plays the driver's
-`adaptive` style itself (`agent-cursor-motion.ts`, a port of the driver's `trajectory.rs`): a Fitts
-min-jerk glide, or a wide swoop for a move over 900 points. The tap does not delay a request, so the
-cursor shows where an action went, from 180 ms to about 1.1 s after the driver acts.
+AT-SPI is per session bus, not per display, and Tommy and the agents share one session bus. On that
+bus an app that registers is visible from either display: a probe window on the Tommy display that
+registered was listed (as `background`) next to one on the agent display. What keeps Tommy off the
+tree is that a bare server session has no settings daemon, so a Chromium, Electron or Qt app
+registers only when its environment asks. `agentDisplayEnvironment` gives every agent process,
+and the driver's entry, `ACCESSIBILITY_ENABLED=1` and `QT_ACCESSIBILITY=1` next to `DISPLAY`, so an
+app that an agent or `desktop_launch` starts registers. Tommy never gets them; `tommy-server`
+unsets both before it starts Tommy. Measured: with the variables only on the agent side,
+`list-apps` showed the agent app and not the Tommy-side window, also after `IsEnabled` and
+`ScreenReaderEnabled` of `org.a11y.Status` were set to true on the bus. GTK apps register on their
+own. Not measured: a Tommy restart while those bus properties are true.
 
-Every copy Tommy starts gets `CUA_DRIVER_RS_TELEMETRY_ENABLED=0` and
-`CUA_DRIVER_RS_UPDATE_CHECK=0`. Tommy ships the driver, so its vendor analytics are not something
-a user chose, and Tommy pins the version, so a release check could only offer an update Tommy
-would refuse.
+`scripts/agent-desktop-smoke.ts` checks this on a Linux server without touching a running Tommy. It
+starts two Xvfb displays and `openbox` in its own session bus, drives `agent-desktop mcp --headed`
+as a provider does, and writes `.tommy-build/agent-desktop-smoke.json`. It checks the click (with
+the bounds fallback), typing, a screenshot, and that a window on the other display stays off the
+tree. Run it as the service user, with a runtime directory of that user:
+
+```bash
+XDG_RUNTIME_DIR=$(mktemp -d) dbus-run-session -- bun scripts/agent-desktop-smoke.ts \
+  --driver <agent-desktop> --electron node_modules/electron/dist/electron
+```
+
+`tommy.service` holds the Xvfb displays and the window manager too, and a stop signals each process
+of the unit at the same time. An Xvfb that stops first ends Tommy before it closes its database. So
+the unit's `ExecStop` runs `tommy-server --stop`: it sends `SIGTERM` to Tommy only, whose PID the
+script writes to `$XDG_RUNTIME_DIR/tommy.pid`, and waits for it.
 
 ## Remote desktop permission checks and live tests
 
@@ -144,13 +156,14 @@ capability. On a server with an agent display, Sunshine runs on that display (se
 
 Codex saves an “Always allow” tool decision only when the MCP server is in a file-backed
 configuration layer. A thread configuration alone does not satisfy this check. Before starting or
-resuming a thread with Computer Use, Tommy registers `computer_use` in the Codex user
+resuming a thread with Computer Use, Tommy registers `agent_desktop` in the Codex user
 configuration through `config/batchWrite`. The new entry contains only a placeholder command
 (`tommy-mcp`) and `enabled = false`. The write uses the user layer's version, and an existing entry is left unchanged.
-Tommy does not save the driver socket, environment, or credentials in that entry.
+Tommy does not save the driver path, environment, or credentials in that entry. A disabled
+`computer_use` placeholder from the earlier driver can stay in that file; nothing starts it.
 
 The thread configuration enables the running driver and supplies its current command, arguments,
-and environment. It also carries the saved per-tool settings, including `set_value.approval_mode`.
+and environment. It also carries the saved per-tool settings, including `desktop_set_value.approval_mode`.
 Saved tool settings are also in the session fingerprint. When an approval changes, the next turn
 replaces a loaded provider session that holds the old policy.
 An agent with Full access does not ask: Tommy accepts each Computer Use tool consent once and
@@ -158,5 +171,4 @@ saves nothing, as it does for other MCP tools. A Workspace only or Ask first age
 and Codex keeps "Always allow" per tool and per provider account.
 When Computer Use is off for the agent or the driver is unavailable, the thread keeps the saved
 entry disabled. A registration failure stops the thread with steps to repair the configuration or
-turn off Computer Use. The application-access questions from the driver still use their existing
-approval flow.
+turn off Computer Use.

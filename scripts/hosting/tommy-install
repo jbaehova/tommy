@@ -17,6 +17,16 @@ USER_NAME=tommy
 id "$USER_NAME" >/dev/null 2>&1 ||
   useradd --system --create-home --home-dir "/var/lib/$USER_NAME" --shell /bin/bash "$USER_NAME"
 
+# Computer Use (agent-desktop) reads apps through the AT-SPI accessibility bus, and it matches
+# windows to apps only under a window manager, which tommy-server starts on the agent display.
+if command -v apt-get >/dev/null; then
+  missing=()
+  for package in at-spi2-core libatk-adaptor openbox; do
+    dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed" || missing+=("$package")
+  done
+  [ ${#missing[@]} -eq 0 ] || DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+fi
+
 systemctl stop tommy.service 2>/dev/null || true
 install -d -m 0755 "$INSTALL" "$INSTALL/hosted"
 staged="$INSTALL/app.new"

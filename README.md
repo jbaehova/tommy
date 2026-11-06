@@ -76,6 +76,7 @@ nobody used for 30 days is removed by the next save.
 | `bun run verify:preload` | Check the built preload bundle. |
 | `bun run test:changed` | Run the Vitest files that changed since `origin/main`. Also `test:related`, `test:backend` and `test:desktop`. |
 | `bun run package:linux` | Build the unpacked Linux app that `tommy-install` installs. `dist:linux` builds an AppImage. |
+| `bun run prepare:agent-desktop` | Stage the pinned Computer Use driver for this computer, for a dev build. Packages stage their own. |
 
 ## Local skills
 

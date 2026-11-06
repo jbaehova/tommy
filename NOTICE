@@ -101,3 +101,8 @@ SOFTWARE.
 This product includes the Inter font family.
 Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
 Licensed under the SIL Open Font License, Version 1.1 (http://scripts.sil.org/OFL).
+
+The Linux and macOS packages include agent-desktop 1.2.0 (https://github.com/vercel-labs/agent-desktop),
+the Computer Use driver, unmodified, in resources/agent-desktop. Its license is installed beside it.
+Copyright the agent-desktop authors.
+Licensed under the Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0).
