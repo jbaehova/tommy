@@ -38,6 +38,25 @@ export interface SidebarDragMeasurement {
   sections: Map<string, SectionDragSlot>;
 }
 
+/**
+ * The box of an element where the layout puts it, without the drag offsets that move it now. A drag
+ * measures again while rows are pushed aside (when the empty pinned row opens, after a section opens,
+ * and at the drop), and a slot read with its offset would put the drop one row away from the pointer.
+ */
+function layoutRect(element: HTMLElement, list: HTMLElement): DOMRect {
+  const bounds = element.getBoundingClientRect();
+  let x = 0;
+  let y = 0;
+  for (let node: HTMLElement | null = element; node && node !== list; node = node.parentElement) {
+    const transform = getComputedStyle(node).transform;
+    if (!transform || transform === "none") continue;
+    const matrix = new DOMMatrixReadOnly(transform);
+    x += matrix.m41;
+    y += matrix.m42;
+  }
+  return x === 0 && y === 0 ? bounds : new DOMRect(bounds.x - x, bounds.y - y, bounds.width, bounds.height);
+}
+
 export function measureSidebarDragSlots(
   list: HTMLElement,
   assignedSectionId: (chatId: string) => string,
@@ -56,7 +75,7 @@ export function measureSidebarDragSlots(
   for (const section of list.querySelectorAll<HTMLElement>(SIDEBAR_DRAG_SELECTORS.sectionRegion)) {
     const sectionId = section.dataset.sectionId;
     if (!sectionId || isInClosedSection(section)) continue;
-    const bounds = section.getBoundingClientRect();
+    const bounds = layoutRect(section, list);
     const header = section.querySelector<HTMLElement>(":scope > header");
     // A stuck header is not at the top of its section, so its line comes from its style, not its box.
     const headerStyle = header ? getComputedStyle(header) : null;
@@ -77,7 +96,7 @@ export function measureSidebarDragSlots(
   for (const row of list.querySelectorAll<HTMLElement>(SIDEBAR_DRAG_SELECTORS.chatRow)) {
     const chatId = row.dataset.chatId;
     if (!chatId || isInClosedSection(row)) continue;
-    const bounds = row.getBoundingClientRect();
+    const bounds = layoutRect(row, list);
     chats.set(chatId, {
       bottom: bounds.bottom,
       centerY: bounds.top + bounds.height / 2,
@@ -91,7 +110,7 @@ export function measureSidebarDragSlots(
   for (const row of list.querySelectorAll<HTMLElement>(SIDEBAR_DRAG_SELECTORS.personRow)) {
     const memberId = row.dataset.personId;
     if (!memberId) continue;
-    const bounds = row.getBoundingClientRect();
+    const bounds = layoutRect(row, list);
     people.set(memberId, {
       bottom: bounds.bottom,
       centerY: bounds.top + bounds.height / 2,
@@ -103,7 +122,7 @@ export function measureSidebarDragSlots(
   for (const item of list.querySelectorAll<HTMLElement>(SIDEBAR_DRAG_SELECTORS.pinnedTile)) {
     const key = item.dataset.pinnedKey;
     if (!key) continue;
-    const bounds = item.getBoundingClientRect();
+    const bounds = layoutRect(item, list);
     pinned.push({
       bottom: bounds.bottom,
       centerX: bounds.left + bounds.width / 2,
