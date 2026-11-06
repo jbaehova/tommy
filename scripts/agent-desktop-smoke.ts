@@ -207,11 +207,19 @@ async function main(): Promise<void> {
   );
   checks.set("tommyAppHidden", !(await listedPids(mcp)).includes(tommyApp.pid));
 
-  const snapshot = await mcp.tool("desktop_snapshot", { app: "electron", interactive_only: true, compact: true });
-  const tree = getRecord(snapshot.data, "tree");
-  const button = findRef(tree, "button", "Press agentside");
-  const field = findRef(tree, "textfield", "Field agentside");
-  checks.set("refsFound", Boolean(button && field));
+  // The window joins the tree before its page does, so a snapshot right after the listing can miss them.
+  const refs: { button: string | null; field: string | null } = { button: null, field: null };
+  checks.set(
+    "refsFound",
+    await waitUntil("the button and the field in a snapshot", async () => {
+      const snapshot = await mcp.tool("desktop_snapshot", { app: "electron", interactive_only: true, compact: true });
+      const tree = getRecord(snapshot.data, "tree");
+      refs.button = findRef(tree, "button", "Press agentside");
+      refs.field = findRef(tree, "textfield", "Field agentside");
+      return Boolean(refs.button && refs.field);
+    }).catch(() => false),
+  );
+  const { button, field } = refs;
   if (button) {
     const click = await mcp.tool("desktop_click", { ref_id: button });
     notes.set("directClick", click.ok ? "ok" : (click.error ?? "failed"));
