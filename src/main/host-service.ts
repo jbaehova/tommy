@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
+import { directSessionId } from "@tommy/contracts/direct-connection";
 import type {
   AgentEvent,
   AgentTaskReadState,
@@ -293,11 +294,12 @@ export class HostService extends EventEmitter<HostEvents> {
     return this.#options.directConnection?.devices.list() ?? [];
   }
 
-  /** Removes a paired device and closes its connection. */
+  /** Removes a paired device, closes its connection and stops its phone notifications. */
   readonly revokeDirectDevice = Effect.fn("HostService.revokeDirectDevice")(function* (
     this: HostService,
     deviceId: string,
   ) {
+    this.#pushNotifications?.remove(directSessionId(deviceId));
     if (this.#directGateway) yield* this.#directGateway.revokeDevice(deviceId);
   }).bind(this);
 
