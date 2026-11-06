@@ -173,6 +173,7 @@ describe("TommyDatabase", () => {
       { version: 48 },
       { version: 49 },
       { version: 50 },
+      { version: 51 },
     ]);
     database.close();
   });
@@ -1415,6 +1416,7 @@ describe("TommyDatabase", () => {
       { version: 48 },
       { version: 49 },
       { version: 50 },
+      { version: 51 },
     ]);
     expect(migrated.connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     migrated.close();
@@ -1443,7 +1445,7 @@ describe("TommyDatabase", () => {
     removeProviderHistorySchema(legacy);
     legacy
       .prepare(
-        "DELETE FROM schema_migrations WHERE version IN (29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50)",
+        "DELETE FROM schema_migrations WHERE version IN (29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51)",
       )
       .run();
     if (failFirst) legacy.exec("CREATE TABLE provider_history_imports_thread (conflict TEXT)");
@@ -1547,7 +1549,7 @@ describe("TommyDatabase", () => {
       ALTER TABLE projection_provider_sessions_v18 RENAME TO projection_provider_sessions;
       CREATE INDEX provider_sessions_thread
         ON projection_provider_sessions(thread_id, provider, state);
-      DELETE FROM schema_migrations WHERE version IN (19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50);
+      DELETE FROM schema_migrations WHERE version IN (19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51);
       PRAGMA foreign_keys = ON;
     `);
     legacy.close();
@@ -1575,7 +1577,7 @@ describe("TommyDatabase", () => {
         .get(),
     ).toMatchObject({ sql: expect.not.stringContaining("CHECK(provider") });
     expect(migrated.connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-      version: 50,
+      version: 51,
     });
     migrated.close();
   });
@@ -1594,7 +1596,7 @@ describe("TommyDatabase", () => {
     removeProviderHistorySchema(legacy);
     legacy.exec(`
       DROP TABLE projection_mcp_servers;
-      DELETE FROM schema_migrations WHERE version IN (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50);
+      DELETE FROM schema_migrations WHERE version IN (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51);
     `);
     legacy.close();
 
@@ -1619,7 +1621,7 @@ describe("TommyDatabase", () => {
       { name: "Filesystem" },
     ]);
     expect(reopened.connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-      version: 50,
+      version: 51,
     });
     reopened.close();
   });
@@ -1660,7 +1662,7 @@ describe("TommyDatabase", () => {
         DROP TABLE projection_messaging_memories;
         DROP TABLE projection_messaging_threads;
         DROP TABLE projection_messaging_connections;
-        DELETE FROM schema_migrations WHERE version IN (25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50);
+        DELETE FROM schema_migrations WHERE version IN (25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51);
       `);
       // The squatted name is the index's: the tables use IF NOT EXISTS, so only the index can collide.
       if (failFirst) legacy.exec("CREATE TABLE messaging_threads_agent (conflict TEXT)");
@@ -1685,7 +1687,7 @@ describe("TommyDatabase", () => {
       expect(migrated.listAgents()).toEqual([agent]);
       expect(migrated.readConversation(agent.id, agent.threadId).messages).toEqual(conversation.messages);
       expect(connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 50,
+        version: 51,
       });
       expect(connection.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
       expect(connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
@@ -1741,7 +1743,7 @@ describe("TommyDatabase", () => {
          '2026-09-14T10:00:00.000Z', '2026-09-14T10:00:00.000Z'),
         ('mcp-2', 'computer_use_saved', 'stdio', 1, 'other', '[]', '[]', '[]', '', '', '[]', 1,
          '2026-09-14T10:00:00.000Z', '2026-09-14T10:00:00.000Z');
-      DELETE FROM schema_migrations WHERE version IN (21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50);
+      DELETE FROM schema_migrations WHERE version IN (21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51);
     `);
     legacy.close();
 
@@ -1849,6 +1851,7 @@ describe("TommyDatabase", () => {
       { version: 48 },
       { version: 49 },
       { version: 50 },
+      { version: 51 },
     ]);
     migrated.close();
   });
@@ -1957,6 +1960,7 @@ describe("TommyDatabase", () => {
       { version: 48 },
       { version: 49 },
       { version: 50 },
+      { version: 51 },
     ]);
     retried.close();
   });
@@ -2743,7 +2747,7 @@ describe("TommyDatabase", () => {
       expect(migrated.connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       expect(migrated.connection.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
       expect(migrated.connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 50,
+        version: 51,
       });
       expect(
         migrated.connection.prepare("SELECT provider_session_id FROM projection_turns WHERE turn_id = ?").get("turn-1"),
@@ -2884,7 +2888,7 @@ describe("TommyDatabase", () => {
       expect(connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       expect(connection.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
       expect(connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 50,
+        version: 51,
       });
       expect(
         connection.prepare("SELECT provider_session_id FROM projection_turns WHERE turn_id = ?").get("turn-1"),
@@ -3046,7 +3050,7 @@ describe("TommyDatabase", () => {
       expect(connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       expect(connection.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
       expect(connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 50,
+        version: 51,
       });
       expect(
         connection.prepare("SELECT provider_session_id FROM projection_turns WHERE turn_id = ?").get("turn-1"),
@@ -3221,7 +3225,7 @@ describe("TommyDatabase", () => {
       expect(connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       expect(connection.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
       expect(connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 50,
+        version: 51,
       });
       expect(
         connection.prepare("SELECT provider_session_id FROM projection_turns WHERE turn_id = ?").get("turn-1"),
@@ -3390,7 +3394,7 @@ describe("TommyDatabase", () => {
       expect(connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       expect(connection.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
       expect(connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 50,
+        version: 51,
       });
       const agentRoutines = new AgentRoutineStore(migrated);
       expect(agentRoutines.get(agent.id, agentRoutine.id)?.limitPolicy).toBe("wait");
@@ -3555,7 +3559,7 @@ describe("TommyDatabase", () => {
       expect(connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       expect(connection.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
       expect(connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 50,
+        version: 51,
       });
       expect(
         connection.prepare("SELECT provider_session_id FROM projection_turns WHERE turn_id = ?").get("turn-1"),
@@ -3769,7 +3773,7 @@ describe("TommyDatabase", () => {
       expect(migrated.readConversation(agent.id, agent.threadId).messages).toEqual(conversation.messages);
       expect(routineRows(connection)).toEqual(original);
       expect(connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 50,
+        version: 51,
       });
       expect(connection.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
       expect(connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
@@ -3839,7 +3843,7 @@ describe("TommyDatabase", () => {
     const database = await createDatabase();
     const userDataPath = database.userDataPath;
     database.connection.exec(
-      "DROP TABLE projection_agent_threads; DELETE FROM schema_migrations WHERE version IN (38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50)",
+      "DROP TABLE projection_agent_threads; DELETE FROM schema_migrations WHERE version IN (38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51)",
     );
     damageProbeTable(database);
 
