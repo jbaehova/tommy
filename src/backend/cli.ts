@@ -635,7 +635,7 @@ const loginSearchPath = Effect.fn("Cli.loginSearchPath")(function* () {
  * own interpreter: an app that Finder, the Dock or a login item starts has a short `PATH`, and
  * `#!/usr/bin/env node` fails with exit code 127 without the login shell's folders.
  */
-const agentLaunchPath = Effect.fn("Cli.agentLaunchPath")(function* () {
+export const agentLaunchPath = Effect.fn("Cli.agentLaunchPath")(function* () {
   // A relative folder such as `.` would be read in the agent's working folder, which is a workspace.
   const folders = (yield* loginSearchPath()).filter((folder) => isAbsolute(folder));
   return folders.length > 0 ? folders.join(delimiter) : null;
@@ -751,7 +751,7 @@ const readCliVersion = Effect.fn("Cli.readVersion")(function* (
 });
 
 /** `X_OK` also passes for a folder, and a login-shell `PATH` folder can hold one with the CLI's name. */
-const isExecutable = Effect.fn("Cli.isExecutable")((path: string) =>
+export const isExecutable = Effect.fn("Cli.isExecutable")((path: string) =>
   providerCall(async () => {
     await access(path, constants.X_OK);
     return (await stat(path)).isFile();

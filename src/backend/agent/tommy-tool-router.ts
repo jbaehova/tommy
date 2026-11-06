@@ -39,7 +39,7 @@ import { TOMMY_BROWSER_NAMESPACE } from "../browser-tools";
 import type { ChannelService } from "../channel-service";
 import type { ProviderSession } from "../database/provider-sessions";
 import type { MailboxStore } from "../mailbox-store";
-import { agentMcpServers } from "../mcp-provider-shapes";
+import { agentMcpServers, codexDeferredMcpServers } from "../mcp-provider-shapes";
 import { type AppServerRequest, type DynamicToolCallParams, type DynamicToolResult, isRecord } from "../protocol";
 import { handleRoutineFlowTool, type RoutineFlowTools } from "../routine-flows/routine-flow-tools";
 import type { StoredStateFailure } from "../stored-state-effects";
@@ -105,7 +105,7 @@ import { type AgentSidebar, handleSidebarTool } from "./sidebar-tools";
 import { LOCAL_SKILL_TOOL_DEFINITIONS, type LocalSkillTools, runLocalSkillTool } from "./skill-tools";
 import { isDynamicToolCall } from "./thread-items";
 import { toolCallIdempotencyKey } from "./tool-call-idempotency";
-import { discoverTools, namesInSearch, resolveDeferredTool } from "./tool-catalog";
+import { CODEX_DEFERRED_MCP_NOTE, discoverTools, namesInSearch, resolveDeferredTool } from "./tool-catalog";
 import { ToolOperationFailed, toolStep, toToolOperationFailed } from "./tool-operation";
 import type { AgentBrowserHost } from "./turn-lifecycle";
 import { handleUpdateAgentsTool } from "./update-agents-tool";
@@ -323,6 +323,10 @@ export class TommyToolRouter {
           if (!isDynamicToolCall(request.params)) throw new Error("Invalid dynamic tool request.");
           let params = request.params;
           if (params.namespace === "tommy") {
+            const deferredMcp = this.#deferredMcpNote(client);
+            const invalid = deferredMcp
+              ? `${sourceText("error.agent.toolRequestInvalid")} ${deferredMcp}`
+              : sourceText("error.agent.toolRequestInvalid");
             if (params.tool === "tool_search" || params.tool === "tool_describe") {
               const agentId = this.#conversation.agentForThread(params.threadId);
               if (!agentId) throw new Error("The calling Tommy agent is unknown.");
@@ -331,21 +335,23 @@ export class TommyToolRouter {
                 this.#requireAgent(agentId);
                 result = discoverTools(params);
               } catch {
-                client.respond(request.id, tommyToolFailure(sourceText("error.agent.toolRequestInvalid")));
+                client.respond(request.id, tommyToolFailure(invalid));
                 return;
               }
               const signIns = yield* this.#searchSignIns(agentId, params);
               if (request.signal?.aborted || !client.running) return;
+              const found =
+                deferredMcp && params.tool === "tool_search" ? { ...result, mcpTools: deferredMcp } : result;
               client.respond(
                 request.id,
-                tommyToolResult(signIns.length > 0 ? { ...result, mcpServers: signIns } : result),
+                tommyToolResult(signIns.length > 0 ? { ...found, mcpServers: signIns } : found),
               );
               return;
             }
             if (params.tool === "tool_call") {
               const resolved = resolveDeferredTool(params);
               if (!resolved) {
-                client.respond(request.id, tommyToolFailure(sourceText("error.agent.toolRequestInvalid")));
+                client.respond(request.id, tommyToolFailure(invalid));
                 return;
               }
               params = resolved;
@@ -516,6 +522,15 @@ export class TommyToolRouter {
       Effect.catchDefect(reportFailure),
     );
   }).bind(this);
+
+  /**
+   * The note that sends a model from Tommy's catalog to its provider's own MCP tools, or null. Codex
+   * defers each MCP server except Computer Use, so one saved server that is on is enough.
+   */
+  #deferredMcpNote(client: AgentClient): string | null {
+    if (client.provider !== "codex") return null;
+    return codexDeferredMcpServers(this.#mcpServers?.list() ?? []).length > 0 ? CODEX_DEFERRED_MCP_NOTE : null;
+  }
 
   /**
    * Checks an `ask_ui` call and shows its block. Like `ask_user`, it answers the call only when the

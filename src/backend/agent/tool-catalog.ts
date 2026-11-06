@@ -124,6 +124,13 @@ function requireTool(name: string) {
   return tool;
 }
 
+/**
+ * Codex defers the tools of the user's MCP servers, except Computer Use: behind its own
+ * `tool_search`, or, for a code-mode-only model, into `ALL_TOOLS` in `exec`.
+ */
+export const CODEX_DEFERRED_MCP_NOTE =
+  "The tools of your MCP servers are not in this catalog. Find them with the separate tool named exactly tool_search. When you have exec instead, read ALL_TOOLS in an exec cell, where MCP tool names start with mcp__, and call the tool on tools.";
+
 /** Returns null for an invalid envelope. No supplied values are echoed into errors or logs. */
 export function resolveDeferredTool(params: DynamicToolCallParams): DynamicToolCallParams | null {
   const parsed = callSchema.safeParse(params.arguments);
