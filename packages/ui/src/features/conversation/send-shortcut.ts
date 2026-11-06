@@ -66,3 +66,22 @@ const SAVE_HINT_KEYS = {
 export function sendShortcutHintKey(shortcut: SendShortcut, action: "send" | "save"): AppTextKey {
   return action === "send" ? SEND_HINT_KEYS[shortcut] : SAVE_HINT_KEYS[shortcut];
 }
+
+/** The chord that steers the running turn: the platform modifier with Shift and Enter. */
+export type SteerShortcut = "meta-shift-enter" | "ctrl-shift-enter";
+
+export function resolveSteerShortcut(devicePlatform: "darwin" | "linux"): SteerShortcut {
+  return devicePlatform === "darwin" ? "meta-shift-enter" : "ctrl-shift-enter";
+}
+
+/** Whether the keydown is exactly the steer chord. Alt or the other modifier must not steer. */
+export function isSteerShortcutKey(event: SendShortcutKey, shortcut: SteerShortcut): boolean {
+  if (event.key !== "Enter" || !event.shiftKey || event.altKey) return false;
+  if (shortcut === "meta-shift-enter") return event.metaKey && !event.ctrlKey;
+  return event.ctrlKey && !event.metaKey;
+}
+
+/** The `aria-keyshortcuts` value for the steer chord. */
+export function steerShortcutAriaKey(shortcut: SteerShortcut): "Meta+Shift+Enter" | "Control+Shift+Enter" {
+  return shortcut === "meta-shift-enter" ? "Meta+Shift+Enter" : "Control+Shift+Enter";
+}

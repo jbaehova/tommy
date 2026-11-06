@@ -37,11 +37,17 @@ import {
 } from "@tommy/ui/features/conversation/ContextUsage";
 import { CloseIcon } from "@tommy/ui/features/conversation/ConversationIcons";
 import { type OpenWaitItem, OpenWaits } from "@tommy/ui/features/conversation/OpenWaits";
+import { firstSteerableDelivery } from "@tommy/ui/features/conversation/queue-order";
 import { ReplyQuote } from "@tommy/ui/features/conversation/ReplyQuote";
 import { ComposerVoiceControls } from "@tommy/ui/features/conversation/VoiceRecordingMorph";
 import { useText } from "@tommy/ui/text";
 import { createEffect, createMemo, createSignal, createStore, Loading, lazy, Show } from "solid-js";
-import { deviceSendShortcut, sendShortcutAriaKey, sendShortcutHintKey } from "../../send-shortcut-preference";
+import {
+  deviceSendShortcut,
+  deviceSteerShortcut,
+  sendShortcutAriaKey,
+  sendShortcutHintKey,
+} from "../../send-shortcut-preference";
 import { copyComposerSelection, readComposerCopy } from "./composer-clipboard";
 import { useConversationViewScope } from "./conversation-scope";
 import { currentConversationTarget } from "./stores/composer-store";
@@ -214,6 +220,18 @@ export function ConversationComposer() {
     !submitting()
       ? steerComposer
       : undefined;
+  /** The first queued message that the steer chord sends into the running turn. */
+  const queuedSteerTarget = () =>
+    props.activeTurnId && !channel && steers()
+      ? firstSteerableDelivery(presentedQueueDeliveries(), editingDeliveryId())
+      : undefined;
+  /** The steer chord: the draft when it has one, otherwise the first queued message. */
+  const steerOnShortcut = () => {
+    const draft = steerOnTab();
+    if (draft) return draft;
+    const delivery = queuedSteerTarget();
+    return delivery && !composerHasContent() ? () => props.onSteerQueuedMessage(delivery.id) : undefined;
+  };
   /** Why the running turn has no reply: the computer is offline, or the provider sends nothing. */
   const providerWaitNotice = createMemo(() => {
     const provider = agentProviderName();
@@ -419,6 +437,7 @@ export function ConversationComposer() {
                       editingDeliveryId={editingDeliveryId()}
                       canSteer={Boolean(props.activeTurnId)}
                       onSteer={steers() ? props.onSteerQueuedMessage : undefined}
+                      steerShortcut={deviceSteerShortcut(props.platform)}
                       onRunAsTask={props.threads?.onRunQueuedMessage}
                       onCancel={props.onCancelQueuedMessage}
                       onEdit={editQueuedMessage}
@@ -628,6 +647,8 @@ export function ConversationComposer() {
               }}
               onSubmit={submitComposer}
               onSteer={steerOnTab()}
+              onSteerShortcut={steerOnShortcut()}
+              steerShortcut={deviceSteerShortcut(props.platform)}
               sendShortcut={deviceSendShortcut(props.platform)}
               onPickerOpenChange={setPickerOpen}
               dictation={{ text: voiceLiveText(), final: voicePhase() === "transcribing" }}
