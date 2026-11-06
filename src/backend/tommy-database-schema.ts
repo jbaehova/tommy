@@ -14,6 +14,7 @@ import {
 import { AGENT_WAIT_SCHEMA_SQL } from "./agent-waits/agent-wait-schema";
 import { BROWSER_PROFILE_SCHEMA_SQL } from "./browser-profiles/browser-profile-schema";
 import { CHANNEL_SCHEMA_SQL, CHANNEL_SETTINGS_SCHEMA_SQL } from "./channel-schema";
+import { AGENT_SKILL_LOADS_SCHEMA_SQL } from "./database/agent-skill-loads-schema";
 import { PROVIDER_HISTORY_SCHEMA_SQL } from "./database/provider-history-schema";
 import { MCP_SERVERS_SCHEMA_SQL } from "./mcp-schema";
 import {
@@ -614,7 +615,8 @@ const LATEST_SCHEMA_SQL =
   BROWSER_PROFILE_SCHEMA_SQL +
   substituteOnce(WORKFLOW_SCHEMA_SQL, V46_WORKFLOW_RUN_SOURCE_SQL, V50_WORKFLOW_RUN_SOURCE_SQL) +
   AGENT_THREAD_SCHEMA_SQL +
-  WORKFLOW_GITHUB_SCHEMA_SQL;
+  WORKFLOW_GITHUB_SCHEMA_SQL +
+  AGENT_SKILL_LOADS_SCHEMA_SQL;
 
 /** The end of the thread message table with the migration 40 columns before its PRIMARY KEY constraint. */
 function withThreadMessageOrderColumns(tableEnd: string): string {
@@ -904,6 +906,12 @@ const MIGRATIONS: readonly TommyMigration[] = [
     // pause and run ids do not change. Few rows, so no vacuum. No table is added.
     disableForeignKeys: true,
     up: addDiscordWorkflows,
+  },
+  {
+    version: 51,
+    // Only creates a table and its indexes, so no foreign-key pause and no vacuum. No skill load was
+    // recorded before it, so the table starts empty and no usage row changes.
+    up: (db) => db.exec(AGENT_SKILL_LOADS_SCHEMA_SQL),
   },
 ];
 
