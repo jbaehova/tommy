@@ -9,7 +9,8 @@
 //
 // Checks: the driver answers; an Electron app on the agent display that asks for accessibility is
 // listed, can be clicked (directly, else at its bounds), typed into and captured; a window on the
-// Tommy display that does not ask stays off the tree, also after the bus accessibility switches.
+// Tommy display that does not ask stays off the tree, also after the bus accessibility switches. With
+// zenity installed, a GTK 4 dialog on the agent side is listed.
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -55,8 +56,27 @@ async function startDisplay(display: string): Promise<void> {
 }
 
 function withoutAccessibility(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const { ACCESSIBILITY_ENABLED: _a, QT_ACCESSIBILITY: _q, ...rest } = environment;
+  const { ACCESSIBILITY_ENABLED: _a, QT_ACCESSIBILITY: _q, GTK_A11Y: _g, ...rest } = environment;
   return rest;
+}
+
+/** A GTK 4 dialog, which registers on the bus only when its environment asks with `GTK_A11Y`. */
+function probeGtkApp(label: string, display: string, environment: Readonly<Record<string, string>>): ChildProcess {
+  const child = spawn("zenity", ["--info", `--title=${label}`, `--text=${label}`], {
+    env: { ...withoutAccessibility(process.env), DISPLAY: display, ...environment },
+    stdio: "ignore",
+  });
+  children.push(child);
+  return child;
+}
+
+function hasCommand(name: string): boolean {
+  try {
+    execFileSync("sh", ["-c", `command -v ${name}`], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function probeApp(label: string, display: string, environment: Readonly<Record<string, string>>): ChildProcess {
@@ -206,6 +226,15 @@ async function main(): Promise<void> {
     await waitUntil("the agent app on the tree", async () => (await listedPids(mcp)).includes(agentApp.pid)),
   );
   checks.set("tommyAppHidden", !(await listedPids(mcp)).includes(tommyApp.pid));
+  if (hasCommand("zenity")) {
+    const gtkAgentApp = probeGtkApp("gtk-agentside", agentDisplay, agentEnvironment);
+    checks.set(
+      "gtkAgentAppListed",
+      await waitUntil("the agent GTK app on the tree", async () =>
+        (await listedPids(mcp)).includes(gtkAgentApp.pid),
+      ).catch(() => false),
+    );
+  } else notes.set("gtk", "zenity is not installed, so the GTK 4 checks did not run");
 
   // The window joins the tree before its page does, so a snapshot right after the listing can miss them.
   const refs: { button: string | null; field: string | null } = { button: null, field: null };
