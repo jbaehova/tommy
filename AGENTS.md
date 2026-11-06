@@ -33,6 +33,12 @@ and state which default you set aside. Do not argue by citing this file.
 - **Redact secrets** on every log, export, and send path, including diagnostics and analytics.
 - **Keep PolyForm Noncommercial 1.0.0.** Do not add incompatible dependencies or relicense files.
   Keep the `Required Notice:` lines of `LICENSE` and the attribution in `NOTICE` exactly as they are.
+- **Keep personal values out of git.** This repository is public, and other people install and run
+  it. Do not commit a value or a procedure that applies to only one person or one installation:
+  account emails, IDs of personal resources (Drive files and folders, cloud projects), host names
+  and IP addresses, paths on one computer, or steps of one person's workflow. Put such values in
+  git-ignored files such as `.env`, in skills and settings outside the repository, or in settings
+  that the user enters. Scan each diff for them before a commit or push.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md#security-sensitive-changes) when a change touches the trust
 boundary or a security test, and [architecture change rules](docs/architecture/change-rules.md#change-rules) when
