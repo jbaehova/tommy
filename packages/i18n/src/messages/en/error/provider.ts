@@ -141,6 +141,8 @@ export const messages = defineMessages("error.provider", {
   "error.provider.usageLimitReached": "The account reached its usage limit.",
   "error.provider.foreignReasoning":
     "{provider} did not accept the earlier reasoning in this chat, because a different account or API key received it. Tommy started a new {provider} session with the chat history. Try again.",
+  "error.provider.claudeSessionMissing":
+    "Claude Code could not find the saved session of this chat. Tommy started a new Claude Code session with the chat history. Try again.",
   "error.provider.acpSignInTimedOut": "The sign-in timed out.",
   "error.provider.acpSignInStopped": "The sign-in stopped before it was complete.",
   "error.provider.geminiBrowserUnavailable":
