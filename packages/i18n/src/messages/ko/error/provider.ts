@@ -145,6 +145,8 @@ export const messages = {
   "error.provider.usageLimitReached": "계정이 사용 한도에 도달했어요.",
   "error.provider.foreignReasoning":
     "다른 계정이나 API 키가 받은 추론이라서 {provider}이(가) 이 채팅의 이전 추론을 수락하지 않았어요. Tommy가 채팅 기록으로 새 {provider} 세션을 시작했어요. 다시 시도해 주세요.",
+  "error.provider.claudeSessionMissing":
+    "Claude Code가 이 채팅의 저장된 세션을 찾지 못했어요. Tommy가 채팅 기록으로 새 Claude Code 세션을 시작했어요. 다시 시도해 주세요.",
   "error.provider.acpSignInTimedOut": "로그인 시간이 초과되었어요.",
   "error.provider.acpSignInStopped": "로그인이 완료되기 전에 중단되었어요.",
   "error.provider.geminiBrowserUnavailable":
