@@ -6,6 +6,7 @@ import type { AgentEvent } from "@tommy/contracts/ipc";
 import { Effect, Exit, Option, Scope, Semaphore } from "effect";
 import {
   app,
+  BrowserWindow,
   type Details,
   type Event,
   type ProcessMetric,
@@ -67,6 +68,11 @@ export interface ResourceMonitorOptions {
   trace: TraceFile;
   statementTimings: StatementTimings;
   tabProcessIds: () => number[];
+  /**
+   * Whether a turn runs now. The turn count of the samples can keep a turn that ended with no
+   * completion event, so the loop rest asks the turns themselves.
+   */
+  turnRunning: () => boolean;
 }
 
 /** One sample as `resources.ndjson` and the diagnostics export hold it. Group and provider names only. */
@@ -139,7 +145,9 @@ export class ResourceMonitor {
     app.on("child-process-gone", this.#childGone);
     powerMonitor.on("suspend", this.#suspend);
     powerMonitor.on("resume", this.#resume);
-    this.#loop.enable();
+    app.on("browser-window-focus", this.#measureLoop);
+    // The start is measured even with no window: the first sample stops the timer if nobody uses the app.
+    this.#measureLoop();
     this.#fork(
       this.#load().pipe(
         Effect.andThen(
@@ -156,6 +164,7 @@ export class ResourceMonitor {
   observeAgentEvent(event: AgentEvent): void {
     if (event.type === "turn-started") {
       if (this.#activeTurns.size < MAX_ACTIVE_TURNS) this.#activeTurns.add(event.turnId);
+      this.#measureLoop();
     } else if (event.type === "turn-completed") {
       this.#activeTurns.delete(event.turnId);
     }
@@ -195,6 +204,7 @@ export class ResourceMonitor {
     app.off("child-process-gone", this.#childGone);
     powerMonitor.off("suspend", this.#suspend);
     powerMonitor.off("resume", this.#resume);
+    app.off("browser-window-focus", this.#measureLoop);
     this.#loop.disable();
     yield* Scope.close(this.#scope, Exit.void);
     if (this.#loaded) yield* this.#persist().pipe(Effect.ignore);
@@ -233,8 +243,28 @@ export class ResourceMonitor {
     this.#lastSampleAt = null;
     this.#previousCpuSeconds = null;
     this.#loop.reset();
+    this.#measureLoop();
     this.#schedule();
   };
+
+  /**
+   * The histogram wakes the main process every 20 ms, which is most of its idle energy use. It runs
+   * while a window has the focus or a turn runs, and from a start or a resume to the next sample.
+   * Node keeps the last tick when the timer stops, so a new start resets it: else the paused time
+   * would count as one long delay.
+   */
+  readonly #measureLoop = () => {
+    if (!this.#closed && this.#loop.enable()) this.#loop.reset();
+  };
+
+  /**
+   * Stops the histogram at a sample, after its window is read, when nobody uses the app. A server
+   * has no window and runs on mains power, and its remote clients feel each stall, so it never rests.
+   */
+  #restLoop(): void {
+    if (this.#options.server || this.#options.turnRunning() || BrowserWindow.getFocusedWindow() !== null) return;
+    this.#loop.disable();
+  }
 
   readonly #rendererGone = (_event: Event, _contents: WebContents, details: RenderProcessGoneDetails) =>
     this.#recordGone("renderer", details.reason);
@@ -361,6 +391,7 @@ export class ResourceMonitor {
     const mainLoopMs =
       this.#loop.count > 0 ? { p99: loopDelayMs(this.#loop.percentile(99)), max: loopDelayMs(this.#loop.max) } : null;
     this.#loop.reset();
+    this.#restLoop();
     if (mainLoopMs) {
       recordValue(day, METRIC.mainLoop, mainLoopMs.p99);
       recordPeak(day, METRIC.mainLoop, mainLoopMs.max);
