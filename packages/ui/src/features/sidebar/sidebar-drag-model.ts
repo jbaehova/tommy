@@ -224,11 +224,16 @@ export function pointInRect(point: SidebarDragPoint, rect: DOMRect | null, scrol
   );
 }
 
+/**
+ * The slot nearest to `clientY`, or null when the point is above or below every accepted slot. With
+ * `clamp`, a point past either end takes the slot at that end.
+ */
 export function closestVerticalSlot<T extends { bottom: number; top: number }>(
   slots: Iterable<T>,
   clientY: number,
   scrollDelta: number,
   accepts: (slot: T) => boolean = () => true,
+  clamp = false,
 ): T | null {
   let closest: T | null = null;
   let closestDistance = Number.POSITIVE_INFINITY;
@@ -248,7 +253,7 @@ export function closestVerticalSlot<T extends { bottom: number; top: number }>(
       closestDistance = distance;
     }
   }
-  return clientY >= extentTop && clientY <= extentBottom ? closest : null;
+  return clamp || (clientY >= extentTop && clientY <= extentBottom) ? closest : null;
 }
 
 function targetChatAt(
@@ -278,16 +283,22 @@ function targetChatAt(
   return nextTarget;
 }
 
-function sectionAtPoint(world: SidebarDragWorld, point: SidebarDragPoint): SectionDragSlot | null {
-  return closestVerticalSlot(world.sectionSlots.values(), point.clientY, world.sectionScrollDelta);
+function sectionAtPoint(world: SidebarDragWorld, point: SidebarDragPoint, clamp = false): SectionDragSlot | null {
+  return closestVerticalSlot(world.sectionSlots.values(), point.clientY, world.sectionScrollDelta, undefined, clamp);
 }
 
-function chatAtPoint(world: SidebarDragWorld, point: SidebarDragPoint, sectionId: string): ChatDragSlot | null {
+function chatAtPoint(
+  world: SidebarDragWorld,
+  point: SidebarDragPoint,
+  sectionId: string,
+  clamp: boolean,
+): ChatDragSlot | null {
   return closestVerticalSlot(
     world.chatSlots.values(),
     point.clientY,
     world.chatScrollDelta,
     (slot) => slot.sectionId === sectionId,
+    clamp,
   );
 }
 
@@ -319,7 +330,8 @@ export function sidebarDropTargetAt(world: SidebarDragWorld, point: SidebarDragP
   if (pinnedTarget) return pinnedTarget;
   if (session.source.kind === "section" && world.folders)
     return folderTargetAtPoint(world, world.folders, session.source.id, point);
-  const section = sectionAtPoint(world, point);
+  // A chat dragged into the free space above or below the sections aims at the nearest section.
+  const section = sectionAtPoint(world, point, session.source.kind === "chat");
   if (!section) return null;
 
   if (session.source.kind === "section") {
@@ -356,12 +368,16 @@ export function sidebarDropTargetAt(world: SidebarDragWorld, point: SidebarDragP
   }
 
   if (!world.sectionAcceptsChat(section.sectionId)) return null;
-  const chat = chatAtPoint(world, point, section.sectionId);
+  // A chat moved inside its own section is a reorder. Every point there names a place in the order:
+  // past the first or the last row it is that end, and on its own row it stays. Only a chat from
+  // elsewhere can drop on the section itself, which puts it last.
+  const reorder = world.chatSlots.get(session.source.id)?.sectionId === section.sectionId;
+  const chat = chatAtPoint(world, point, section.sectionId, reorder);
   if (chat && chat.chatId !== session.source.id) {
     const target = targetChatAt(world, session.source.id, chat.chatId, point.clientY);
     if (target) return { kind: "chat", target };
   }
-  return { kind: "section", sectionId: section.sectionId };
+  return reorder ? null : { kind: "section", sectionId: section.sectionId };
 }
 
 /**
