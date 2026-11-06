@@ -242,6 +242,7 @@ import { RoutineRecords } from "./routine-records";
 import type { RoutineHoldWindow } from "./routine-store";
 import { type RoutineDueSource, RoutineTimer } from "./routine-timer";
 import type { SidebarLayoutStore } from "./sidebar-layout-store";
+import { shortenDiagnostic } from "./stderr-diagnostics";
 import type { VaultItems } from "./vault-items";
 import type { WorkflowRunEnd } from "./workflows/workflows";
 import {
@@ -254,6 +255,8 @@ import {
 const logger = createTommyLogger("agent-service");
 /** Its lines also go to `main.log`, so a support report can show why channel routing failed (#3041). */
 const routingLogger = createTommyLogger("channel-routing");
+/** Its lines also go to `providers.log`: the screen can show a general sentence in place of the cause. */
+const errorLogger = createTommyLogger("agent-error");
 
 /**
  * Only the application knows which managed CLIs it downloaded, so a caller that says nothing gets
@@ -1224,12 +1227,17 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           this.#providers.usage({ provider, model, ...(accountId ? { accountId } : {}) }).pipe(toUsageReadFailed),
         // The refused turn's drain must not wait for the queues, so the owned scope settles them. An
         // agent set to switch without asking keeps its queue for the backup model; an idle one moves now,
-        // and the refused one at the end of its turn.
+        // and the refused one at the end of its turn. Work that a limit stopped after it started keeps
+        // its queue for a backup in the order of an agent set to ask too.
         held: (agentIds) =>
           Effect.sync(() => {
             for (const agentId of agentIds) this.#drain.scheduleDrain(agentId);
           }).pipe(
-            Effect.andThen(this.#settleHeldQueues(agentIds.filter((agentId) => !this.#usageLimitBackup(agentId)))),
+            Effect.andThen(
+              this.#settleHeldQueues(
+                agentIds.filter((agentId) => !this.#usageLimitBackup(agentId, this.#queuedContinuation(agentId))),
+              ),
+            ),
             Effect.catch((failure) => Effect.sync(() => this.#emitError("usage_limit_hold_failed", failure.cause))),
             Effect.forkIn(this.#scope, { startImmediately: true }),
             Effect.asVoid,
@@ -1275,7 +1283,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         isStopping: () => this.#stopping,
         isDeleting: (agentId) => this.#removal.deleting().has(agentId),
         requeueChannelDelivery: (deliveryId, continueWork) => this.#requeueChannelDelivery(deliveryId, continueWork),
-        mayFailOver: (agentId) => this.#usageLimitBackup(agentId) !== undefined,
+        mayContinueOnBackup: (agentId) => this.#usageLimitBackup(agentId, true) !== undefined,
         turnEnded: (turnId) => this.#turn.hasEnded(turnId),
         turnRestarting: (turnId) => this.#turn.forgetEnded(turnId),
         startRequestedNewChat: (agentId) => this.#startRequestedNewChat(agentId),
@@ -1387,6 +1395,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         emitToolUsage: (usage) => this.emit("toolUsage", usage),
         turnModel: (agentId, turnId) => this.#drain.modelForTurn(agentId, turnId),
         mayFailOver: (agentId) => this.#usageLimitBackup(agentId) !== undefined,
+        mayContinueOnBackup: (agentId) => this.#usageLimitBackup(agentId, true) !== undefined,
         requeueChannelDelivery: (deliveryId, continueWork) => this.#requeueChannelDelivery(deliveryId, continueWork),
         quietRoutineDelivery: (deliveryId) => this.#routines.quietRunForDelivery(deliveryId),
         takeRoutinePreview: (deliveryId) => this.#routines.takePreviewBeforeRun(deliveryId),
@@ -2865,13 +2874,19 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         : undefined;
     const moved = previousChoice && nextChoice && !sameAgentModelChoice(previousChoice, nextChoice);
     const leaving = Boolean(moved && input.leaveUsageLimit && (wasHeld || failingOver));
+    // A spent balance names no reset, so the agent does not go back to it by itself.
+    const spentBalance =
+      failingOver && previousChoice !== undefined && this.#usageLimits.isSpent(usageLimitOf(previousChoice));
     const returnTo =
       leaving && previous && previousChoice
-        ? (previous.usageLimitReturn ?? {
-            ...previousChoice,
-            reasoningEffort: previous.reasoningEffort,
-            ...(failingOver ? { cause: "provider-error" as const } : {}),
-          })
+        ? (previous.usageLimitReturn ??
+          (spentBalance
+            ? null
+            : {
+                ...previousChoice,
+                reasoningEffort: previous.reasoningEffort,
+                ...(failingOver ? { cause: "provider-error" as const } : {}),
+              }))
         : undefined;
     const usageLimitReturn =
       returning || (returnTo && nextChoice && sameAgentModelChoice(returnTo, nextChoice)) ? null : returnTo;
@@ -2971,12 +2986,14 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
    * The model a usage limit or a provider error moves this agent to now, or null. An agent goes back
    * to the model it left once no limit or provider error holds that model. An agent held by a limit,
    * or whose model failed a turn with a provider error, set to switch without asking and with queued
-   * work or channel work that waits for it, moves to its first backup model that is ready. Only an
-   * agent with no started work moves; the end of its turn tries again.
+   * work or channel work that waits for it, moves to its first backup model that is ready. An agent
+   * set to ask moves too when its next queued work is a continuation of work that a limit stopped:
+   * the turn already started, so there is no moment to ask. Only an agent with no started work
+   * moves; the end of its turn tries again.
    */
   #usageLimitMove(agentId: string): { input: UpdateAgentInput; move: ModelMove | null } | null {
     const agent = this.#store.list().find((candidate) => candidate.id === agentId);
-    if (!agent || (!agent.usageLimitReturn && !agent.backupModels?.automatic)) return null;
+    if (!agent || (!agent.usageLimitReturn && !agent.backupModels)) return null;
     if (this.#runsTurn(agentId) || this.#mailbox.hasStartedDelivery(agentId)) return null;
     // The agent keeps its reasoning effort where the other model has it. It goes back with the effort it left.
     const move = (choice: AgentModelChoice, reasoningEffort = agent.reasoningEffort) => {
@@ -3003,17 +3020,27 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       this.#mailbox.queuedTaskIds(agentId).some((taskId) => this.#mailbox.nextQueued(agentId, taskId));
     // A channel task that the limit refused went back to its channel, so the queue can be empty.
     if (!this.#mailbox.nextQueued(agentId) && !taskWork() && !this.channels.ownsWaitingWork(agentId)) return null;
-    const next = this.#usageLimitBackup(agentId);
+    const next = this.#usageLimitBackup(agentId, this.#queuedContinuation(agentId));
     return next ? { input: { ...move(next), leaveUsageLimit: true }, move: failed ? "provider-error" : null } : null;
   }
 
-  /** The first ready backup model of an agent set to switch without asking, or undefined. */
-  #usageLimitBackup(agentId: string): AgentModelChoice | undefined {
+  /**
+   * The first ready backup model of an agent set to switch without asking, or undefined. With
+   * `startedWork`, the work that a limit stopped after it started, an agent set to ask uses its order too.
+   */
+  #usageLimitBackup(agentId: string, startedWork = false): AgentModelChoice | undefined {
     const agent = this.#store.list().find((candidate) => candidate.id === agentId);
-    if (!agent?.backupModels?.automatic) return undefined;
+    if (!agent?.backupModels || (!agent.backupModels.automatic && !startedWork)) return undefined;
     const current = agentModelChoice(agent);
     return agent.backupModels.order.find(
       (choice) => !sameAgentModelChoice(choice, current) && this.#usageLimitReady(choice),
+    );
+  }
+
+  /** Whether the next queued work of the agent, in its chat or a task, continues work that a limit stopped. */
+  #queuedContinuation(agentId: string): boolean {
+    return [null, ...this.#mailbox.queuedTaskIds(agentId)].some(
+      (taskId) => this.#mailbox.nextQueued(agentId, taskId)?.resumeAfterUsageLimit !== undefined,
     );
   }
 
@@ -4903,20 +4930,33 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   }
 
   #emitError(code: string, error: unknown, agentId?: string, context?: FailureContext): void {
+    const causeCode = context?.causeCode ?? classifyFailure(error);
     this.emit("failure", {
       ...context,
       code,
       ...(agentId !== undefined ? { agentId } : {}),
-      causeCode: context?.causeCode ?? classifyFailure(error),
+      causeCode,
+    });
+    // Redacted, because every error from a provider CLI arrives here on its way to the renderer
+    // and the log, and a CLI quotes what it was given: a failure against a custom endpoint can
+    // carry that endpoint's API key or a header value.
+    const message = this.#mcp.redact(error instanceof Error ? error.message : String(error));
+    // The renderer shows a general sentence for an empty, long or technical text, so this line is
+    // the only record of the cause.
+    errorLogger.warn("An agent error was reported.", {
+      code,
+      agentId: agentId ?? null,
+      provider: context?.provider ?? null,
+      model: context?.model ?? null,
+      turnId: context?.turnId ?? null,
+      causeCode,
+      message: shortenDiagnostic(message),
     });
     this.#emit({
       type: "error",
       ...(agentId !== undefined ? { agentId } : {}),
       code,
-      // Redacted, because every error from a provider CLI arrives here on its way to the renderer
-      // and the log, and a CLI quotes what it was given: a failure against a custom endpoint can
-      // carry that endpoint's API key or a header value.
-      message: this.#mcp.redact(error instanceof Error ? error.message : String(error)),
+      message,
       ...(context?.provider ? { provider: context.provider } : {}),
       ...(context?.model ? { model: context.model } : {}),
     });

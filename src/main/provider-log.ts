@@ -6,9 +6,10 @@ import { appendRemoteDiagnosticLog } from "./remote-diagnostics";
 /**
  * The loggers whose lines also go to the provider log: provider starts, CLI checks, model lists,
  * state changes and errors (`provider-runtime`), runtime downloads (`provider-runtimes`), and model
- * list members that the window refuses (`provider-models`).
+ * list members that the window refuses (`provider-models`), and the cause of each agent error that
+ * the app reported (`agent-error`), which the screen can replace with a general sentence.
  */
-const PROVIDER_LOG_PREFIXES = ["provider-runtime", "provider-runtimes", "provider-models"] as const;
+const PROVIDER_LOG_PREFIXES = ["provider-runtime", "provider-runtimes", "provider-models", "agent-error"] as const;
 
 /**
  * Keeps the provider lines in `<logs>/providers/providers.log`, 1 MB with one rotated copy. An app

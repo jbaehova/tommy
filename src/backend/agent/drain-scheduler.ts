@@ -63,8 +63,8 @@ export interface DrainHooks {
    * back. `continueWork` keeps the assignment for a ready backup instead.
    */
   requeueChannelDelivery(deliveryId: string, continueWork?: boolean): Effect.Effect<boolean>;
-  /** Whether a ready automatic backup can take this agent's work after a usage limit. */
-  mayFailOver(agentId: string): boolean;
+  /** Whether a ready backup in the agent's order continues work that a usage limit stopped after it started. */
+  mayContinueOnBackup(agentId: string): boolean;
   /**
    * Starts the move of this agent to another model for a usage limit, if one is due: back to its own
    * model, or to a backup model during a hold. True when a move started; the move schedules the drain
@@ -985,7 +985,7 @@ export class DrainScheduler {
             // A ready backup continues earlier work in the same assignment, so the work is not lost.
             if (
               context.resumeAfterUsageLimit &&
-              this.#hooks.mayFailOver(delivery.recipientAgentId) &&
+              this.#hooks.mayContinueOnBackup(delivery.recipientAgentId) &&
               (yield* this.#hooks.requeueChannelDelivery(delivery.id, true))
             ) {
               yield* this.#mailbox.restoreQueued(delivery.id).pipe(toDeliveryStartFailed);
@@ -1007,6 +1007,8 @@ export class DrainScheduler {
               yield* this.#mailbox.restoreQueued(companion.id).pipe(toDeliveryStartFailed);
           }
           this.#mailboxSync.emitQueue(delivery.recipientAgentId);
+          // The agent that asked gets the failure as its answer; the drain of the sender below starts it.
+          yield* this.#answerFailedRequest(delivery.id, delivery.recipientAgentId);
           if (this.#channels)
             yield* this.#channels.deliveryFailed(delivery.id, CHANNEL_START_FAILED).pipe(toDeliveryStartFailed);
           // The provider refused the session or the turn, so no turn line records the failure.
@@ -1033,6 +1035,20 @@ export class DrainScheduler {
       ),
     );
   }, Effect.uninterruptible);
+
+  /** Sends the agent that asked the note that its request failed. A failed note does not stop the drain. */
+  #answerFailedRequest(deliveryId: string, agentId: string): Effect.Effect<void> {
+    return this.#mailbox
+      .answerFailedRequest(deliveryId, (taskId) => this.#tasks.threadId(taskId) !== null)
+      .pipe(
+        Effect.match({
+          onFailure: (failure) => this.#hooks.emitError("failed_request_answer_failed", failure.cause, agentId),
+          onSuccess: (requesterId) => {
+            if (requesterId) this.#mailboxSync.emitQueue(requesterId);
+          },
+        }),
+      );
+  }
 
   /**
    * Whether this delivery is a routine run in the agent's own chat. It runs in a provider session
