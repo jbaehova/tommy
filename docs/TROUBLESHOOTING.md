@@ -87,34 +87,34 @@ count. A server (`TOMMY_SERVER=1` or a hosted server) always renders on the CPU.
 
 ## Computer Use is unavailable
 
-Computer Use needs the `cua-driver` binary. An installed release carries it, so the panel reporting
-a missing driver means a development build, or a file that was removed. On macOS it also needs the
-Screen Recording and Accessibility permissions; Windows and Linux ask for no permission, so there a
-driver that answers is ready. Tommy starts the driver itself; it does not bypass the macOS prompts.
+Computer Use needs the `agent-desktop` binary. An installed release for Linux or macOS carries it in
+`resources/agent-desktop`, so a missing driver means a development build, a Windows build, or a file
+that was removed. Reinstall a complete Tommy package and keep your Tommy data folder. The installed
+application runs only the driver it was released with.
 
-If an installed release reports that the driver is missing, reinstall a complete Tommy package,
-then start Tommy again. Keep your Tommy data folder. A separate driver installation cannot
-repair an installed release, because the application uses only its bundled driver.
+In a development checkout, run `bun run prepare:agent-desktop`, then start Tommy again. This command
+writes the same pinned build the release ships. `TOMMY_AGENT_DESKTOP_PATH` selects a different
+binary in a checkout; the installed application ignores it.
 
-In a development checkout, run `bun run prepare:cua-driver`, then press **Try again** in the panel.
-This command writes the same pinned build the release ships.
-`bun run cua-driver:doctor` reports which binary Tommy would use, and `TOMMY_CUA_DRIVER_PATH`
-selects a different one. The installed application ignores that variable: it runs only the driver it
-was released with.
+Tommy asks the driver once, at startup. Run the same check yourself on the computer that runs Tommy:
 
-On Linux the driver reads the desktop through AT-SPI, so it needs the session bus of the desktop it
-is to drive. A daemon started from a container, from `runuser`, or as root against another user's
-session finds an empty accessibility tree, and `get_window_state` reports `degraded`. X11 is the
-driver's fully supported Linux session. On Wayland Tommy starts the driver with
-`CUA_DRIVER_RS_ENABLE_WAYLAND=1`; set that variable yourself to `0` if your compositor works better
-through XWayland. Window rectangles under GNOME also need the driver's own `winrects@cua` shell
-extension, which its installer refreshes but does not enable for you.
+```bash
+agent-desktop status
+```
 
-If the panel reports that permissions are needed, open **System Settings → Privacy & Security** and
-grant both **Screen & System Audio Recording** and **Accessibility**, then press **Check again**. A
-development build asks for the grants as **Electron**, not as Tommy, because the development binary
-is the responsible process. For the same reason a development grant does not carry over to an
-installed release, and each build must be granted once.
+`permissions.accessibility.state` must be `granted`. After a fix, start Tommy again.
+
+On Linux the driver reads apps through AT-SPI, so it needs the session bus of the desktop it drives,
+the `at-spi2-core` package and a window manager. A Linux server install (`tommy-install`) adds
+`at-spi2-core`, `libatk-adaptor` and `openbox`, and `tommy-server` starts `openbox` on the agent
+display. `denied` with an empty `supported_surfaces` means the bus does not answer. An error that a
+window type "could not be proven" means no window manager runs. An app appears only when its toolkit
+registers on the bus: Qt apps need `QT_ACCESSIBILITY=1`, and Chromium browsers need
+`--force-renderer-accessibility`.
+
+On macOS, grant **Accessibility** to Tommy in **System Settings → Privacy & Security**, then start
+Tommy again. A development build asks as **Electron**, not as Tommy, because the development binary
+is the responsible process.
 
 ## Computer Use is slow
 

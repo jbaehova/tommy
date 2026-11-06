@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { COMPUTER_USE_MCP_SERVER_NAME } from "@tommy/contracts/ipc";
+import { AGENT_DESKTOP_MCP_SERVER_NAME } from "@tommy/contracts/ipc";
 import { type DynamicRecord, isDynamicRecord, isNumber, isString } from "@tommy/contracts/runtime-values";
 import { isGeneratedAgentId } from "@tommy/contracts/validation";
 import { sourceText } from "@tommy/i18n/source";
@@ -913,6 +913,12 @@ const MIGRATIONS: readonly TommyMigration[] = [
     // recorded before it, so the table starts empty and no usage row changes.
     up: (db) => db.exec(AGENT_SKILL_LOADS_SCHEMA_SQL),
   },
+  {
+    version: 52,
+    // Renames rows only, as migration 21 did, so no foreign-key pause, no vacuum, and nothing to
+    // mirror in the latest schema: a new database has no rows to rename.
+    up: freeAgentDesktopServerName,
+  },
 ];
 
 const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? BASELINE_SCHEMA_VERSION;
@@ -1356,6 +1362,9 @@ function rebuildProviderSessions(db: DatabaseSync, providerColumnSql: string, st
   `);
 }
 
+/** The name the first Computer Use driver (cua-driver) took. Migration 21 freed it; it is free again from 52. */
+const CUA_DRIVER_MCP_SERVER_NAME = "computer_use";
+
 /**
  * Moves a saved MCP server off the name the Computer Use driver now takes.
  *
@@ -1368,9 +1377,24 @@ function rebuildProviderSessions(db: DatabaseSync, providerColumnSql: string, st
  * refuses it.
  */
 function freeComputerUseServerName(db: DatabaseSync): void {
+  freeSavedServerName(db, CUA_DRIVER_MCP_SERVER_NAME);
+}
+
+/**
+ * Moves a saved MCP server off the name agent-desktop, the Computer Use driver from version 51, takes.
+ *
+ * Same reasons and same treatment as migration 21. A server the user named `agent_desktop` in any
+ * case becomes `agent_desktop_saved`, or the first free `agent_desktop_saved_<n>`, with its command,
+ * secrets and every other field unchanged. A server that migration 21 renamed keeps its name.
+ */
+function freeAgentDesktopServerName(db: DatabaseSync): void {
+  freeSavedServerName(db, AGENT_DESKTOP_MCP_SERVER_NAME);
+}
+
+function freeSavedServerName(db: DatabaseSync, driverName: string): void {
   const colliding = db
     .prepare("SELECT mcp_server_id, name FROM projection_mcp_servers WHERE lower(name) = ?")
-    .all(COMPUTER_USE_MCP_SERVER_NAME);
+    .all(driverName);
   if (colliding.length === 0) return;
 
   const taken = new Set<string>();
@@ -1380,7 +1404,7 @@ function freeComputerUseServerName(db: DatabaseSync): void {
   const rename = db.prepare("UPDATE projection_mcp_servers SET name = ? WHERE mcp_server_id = ?");
   for (const row of colliding) {
     if (!isDynamicRecord(row) || !isString(row.mcp_server_id) || !isString(row.name)) continue;
-    const name = freeServerName(taken);
+    const name = freeServerName(driverName, taken);
     taken.add(name.toLowerCase());
     rename.run(name, row.mcp_server_id);
     logger.warn("Renamed a saved MCP server, because Computer Use now uses its name.", {
@@ -1390,9 +1414,9 @@ function freeComputerUseServerName(db: DatabaseSync): void {
   }
 }
 
-/** The first `computer_use_saved` name the unique index will accept. */
-function freeServerName(taken: ReadonlySet<string>): string {
-  const base = `${COMPUTER_USE_MCP_SERVER_NAME}_saved`;
+/** The first `<driver name>_saved` name the unique index will accept. */
+function freeServerName(driverName: string, taken: ReadonlySet<string>): string {
+  const base = `${driverName}_saved`;
   if (!taken.has(base)) return base;
   for (let suffix = 2; ; suffix += 1) {
     const candidate = `${base}_${suffix}`;

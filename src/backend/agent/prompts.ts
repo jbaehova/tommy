@@ -7,7 +7,7 @@ import type {
   RespondToBrowserTakeoverInput,
 } from "@tommy/contracts/ipc";
 import {
-  COMPUTER_USE_MCP_SERVER_NAME,
+  AGENT_DESKTOP_MCP_SERVER_NAME,
   MCP_ELICITATION_DECISION_QUESTION_ID,
   vaultExpiryText,
 } from "@tommy/contracts/ipc";
@@ -108,7 +108,7 @@ export function promptQuestions(params: unknown): AgentPromptQuestion[] {
 function elicitationConsentQuestion(params: unknown, serverName: string | null): AgentPromptQuestion | null {
   const message = getString(params, "message")?.trim();
   if (!message) return null;
-  const subject = serverName === COMPUTER_USE_MCP_SERVER_NAME ? "Computer Use" : (serverName ?? "this plugin");
+  const subject = serverName === AGENT_DESKTOP_MCP_SERVER_NAME ? "Computer Use" : (serverName ?? "this plugin");
   const persistence = getArray(getRecord(params, "_meta"), "persist").filter(isString);
   return {
     id: MCP_ELICITATION_DECISION_QUESTION_ID,

@@ -17,6 +17,7 @@ import { WorkflowTriggers, workflowScheduleDueAt } from "../backend/workflows/wo
 import { createWorkflows, type WorkflowNotice, type WorkflowsHandle } from "../backend/workflows/workflows";
 import { type AgentAdminSettingsService, createAgentAdminSettings } from "./agent-admin-settings";
 import { spawnAgentDatabaseHost } from "./agent-database-host-process";
+import { AgentDesktopRuntime, resolveAgentDesktop } from "./agent-desktop-runtime";
 import { agentDisplayEnvironment, hasSeparateAgentDisplay } from "./agent-display";
 import { type AgentFolders, createAgentFolders } from "./agent-folders";
 import { type AgentHostSettingsService, createAgentHostSettings } from "./agent-host-settings";
@@ -997,6 +998,17 @@ export async function createApplicationServices({
   await Effect.runPromise(agentApiKeys.syncVault().pipe(Effect.ignore));
   // The schedule triggers of workflows share the routine timer; built after the workflows below.
   let workflowTriggers: WorkflowTriggers | null = null;
+  // Before `new AgentService`, so the first provider session already has the driver's tools.
+  const agentDesktop = new AgentDesktopRuntime({
+    binary: resolveAgentDesktop({
+      packaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      sourceRoot: resolve(__dirname, "../.."),
+    }),
+    agentEnvironment: agentDisplayEnvironment(process.platform),
+    headed: hasSeparateAgentDisplay(process.platform),
+  });
+  await Effect.runPromise(agentDesktop.check());
   const service: AgentService = new AgentService({
     store,
     mailbox,
@@ -1066,8 +1078,9 @@ export async function createApplicationServices({
       agentEnvironment: () => agentDisplayEnvironment(process.platform),
     },
     // Appended to the stored servers at each spawn, so the same tools reach Codex, Claude and the
-    // ACP providers. Null until the daemon runs, which is what keeps a machine with no driver from
-    // handing every provider a command it cannot start.
+    // ACP providers. Null until the driver answers, which is what keeps a machine with no driver
+    // from handing every provider a command it cannot start.
+    computerUseMcpServer: () => agentDesktop.mcpServerConfig(),
     passwordVault: passwordVaultRouter([
       { prefix: "", vault: new OnePasswordCliVault(process.env.OP_SERVICE_ACCOUNT_TOKEN) },
       { prefix: "tommy:", vault: vault.logins },
@@ -1104,6 +1117,7 @@ export async function createApplicationServices({
       }),
     tables,
   });
+  service.setComputerUseCapability(agentDesktop.capability());
   teardown.push(TEARDOWN_ORDER.service, "the agent service", () => runCauseEffect(service.stop()));
   const agentMemoryLimitSetting = reloadingAgentMemoryLimit(agentMemoryLimit, service);
   /** The answer an agent gave in one turn, for routine flows, routine results and local scripts. */

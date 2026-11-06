@@ -3,9 +3,8 @@ import { access } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
 import {
+  AGENT_DESKTOP_MCP_SERVER_ID,
   type AgentProviderId,
-  COMPUTER_USE_MCP_SERVER_ID,
-  COMPUTER_USE_MCP_SERVER_NAME,
   isReservedMcpServerName,
   type McpServerConfig,
   type McpTransport,
@@ -169,7 +168,7 @@ function unusableDrop(server: UnusableMcpServer): McpServerDrop {
  * it off for that agent.
  */
 export function agentMcpServers(configs: readonly McpServerConfig[], computerUse: boolean): readonly McpServerConfig[] {
-  return computerUse ? configs : configs.filter((config) => config.id !== COMPUTER_USE_MCP_SERVER_ID);
+  return computerUse ? configs : configs.filter((config) => config.id !== AGENT_DESKTOP_MCP_SERVER_ID);
 }
 
 /**
@@ -609,7 +608,7 @@ export function providerMcpServerName(name: string): string {
  */
 export function codexMcpServerKey(config: McpServerConfig, own: CodexOwnTransports = {}): string {
   const name = providerMcpServerName(config.name);
-  return config.id !== COMPUTER_USE_MCP_SERVER_ID && Object.hasOwn(own, name) && own[name] !== config.transport
+  return config.id !== AGENT_DESKTOP_MCP_SERVER_ID && Object.hasOwn(own, name) && own[name] !== config.transport
     ? `tommy_${name}`
     : name;
 }
@@ -642,20 +641,14 @@ export function codexThreadMcpServers(
 }
 
 /**
- * The MCP namespaces that Codex declares in each request, beside Tommy's own. Codex defers the
- * tools of every other server: behind its `tool_search`, or, for a code-mode-only model such as GPT-6,
- * into `exec`, where the developer instructions name the servers. A direct namespace sends the schema
- * of each of its tools in each request. Computer Use stays direct: its results are
- * screenshots, and from `exec` a model must forward each image with `image()`. Its key is never
- * renamed, see `codexMcpServerKey`.
+ * The servers that are on, whose tools Codex defers: behind its `tool_search`, or, for a
+ * code-mode-only model such as GPT-6, into `exec`, where the developer instructions name the servers.
+ * A direct namespace would send the schema of each of its tools in each request. Computer Use is
+ * deferred too: agent-desktop has 67 tools (about 41 KB of schemas), and most of its results are
+ * accessibility trees, not screenshots.
  */
-export function codexDirectMcpNamespaces(servers: Readonly<Record<string, CodexMcpServer>>): string[] {
-  return Object.hasOwn(servers, COMPUTER_USE_MCP_SERVER_NAME) ? [`mcp__${COMPUTER_USE_MCP_SERVER_NAME}`] : [];
-}
-
-/** The servers that are on and whose tools Codex defers: all except Computer Use, see `codexDirectMcpNamespaces`. */
 export function codexDeferredMcpServers(configs: readonly McpServerConfig[]): McpServerConfig[] {
-  return configs.filter((config) => config.enabled && config.id !== COMPUTER_USE_MCP_SERVER_ID);
+  return configs.filter((config) => config.enabled);
 }
 
 export function codexMcpServers(

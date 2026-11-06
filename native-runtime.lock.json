@@ -239,59 +239,47 @@
       }
     }
   },
-  "cuaDriver": {
-    "repository": "https://github.com/trycua/cua",
-    "tag": "cua-driver-rs-v0.34.0",
-    "version": "0.34.0",
-    "license": "MIT",
-    "licenseSha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9",
+  "agentDesktop": {
+    "repository": "https://github.com/vercel-labs/agent-desktop",
+    "tag": "v1.2.0",
+    "version": "1.2.0",
+    "license": "Apache-2.0",
+    "licenseSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
     "artifacts": {
       "darwin-arm64": {
-        "asset": "cua-driver-rs-0.34.0-darwin-universal-binary.tar.gz",
-        "assetSha256": "940dc008e0f7c5d217d14c0f247d1ebab91b1bac965f4a649d19e8c789bdfd81",
-        "downloadBytes": 47108179,
+        "asset": "agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz",
+        "assetSha256": "219813428bb1ad8decae172faed05c5964a2415170df402e2786ccfa6452ba82",
+        "downloadBytes": 2230641,
         "files": {
-          "cua-driver": "47fa8722003066246ee8a828d3fe2c769f2194d6cf3ad63ae6f0becdc00d383a"
+          "agent-desktop": "dec75e0bba0d1f9b589bdb88188770ad1a199cde9e02cf0a5b94175491f738e9",
+          "agent-desktop-macos-helper": "4a795a40ba7fc93b726b0834342f0225779c30d83e28f1f219db479860c38a78"
         }
       },
       "darwin-x64": {
-        "asset": "cua-driver-rs-0.34.0-darwin-universal-binary.tar.gz",
-        "assetSha256": "940dc008e0f7c5d217d14c0f247d1ebab91b1bac965f4a649d19e8c789bdfd81",
-        "downloadBytes": 47108179,
+        "asset": "agent-desktop-v1.2.0-x86_64-apple-darwin.tar.gz",
+        "assetSha256": "d9dc50226f28d7fc86a2f5b0945f0c206dff6c31e418907749f493b6f9e773e6",
+        "downloadBytes": 2359765,
         "files": {
-          "cua-driver": "47fa8722003066246ee8a828d3fe2c769f2194d6cf3ad63ae6f0becdc00d383a"
+          "agent-desktop": "5dae755fee4af37d1a245f058139b262d358352cce15aeb49d0100ff46b12156",
+          "agent-desktop-macos-helper": "bdf060658b93f326efa06ac24d521e88025bf88109cecc257fa7fa40e65801cd"
         }
       },
       "linux-x64": {
-        "asset": "cua-driver-rs-0.34.0-linux-x86_64-binary.tar.gz",
-        "assetSha256": "629ac96eff829d4dfd5cf221f3f2165c2d813aed91e5efb7b20777a741cd70a7",
-        "downloadBytes": 34818314,
+        "asset": "agent-desktop-v1.2.0-x86_64-unknown-linux-gnu.tar.gz",
+        "assetSha256": "591ae7f4a38479dc045df97e27447c0c8b530441730ab6b990e27c813162af44",
+        "downloadBytes": 3458001,
         "files": {
-          "cua-driver": "5fa60c7ab35194e0e050a337521ca0e0b0ae0a8fe898813b340f65c94e15264c",
-          "wayland-helper/install.sh": "e13fc5700d281fed547fbb529a31bc1a0df250e6f9811c9cdddc99d465e219a0",
-          "wayland-helper/README.md": "d43b236d07a46b91c3dacaddcf19284d37b51361fcf46b9cebd3cc72f0a369e1",
-          "wayland-helper/winrects@cua/metadata.json": "3f6624c882bde9d611848201e2f245c813fbc322a57a003d52847afc8e6f4c50",
-          "wayland-helper/winrects@cua/extension.js": "27aac56799574ecd201e810d32772d3695d8b6ace5ab4a68d026648009004eed"
+          "agent-desktop": "da52a1eb2152cdc21b756ab20e6208d242da8062c73cd20bc8a8ae2a0384392c",
+          "agent-desktop-linux-clipboard-owner": "3e96f92b805c0d1f9de309935d62f4189b8e11e1385ad022bb878487bb3942ec"
         }
       },
       "linux-arm64": {
-        "asset": "cua-driver-rs-0.34.0-linux-arm64-binary.tar.gz",
-        "assetSha256": "9db8b9084add57eb97be8164367b24b6be54ed4f3dc01213e64b72d7fc09fddb",
-        "downloadBytes": 34607515,
+        "asset": "agent-desktop-v1.2.0-aarch64-unknown-linux-gnu.tar.gz",
+        "assetSha256": "68e8ebbb4f80e44485d2f1cf972943a38ee43108e2e0ce56bdfa641fd1599f68",
+        "downloadBytes": 3333305,
         "files": {
-          "cua-driver": "e989fa537a8c06a8d5ec7e9be692b04b2f7e76e46feb52e9c222420556bbf476",
-          "wayland-helper/install.sh": "e13fc5700d281fed547fbb529a31bc1a0df250e6f9811c9cdddc99d465e219a0",
-          "wayland-helper/README.md": "d43b236d07a46b91c3dacaddcf19284d37b51361fcf46b9cebd3cc72f0a369e1",
-          "wayland-helper/winrects@cua/metadata.json": "3f6624c882bde9d611848201e2f245c813fbc322a57a003d52847afc8e6f4c50",
-          "wayland-helper/winrects@cua/extension.js": "27aac56799574ecd201e810d32772d3695d8b6ace5ab4a68d026648009004eed"
-        }
-      },
-      "win32-x64": {
-        "asset": "cua-driver-rs-0.34.0-windows-x86_64-binary.zip",
-        "assetSha256": "bcc520e50861c7092cf775846fec76ae386d7dcd6b5b408608b0ea4423a8b888",
-        "downloadBytes": 31314221,
-        "files": {
-          "cua-driver.exe": "77f5cac754b42b6a8bae126414fc8f7487432ace93466967965188e24e9e53fb"
+          "agent-desktop": "915de59a8b3d22c9ad33023740bbcc5fe0b4fa830de9587bbf761237eafeb76f",
+          "agent-desktop-linux-clipboard-owner": "a6bfde6778dadcf9fd04ba94de17cdf205eb0b23b643c3f34073d264d2117cc3"
         }
       }
     }

@@ -3,12 +3,12 @@ import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isAgentProvider } from "@tommy/contracts/agent-providers";
 import {
+  AGENT_DESKTOP_MCP_SERVER_ID,
   type AgentSummary,
   agentAutomationAllowed,
   agentComputerUseEnabled,
   agentProviderDescriptor,
   agentQuickAcknowledgementEnabled,
-  COMPUTER_USE_MCP_SERVER_ID,
   type McpServerConfig,
   workspaceAccessEnforced,
 } from "@tommy/contracts/ipc";
@@ -30,7 +30,6 @@ import {
   type CodexOwnServers,
   type CodexOwnTransports,
   codexDeferredMcpServers,
-  codexDirectMcpNamespaces,
   codexDisabledServers,
   codexMcpServerKey,
   codexMcpServers,
@@ -96,7 +95,7 @@ const logger = createTommyLogger("thread-lifecycle");
  * server names in the form Codex accepts. Version 7 keeps approvals for custom MCP servers. Version 8
  * is the MCP namespaces in `features.code_mode.direct_only_tool_namespaces`: Codex 0.164 does not
  * add them on resume to a thread started without them, so a code-mode-only model saw no MCP tools.
- * Now only Computer Use stays in that list. No new version: a session started before keeps
+ * Now no MCP namespace is in that list. No new version: a session started before keeps
  * its MCP namespaces direct on resume and keeps working, and a new version would replace each Codex
  * session with a handoff. Such a session defers the tools from its next new session.
  * Version 9 adds `image_gen` to those namespaces. Version 10 gives a stdio server its working
@@ -151,8 +150,8 @@ const CODEX_MCP_STARTUP_GRACE_MS = 10_000;
  * In code mode the model calls tools from an `exec` cell, and `exec` gives control back to the model
  * after its yield time while `ask_user` still waits. A model that then ends its turn expires the
  * question within seconds. Direct calls keep the turn waiting for the answer. It goes in as one
- * dotted key, as the agent environment does, so it does not turn code mode on or off. A thread adds
- * Computer Use, see `codexDirectMcpNamespaces`; Codex defers the other MCP servers. `image_gen` is
+ * dotted key, as the agent environment does, so it does not turn code mode on or off. Codex defers
+ * every MCP server, see `codexDeferredMcpServers`. `image_gen` is
  * direct because from `exec` a model often reads `result.content` instead of `generatedImage(result)`:
  * it then sees no image and tells the user that the image failed, although the chat shows it.
  */
@@ -846,10 +845,7 @@ export class ThreadLifecycle {
         // script can be longer, and Codex would drop its end.
         project_doc_max_bytes: AGENT_INSTRUCTIONS_FILE_BYTES,
         mcp_optional_startup_grace_ms: CODEX_MCP_STARTUP_GRACE_MS,
-        "features.code_mode.direct_only_tool_namespaces": [
-          ...CODEX_DIRECT_ONLY_NAMESPACES,
-          ...codexDirectMcpNamespaces(servers),
-        ],
+        "features.code_mode.direct_only_tool_namespaces": CODEX_DIRECT_ONLY_NAMESPACES,
         ...codexSandboxConfig(agent, this.#store.sharedRoot),
         ...Object.fromEntries(
           Object.entries(environment).map(([name, value]) => [`shell_environment_policy.set.${name}`, value]),
@@ -894,7 +890,7 @@ export class ThreadLifecycle {
           new ThreadOperationFailed({
             cause: new Error(
               sourceText(
-                configs.every((server) => server.id === COMPUTER_USE_MCP_SERVER_ID)
+                configs.every((server) => server.id === AGENT_DESKTOP_MCP_SERVER_ID)
                   ? "error.provider.computerUseConfig"
                   : "error.provider.mcpConfig",
               ),
