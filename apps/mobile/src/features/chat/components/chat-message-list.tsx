@@ -118,6 +118,10 @@ const OPENING_ROWS = 6;
 /** The opening rows reach back to the latest user message when it is this near the end. */
 const OPENING_ROWS_TO_USER = 12;
 const ROW_STYLE = { paddingBottom: CHAT_ROW_GAP };
+// A message row ends with the hidden action row of its message (4dp of gap and 12dp under it). The
+// activity is not a row of the list, so it adds the same room: it then sits where a last message
+// would, and the gap above the composer equals the gap above it.
+const ACTIVITY_END_STYLE = { paddingBottom: CHAT_ROW_GAP + 16 };
 /** The side padding of the list. */
 const LIST_PADDING = 16;
 /** A user's message is at most this part of the list width, as `max-w-[92%]` on its row. */
@@ -1499,18 +1503,19 @@ export const ChatMessageList = memo(function ChatMessageList({
               }
               ListFooterComponent={
                 <>
-                  {/* The footer is not a row of the list, so it adds the space that a row has under it. */}
-                  <Animated.View style={[motion.responseStyle, activityRows.length ? ROW_STYLE : undefined]}>
-                    {activityRows.map((spec) => (
-                      <ChatActivityRow
-                        key={spec.key}
-                        spec={spec}
-                        foreground={foreground ?? themeForeground}
-                        muted={muted ?? themeMuted}
-                      />
-                    ))}
-                  </Animated.View>
-                  {activityAccessory}
+                  <View style={activityRows.length ? ACTIVITY_END_STYLE : undefined}>
+                    <Animated.View style={motion.responseStyle}>
+                      {activityRows.map((spec) => (
+                        <ChatActivityRow
+                          key={spec.key}
+                          spec={spec}
+                          foreground={foreground ?? themeForeground}
+                          muted={muted ?? themeMuted}
+                        />
+                      ))}
+                    </Animated.View>
+                    {activityAccessory}
+                  </View>
                   {onRespondApproval && approvals.length ? (
                     <View className="gap-3 pb-3">
                       {approvals.map((approval) => (
