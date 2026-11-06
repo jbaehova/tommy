@@ -8,7 +8,7 @@
  * can see it.
  *
  * The agent processes also ask for accessibility. A bare server session has no settings daemon, so a
- * Chromium, Electron or Qt app registers on the AT-SPI bus only when its environment asks. Tommy
+ * Chromium, Electron, Qt or GTK 4 app registers on the AT-SPI bus only when its environment asks. Tommy
  * itself never gets these variables: it shares the session bus with the agents, and an app that does
  * not ask stays off the tree that the driver reads, whatever display it is on.
  *
@@ -19,7 +19,7 @@ export function agentDisplayEnvironment(
   environment: NodeJS.ProcessEnv = process.env,
 ): Readonly<Record<string, string>> {
   const display = platform === "linux" ? environment.TOMMY_AGENT_DISPLAY : undefined;
-  return display ? { DISPLAY: display, ACCESSIBILITY_ENABLED: "1", QT_ACCESSIBILITY: "1" } : {};
+  return display ? { DISPLAY: display, ACCESSIBILITY_ENABLED: "1", QT_ACCESSIBILITY: "1", GTK_A11Y: "atspi" } : {};
 }
 
 /** Whether the agents have a display of their own, which Tommy's windows are not on. */

@@ -27,7 +27,7 @@ fi
 export TOMMY_SERVER=1
 # Tommy shares the session bus with the agents. Without these it stays off the accessibility tree that
 # Computer Use reads; the agent processes get them from Tommy (agent-display.ts).
-unset ACCESSIBILITY_ENABLED QT_ACCESSIBILITY
+unset ACCESSIBILITY_ENABLED QT_ACCESSIBILITY GTK_A11Y
 
 # The password only lets the daemon open the keyring without a person. A keyring with no password
 # file is not new: a new password cannot open it, so the service stops.

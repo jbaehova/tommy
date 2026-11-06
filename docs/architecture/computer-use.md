@@ -89,14 +89,16 @@ it by D-Bus activation at the first `status`.
 AT-SPI is per session bus, not per display, and Tommy and the agents share one session bus. On that
 bus an app that registers is visible from either display: a probe window on the Tommy display that
 registered was listed (as `background`) next to one on the agent display. What keeps Tommy off the
-tree is that a bare server session has no settings daemon, so a Chromium, Electron or Qt app
+tree is that a bare server session has no settings daemon, so a Chromium, Electron, Qt or GTK 4 app
 registers only when its environment asks. `agentDisplayEnvironment` gives every agent process,
-and the driver's entry, `ACCESSIBILITY_ENABLED=1` and `QT_ACCESSIBILITY=1` next to `DISPLAY`, so an
+and the driver's entry, `ACCESSIBILITY_ENABLED=1`, `QT_ACCESSIBILITY=1` and `GTK_A11Y=atspi` next to `DISPLAY`, so an
 app that an agent or `desktop_launch` starts registers. Tommy never gets them; `tommy-server`
-unsets both before it starts Tommy. Measured: with the variables only on the agent side,
+unsets them before it starts Tommy. Measured: with the variables only on the agent side,
 `list-apps` showed the agent app and not the Tommy-side window, also after `IsEnabled` and
-`ScreenReaderEnabled` of `org.a11y.Status` were set to true on the bus. GTK apps register on their
-own. Not measured: a Tommy restart while those bus properties are true.
+`ScreenReaderEnabled` of `org.a11y.Status` were set to true on the bus. A GTK 4 app such as zenity 4
+did not register without `GTK_A11Y=atspi` on a bus with no other accessible app; once another app had
+registered, one without the variable was listed too. Tommy draws no GTK 4 windows, so this does not
+reach Tommy; a GTK 3 dialog registers on its own. Not measured: a Tommy restart while those bus properties are true.
 
 `scripts/agent-desktop-smoke.ts` checks this on a Linux server without touching a running Tommy. It
 starts two Xvfb displays and `openbox` in its own session bus, drives `agent-desktop mcp --headed`
