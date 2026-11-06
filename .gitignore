@@ -15,9 +15,6 @@ coverage/
 .dev.vars
 .dev.vars.*
 !.env.example
-!apps/auth-api/.env.production
-!apps/auth-api/.env.dev
-!remote/.env.production
 google-services.json
 GoogleService-Info.plist
 *.key

@@ -4,7 +4,6 @@ import { createEffect, onSettled, untrack } from "solid-js";
 import { actionToast } from "../../action-toast";
 import { withoutAgent } from "../../app-message-projection";
 import { useNavigation } from "../../navigation";
-import { usePlatform } from "../../platform";
 import { useTurns } from "../../turns";
 import { attentionByAgent, attentionEventKey, attentionOfAgent } from "../agents/agent-runtime-snapshot";
 import { useAgents } from "../agents/agents-context";
@@ -30,7 +29,6 @@ import { dynamicIslandPort } from "./dynamic-island-port";
  */
 export function DynamicIslandBridge() {
   const { t, errorMessage } = useText();
-  const platform = usePlatform();
   const { activeServerId } = useServers();
   const { dynamicIslandCoordinator, publishDynamicIslandPresentation } = useDynamicIsland();
   const { selectServer } = useServerSelection();
@@ -55,7 +53,7 @@ export function DynamicIslandBridge() {
 
   createEffect(
     () => {
-      if (platform.landingPreview || !loaded()) return null;
+      if (!loaded()) return null;
       return {
         serverId: activeServerId(),
         agents: agentList(),
@@ -109,7 +107,6 @@ export function DynamicIslandBridge() {
   );
 
   onSettled(() => {
-    if (platform.landingPreview) return;
     return dynamicIslandPort().dynamicIsland.onAction((action) => {
       void handleDynamicIslandAction(action).catch((error) => {
         actionToast.error(t("island.error.openRemoteTitle"), {

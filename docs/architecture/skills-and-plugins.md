@@ -1,8 +1,5 @@
 # Skills and plugins
 
-To add a Marketplace application, and for how its browser sign-in works on a joined server, read
-[Integrations and sign-in](integrations.md#add-an-application).
-
 ## Skill folders and MCP configuration
 
 A skill follows the [Agent Skills specification](https://agentskills.io/specification): a folder

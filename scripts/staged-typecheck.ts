@@ -26,14 +26,8 @@ const SELECTS_ALL = /^(tsconfig[^/]*\.json|package\.json|bun\.lock)$/;
 // Imports across project folders that no `include` or package dependency shows. Find them with a
 // search for `from "../` paths that leave a project folder.
 const RELATIVE_IMPORTS: Record<string, string[]> = {
-  // Tests in `scripts` import mobile models; `stripe-flows-e2e.ts` imports the account Worker.
-  "typecheck:node": ["apps/mobile/src", "apps/auth-api/src"],
-  // The account Worker routes hosted sites with the site router.
-  "typecheck:api": ["apps/site-router/src"],
-  // `Conversation.stories.tsx` reads pasted files with the preload helper.
-  "typecheck:renderer": ["src/preload/clipboard-files.ts"],
-  // `.storybook/preview.tsx` imports the renderer i18n context.
-  "typecheck:storybook": ["src/renderer/src"],
+  // Tests in `scripts` import mobile models.
+  "typecheck:node": ["apps/mobile/src"],
 };
 
 interface PackageJson {

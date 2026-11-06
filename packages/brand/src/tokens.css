@@ -51,34 +51,13 @@
   --tommy-dialog-ring: rgba(255, 255, 255, 0.1);
   --tommy-bg-glass: rgba(33, 33, 33, 0.76);
 
-  /* Translucent glass surfaces: the landing page, and the browser dock and previews of the desktop. */
+  /* Translucent glass surfaces: the browser dock and previews of the desktop. */
   --tommy-glass-surface: rgba(255, 255, 255, 0.07);
   --tommy-glass-surface-hover: rgba(255, 255, 255, 0.11);
   --tommy-glass-border: rgba(255, 255, 255, 0.18);
   --tommy-glass-highlight: rgba(255, 255, 255, 0.12);
   --tommy-glass-shadow: rgba(0, 0, 0, 0.28);
-  --tommy-hero-grid-line: rgba(13, 61, 56, 0.09);
 
-  /* The landing price figure, and nothing else: a dark glass "$0" lit by one soft
-     iridescent band. These are a material, not aliases of the neutral palette -
-     the body sits a shade either side of the canvas so the glyph reads as a solid
-     object, and the band is the only warm/cool pair on the page. */
-  --tommy-price-metal-high: #4c4c4c;
-  --tommy-price-metal-core: #1f1f1f;
-  --tommy-price-metal-low: #343434;
-  --tommy-price-sheen-cool: rgba(150, 196, 255, 0.92);
-  --tommy-price-sheen-light: rgba(240, 244, 250, 0.98);
-  --tommy-price-sheen-warm: rgba(255, 184, 132, 0.94);
-  /* The band has to fade out through its own hue. Fading to --tommy-transparent
-     would interpolate towards transparent *black* and leave a dirty grey halo
-     above and below the light. */
-  --tommy-price-sheen-cool-soft: rgba(150, 196, 255, 0.26);
-  --tommy-price-sheen-warm-soft: rgba(255, 184, 132, 0.28);
-  --tommy-price-sheen-cool-clear: rgba(150, 196, 255, 0);
-  --tommy-price-sheen-warm-clear: rgba(255, 184, 132, 0);
-  --tommy-price-rim: rgba(255, 255, 255, 0.28);
-  --tommy-price-rim-under: rgba(255, 255, 255, 0.1);
-  --tommy-price-glow: rgba(180, 200, 255, 0.22);
   --tommy-bg-host-inset: #101216;
   --tommy-bg-notch: #000000;
   --tommy-mask-solid: #000000;
@@ -121,10 +100,6 @@
   --tommy-text-readable: rgba(255, 255, 255, 0.52);
   --tommy-text-muted-on-light: rgba(20, 20, 20, 0.52);
   --tommy-text-dim-on-light: rgba(20, 20, 20, 0.36);
-  --tommy-download-card-muted: rgba(20, 20, 20, 0.68);
-  --tommy-download-card-chip: rgba(20, 20, 20, 0.1);
-  --tommy-download-card-border: rgba(20, 20, 20, 0.16);
-  --tommy-download-card-focus: rgba(242, 242, 242, 0.86);
   --tommy-text-placeholder: #bfbfbf;
   --tommy-text-on-accent: #ffffff;
   --tommy-text-on-status: #07130c;
@@ -270,13 +245,10 @@
   --tommy-leading-3xl: 30px;
 
   /* Not scale steps, and named for their surface so they do not read as one. Three
-   * full-bleed screens (login wordmark, first-run setup, onboarding) and the public
-   * landing page carry type above 24px; .landing-hero-logo is sized in em off
-   * --tommy-text-hero, so that token is layout, not just type. */
+   * full-bleed screens (login wordmark, first-run setup, onboarding) carry type above 24px. */
   --tommy-text-display: 32px;
   --tommy-text-usage-total: clamp(2rem, 5cqi, 3.5rem);
   --tommy-leading-display: 38px;
-  --tommy-text-hero: clamp(3rem, 8vw, 6.5rem);
 
   /* Glyphs, not copy: a file-extension string inside a fixed 16-24px chip. Below the
    * scale's floor because the container is fixed, not because the text is small. Outside
@@ -382,7 +354,7 @@
 }
 
 /* Every surface that paints a provider - the picker mark, the update toast and its progress bar,
-   the usage icon, the account picker, the landing page - used to carry one rule per provider per
+   the usage icon, the account picker - used to carry one rule per provider per
    surface, so a new provider meant ten new rules across five stylesheets before it had a colour.
    These rules are the only place a provider id meets its colour; a surface writes
    `data-provider` on the element and reads `--tommy-provider-current`. A provider with no rule

@@ -225,35 +225,6 @@
       }
     },
     {
-      "includes": ["apps/auth-api/src/server/**/*.ts", "apps/auth-api/src/worker-entry.ts"],
-      "linter": {
-        "rules": {
-          "style": {
-            "noRestrictedImports": {
-              "level": "error",
-              "options": {
-                "patterns": [
-                  {
-                    "group": [
-                      "electron",
-                      "electron/**",
-                      "@tommy/renderer-preview",
-                      "@tommy/renderer-web",
-                      "**/src/main/**",
-                      "**/src/backend/**",
-                      "**/src/preload/**",
-                      "**/src/renderer/**"
-                    ],
-                    "message": "The account server does not import desktop implementation files. Share the type through packages/contracts."
-                  }
-                ]
-              }
-            }
-          }
-        }
-      }
-    },
-    {
       "includes": ["**/*.test.ts", "**/*.test.tsx"],
       "plugins": [
         "./tools/biome/anti-slop/rules/no-class-assertions.grit",
@@ -271,7 +242,7 @@
       ]
     },
     {
-      "includes": ["src/renderer/**", "packages/ui/**", "packages/brand/**", "apps/auth-api/**", ".storybook/**"],
+      "includes": ["src/renderer/**", "packages/ui/**", "packages/brand/**"],
       "plugins": [
         "./tools/biome/anti-slop/rules/no-collections-in-stores.grit",
         "./tools/biome/anti-slop/rules/no-cleanup-in-effect-callbacks.grit"

@@ -35,13 +35,12 @@ Nothing else in the repository decides those facts. Main and the preload pass th
 such as `IPC_ENDPOINTS.auth.event`, and read `.channel` from it; they do not write a wire value.
 `ipc-channel-coverage.test.ts` fails when two endpoints share one wire value.
 
-Two files still mirror the list, and they are not enforced the same way.
+The preload still mirrors the list, in two ways that are not enforced the same way.
 
 | Mirror | What it is | What holds it |
 | --- | --- | --- |
 | `src/preload/index.ts`, bridged groups | one `bridgeGroup(IPC_ENDPOINTS.group, decoders)` per group; the decoder map is keyed by every endpoint | `tsc` (`TS2741` / `TS2353`), and the coverage test for the group reference |
 | `src/preload/index.ts`, hand-written groups | the `invokeAgentForServer`, `ipcRenderer.invoke` and `listen` calls | `src/main/ipc-channel-coverage.test.ts` |
-| `src/renderer/src/preview/mock-tommy.ts` | the second implementation Storybook and the preview run against | `tsc`, against `TommyDesktopApi` |
 
 The main process is no longer one of them. `registerIpcGroups` in `src/main/ipc/define-ipc-group.ts`
 takes one object per group, keyed by every request endpoint in it, so a channel with no handler is
@@ -83,15 +82,10 @@ is nested and renamed, so a channel it never invokes is dead trust-boundary surf
 `ipc-channel-coverage.test.ts` reads the preload sources and asserts they invoke exactly the request
 endpoints and subscribe to exactly the event ones, counting a bridged group as all of its endpoints.
 
-The mock needs no test. Both it and the preload bridge are annotated `: TommyDesktopApi`, so a
-missing method is `TS2741` and a method the interface never declared is `TS2353` — the type checker
-already covers both directions, and the root Tests rule against assertions that TypeScript already
-enforces ends it there. What it cannot cover is
-the *behaviour*: `mock-tommy.ts` is a product surface, not a test double, and it is what the preview
-and every Storybook story exercise. A method that satisfies the type by returning an empty array is a
-story that silently shows nothing.
+The preload bridge is annotated `: TommyDesktopApi`, so a missing method is `TS2741` and a method
+the interface never declared is `TS2353`. The type checker covers both directions, and the root
+Tests rule against assertions that TypeScript already enforces ends it there.
 
-Adding a channel means `ipc-endpoints.ts`, its registrar, the preload and the mock in the same
-change. You do not have to remember that list: add the channel, and
+Adding a channel means `ipc-endpoints.ts`, its registrar and the preload in the same change. You do not have to remember that list: add the channel, and
 `bun run typecheck:node` and `bun run typecheck:renderer` name every step but the preload call of a
 hand-written group.

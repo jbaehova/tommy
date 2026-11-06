@@ -39,7 +39,6 @@ import { messages as settings } from "./settings";
 import { shared } from "./shared";
 import { messages as sharedTable } from "./sharedTable";
 import { messages as sidebar } from "./sidebar";
-import { messages as sitePage } from "./sitePage";
 import { messages as skill } from "./skill";
 import { source } from "./source";
 import { messages as startup } from "./startup";
@@ -114,5 +113,4 @@ export const ko = {
   ...connector,
   ...vault,
   ...uiBlock,
-  ...sitePage,
 } as const satisfies PartialTranslation<AppMessages>;

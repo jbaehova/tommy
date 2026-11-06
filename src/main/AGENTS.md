@@ -26,8 +26,8 @@ below.
 - Use `sendToRenderer` from `renderer-ipc.ts` to send messages. It drops messages for destroyed or
   loading windows. Its endpoint argument must be a direct `IPC_ENDPOINTS.group.name` reference;
   do not use a string literal or an intermediate variable. Handlers do not name channels; groups do.
-- Add a channel in one change across `ipc-endpoints.ts`, `src/main/ipc/`, `src/preload/index.ts`
-  and `src/renderer/src/preview/mock-tommy.ts`. See
+- Add a channel in one change across `ipc-endpoints.ts`, `src/main/ipc/` and `src/preload/index.ts`.
+  See
   [contract rules](../../packages/contracts/AGENTS.md) for coverage, including the untyped preload.
 
 ## Trust boundary

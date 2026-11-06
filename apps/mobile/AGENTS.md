@@ -17,7 +17,7 @@ Read and follow [`DESIGN.md`](./DESIGN.md) before changing mobile UI.
 - HeroUI-first does not mean component-heavy. Prefer the smallest composition that communicates the screen: plain layout plus `Typography` and `Button` is better than decorative `Card`, `Chip`, `Surface`, or `Alert` wrappers when those components add no interaction or hierarchy.
 - Render product text with HeroUI Native `Typography` and its semantic variants. Do not import React Native `Text` directly in screens or product components unless an integration boundary explicitly requires the native primitive.
 - Treat system chrome as the deliberate exception to the HeroUI-first rule. Navigation stacks, headers, tab bars, toolbars, search bars, system menus, and route-level sheets must use the native Expo Router or `@expo/ui` APIs whenever they provide the required behavior.
-- Prefer `Stack`, `Stack.Title`, `Stack.Toolbar`, `Stack.SearchBar`, and `NativeTabs` over custom React Native or HeroUI imitations. Native chrome must remain native so iOS can provide Liquid Glass on supported versions and Android can use its platform conventions.
+- Prefer `Stack`, `Stack.Title`, `Stack.Toolbar`, `Stack.SearchBar`, and `NativeTabs` over custom React Native or HeroUI imitations. Native chrome must remain native so Android can use its platform conventions.
 - Do not fake native chrome with custom blur, gradients, translucent cards, or `GlassView`. Use `expo-glass-effect` only for an intentional custom in-content glass surface, with platform and accessibility fallbacks.
 - If neither an existing Tommy component nor HeroUI Native fits an application-content need, verify that before creating a reusable component. If native APIs cannot satisfy a system-chrome requirement, document the constraint in the change before using a fallback.
 - Do not add status badges, warnings, or operational guidance unless the application state and repository behavior support the claim. Verify lifecycle and connectivity copy against the implementation before presenting it to users.
@@ -89,6 +89,6 @@ For a build profile, credential or submission option the command needs, see http
 
 ## Rules
 
-- If `ios/` and `android/` directories do not exist, they are generated (Continuous Native Generation). Never create or edit them by hand — configure native behavior in `app.json` and config plugins.
+- If the `android/` directory does not exist, it is generated (Continuous Native Generation). Never create or edit it by hand; configure native behavior in `app.json` and config plugins.
 - Expo Go only includes its bundled native modules, so a library with native code needs a development build. Say so and stop there; creating or running that build is an authorized command under "Execution and verification limits".
 - Prefer recommended Expo modules over third-party libraries. Check `.agents/skills/` for a skill that covers the dependency before adding it, and https://docs.expo.dev/versions/latest/index.md for whether Expo already ships the module you need.

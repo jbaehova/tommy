@@ -41,13 +41,11 @@ import { TurnsProvider } from "./turns";
 import { UiErrorsProvider } from "./ui-errors";
 
 /**
- * How the renderer is mounted, as opposed to anything it later loads. Both
- * flags are fixed for the life of a mount: `index.tsx` passes neither, and
- * `preview/TommyPlayground.tsx` passes `landingPreview`. `index.tsx` passes
- * `chatWindow` in a window that main opened for one chat.
+ * How the renderer is mounted, as opposed to anything it later loads. The
+ * flags are fixed for the life of a mount: `index.tsx` passes `chatWindow` in a
+ * window that main opened for one chat.
  */
 export interface AppProps {
-  landingPreview?: boolean | undefined;
   peopleEnabled?: boolean | undefined;
   chatWindow?: ChatWindowTarget | null | undefined;
 }
@@ -90,11 +88,7 @@ export function AppProviders(props: ParentProps<AppProps>): JSX.Element {
     readStoredComposerDrafts(),
   );
   return (
-    <PlatformProvider
-      landingPreview={props.landingPreview}
-      peopleEnabled={props.peopleEnabled}
-      chatWindow={props.chatWindow}
-    >
+    <PlatformProvider peopleEnabled={props.peopleEnabled} chatWindow={props.chatWindow}>
       <I18nProvider>
         <AuthProvider>
           <SetupProvider>

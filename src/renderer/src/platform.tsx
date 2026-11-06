@@ -62,7 +62,6 @@ const Platform = createSimpleContext({
       appInfo,
       appFocused,
       appInfoLoadedFromHost: () => infoFromHost,
-      landingPreview: props.landingPreview === true,
       peopleEnabled: props.peopleEnabled === true,
       /** The one chat of a window that main opened for it, or null in the main window. */
       chatWindow: props.chatWindow ?? null,

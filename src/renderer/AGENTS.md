@@ -23,9 +23,7 @@ Those two skills are vendored and re-synced from upstream, so their code samples
 cannot be corrected here. Where a skill and the cheatsheet disagree, the cheatsheet wins. Read the
 skills for the component patterns, not the imports.
 
-- `bun run dev` for integrated work — it starts the local Auth API and the Electron dev app
-  together. `bun run dev:api` is for API-only debugging.
-- `bun run storybook` verifies isolated components. CI builds it; do not run `build-storybook`.
+- `bun run dev` for integrated work: it starts the Electron dev app.
 - `bun run check:ui` is the design-system guard for this directory: shared primitives over native
   controls, Kobalte and Lucide only inside `@tommy/ui`, and palette tokens instead of colour,
   size, radius and transition literals. The pre-commit hook runs it on each commit that stages
@@ -67,8 +65,7 @@ happens to exist today.
 wiring (`App.tsx`, `AppView.tsx`, `app-providers.tsx`, `app-bootstrap.tsx`, `WorkspaceShell.tsx`,
 `WorkspaceOverlays.tsx`, `WorkspaceOverlayViews.tsx`, `lazy-views.ts`), the cross-domain modules every feature reads and none
 owns (`navigation.tsx`, `layout.tsx`, `turns.tsx`, `providers.tsx`,
-`simple-context.tsx`, `scope-lifetime.ts`), `preview/` — whose mocks are the second implementation
-of the IPC surface and belong beside `mock-tommy.ts` — and the base stylesheets in `styles/`
+`simple-context.tsx`, `scope-lifetime.ts`), and the base stylesheets in `styles/`
 (`base.css`, `transitions.css`; `action-menu.css` and `sliding-tabs.css` are now in
 `packages/ui/src/styles/`, and `otp-input.css` is in `packages/ui/src/features/account/`) —
 plus `styles/app-shell.css`, which ends in a theme layer that assigns the palette across every domain
@@ -105,17 +102,10 @@ reference is the reactive unit: write a collection held in a signal by copying
 
 Search for an existing component, hook, style, utility or story first, and prefer reuse, composition
 or a small extension. The shared layer is `packages/ui/src` over patched Kobalte:
-extend a primitive there rather than copying one into a feature, and update its story when it gains
-a visual or interactive state. Build from scratch only after the search comes up empty, and keep it
+extend a primitive there rather than copying one into a feature. Build from scratch only after the search comes up empty, and keep it
 reusable. The [Zaidan catalog](https://zaidan.carere.dev/docs/components) is a source of reference
 *patterns*, not a dependency — it is not installed here; adapt its source to this repository's
 SolidJS conventions, tokens, typography, spacing, icons and accessibility requirements.
-
-A story that shows a feature in context renders the real `App` (`TommyPlayground`, or
-`PrototypeApp` from `stories/prototype-support.tsx`) or the real container, such as
-`ServerSettingsStory` from `stories/server-settings-story.tsx` or `StoryConversation`. Do not
-hand-build the shell, a header, a sidebar, a settings menu, or a composer: a copy keeps the old
-design when the app changes. Delete a concept or prototype story when its decision is made.
 
 ## Design system
 
@@ -143,4 +133,4 @@ component. Needing either for logic means the logic is not separable from the DO
 
 Never raise a `vi.waitFor` timeout to make a test pass: that is the sleep the `no-sleep-in-tests`
 rule rejected, one layer down. Find the barrier, or add one. Animation timing is not a barrier and
-not a subject — it belongs in a Storybook story.
+not a subject; check it in the dev app.

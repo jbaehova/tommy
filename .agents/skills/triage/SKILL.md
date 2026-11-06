@@ -70,7 +70,7 @@ When the verdict is not `valid`, stop here and push back (see
 "Push back"). Do not change code to make a non-valid issue go away.
 
 A `feature request` can still be worth doing. Say so, and name the next
-step: `$prototype` for a UI direction, or a plan for the user to approve.
+step: a plan for the user to approve.
 Do not implement it in this skill.
 
 ## Step 3 — Debug

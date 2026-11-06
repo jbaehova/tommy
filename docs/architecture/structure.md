@@ -4,31 +4,22 @@
 
 ```text
 apps/
-  auth-api/          Public web and /app browser entry, accounts, memberships, connection tickets, and billing
-  discord-app/       Developer Portal settings of the Tommy Discord app (no code)
-  mobile/            Expo React Native client for remote team hosts
-  site-router/       Cloudflare Worker that serves published sites from private R2 storage
-  slack-app/         Slack CLI projects with the Tommy Slack app manifests (production, development)
-  status/            Public status page on GitHub Pages, and the check and webhook scripts of its workflow
-  telegram-app/      BotFather settings of the Tommy Telegram bot (no code)
+  mobile/            Expo React Native Android client for a paired server
 packages/
-  ui/                Shared SolidJS controls and primitive styles for desktop, web, and Storybook
+  ui/                Shared SolidJS controls and primitive styles for the desktop app
   brand/             Shared logos, avatars, and design tokens
   contracts/         Process and network boundary types, limits, and pure validation
   i18n/              Message catalogs, translate and format functions for desktop, shared UI and mobile
   logging/           ts-log Logger interface plus the redacting console/file implementation
-  telemetry/         Safe error reports, bounded retry queue, and local storage/HTTP adapters
-  team-client/       Shared team connection, recovery, WebRTC framing, Dynamic Island state, and routine schedules
+  team-client/       Shared team connection, recovery, framing, Dynamic Island state, and routine schedules
   user-errors/       Shared user-facing error messages for desktop and mobile
-remote/
-  api/               Bun Signal service for SDP, ICE, ticket checks, TURN credentials, and the Slack, Discord, Telegram and webhook relays
-  scripts/           Bun checks and update commands for Signal and coturn
 src/
   backend/           Agent runtime, provider adapters, event storage, queues, and browser host
   main/              Electron lifecycle, trusted IPC, host server, and operating-system adapters
   preload/           Narrow typed bridge from Electron main to the renderer
   renderer/          SolidJS user interface
-scripts/             Development, smoke, release, and package verification entry points
+scripts/             Development, smoke, and package verification entry points
+scripts/hosting/     Linux server install, the systemd unit, the nginx entry and the tommy command
 tools/               Biome GritQL rules, the UI foundation check, the vitest sequencer and setup, and the type baseline
 .agents/skills/      Task instructions for coding agents, such as release and smoke checks
 ```
@@ -43,8 +34,6 @@ Dependencies point toward stable boundaries:
 
 ```text
 renderer ──► @tommy/contracts ◄── preload ◄── main ──► backend
-                        ▲                             │
-                        └──────── auth-api ──────────┘
 ```
 
 - `packages/contracts` has no Electron, Node.js, SolidJS, provider, or Cloudflare dependency.
@@ -53,9 +42,6 @@ renderer ──► @tommy/contracts ◄── preload ◄── main ──► b
 - Electron main validates untrusted IPC input before it calls a service.
 - Provider code cannot write UI state. It sends events to `AgentService`, which writes SQLite
   projections before the main process sends changes to the renderer.
-- The auth API server cannot import desktop implementation files. Browser-only route composition
-  can import renderer UI through the explicit preview and web aliases. These entry points do not
-  load Electron, preload, setup, or updater providers.
 
 `noRestrictedImports` overrides in `biome.json` enforce the import rules above: renderer and shared
 UI to main, backend, and preload; main, backend, and preload to renderer; contracts to Electron,
@@ -142,8 +128,8 @@ SolidJS, provider, Cloudflare, and application code; and the account server to d
 
 ## Shared UI package
 
-`@tommy/ui` owns the existing SolidJS primitives and their primitive stylesheet. Desktop,
-web, and Storybook import this workspace directly. It has no dependency on the renderer,
+`@tommy/ui` owns the existing SolidJS primitives and their primitive stylesheet. The desktop
+app imports this workspace directly. It has no dependency on the renderer,
 Electron, account sessions, or host connections. Import `@tommy/ui/styles.css` after brand
 tokens and include the package source in Tailwind scanning. App-specific styles remain in
 the application. The desktop TypeScript project includes the package source for CI checks.

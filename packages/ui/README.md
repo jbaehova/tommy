@@ -1,6 +1,6 @@
 # @tommy/ui
 
-Internal SolidJS component library for Tommy desktop, public web, and Storybook.
+Internal SolidJS component library for the Tommy desktop app.
 The source files are moved from the desktop renderer; there is one implementation.
 
 ```tsx

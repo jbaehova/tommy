@@ -109,7 +109,7 @@ function DesktopChannelConversation(props: { channelId: string; account: () => C
       presence={teamPresence()}
       currentUserEmail={props.account().email}
       isOwnSender={isOwnSender}
-      browserEnabled={!platform.landingPreview && activeServerSupportsCapability("browser-control")}
+      browserEnabled={activeServerSupportsCapability("browser-control")}
       openLinksInBrowser={generalSettings().externalLinkTarget.kind === "tommy"}
       prompt={view.prompt()}
       promptUiBlock={view.promptUiBlock()}

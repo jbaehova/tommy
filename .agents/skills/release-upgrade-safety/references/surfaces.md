@@ -59,7 +59,6 @@ use the key-inventory diff there instead. Derive the set rather than reading it 
 | `tommy:settings-panel-width` | `src/renderer/src/features/settings/settings-context.tsx` |
 | `tommy:completion-sound-enabled`, `tommy:task-sound` | `src/renderer/src/completion-sound.ts`. The app writes both keys; `"false"` in the old key reads as Off, so an older version keeps the choice |
 | `tommy:analytics-app-version` | `src/renderer/src/App.tsx` |
-| `tommy:landing-preview-ready`, `tommy:landing-preview-start` | `packages/contracts/src/landing-preview-messages.ts` |
 
 The three `:v1` suffixes are the renderer's own version handling: bumping one to `:v2` abandons the
 old entry rather than migrating it, so it resets that state for every installed user.
@@ -152,26 +151,8 @@ untouched — they already spell the agent `agent` on both sides.
 | --- | --- |
 | `src/main/index.ts` and `src/main/ipc/` | the `handleTrusted` registrations, one file per domain |
 | `src/preload/index.ts` | the `invoke` calls the renderer reaches |
-| `src/renderer/src/preview/mock-tommy.ts` | the second implementation Storybook and the preview run against |
 
-`src/main/ipc-channel-coverage.test.ts` links main and preload statically. The mock is covered by
-`tsc` in both directions because it is annotated `: TommyDesktopApi`.
-
-## Account Worker
-
-| Path | Note |
-| --- | --- |
-| `apps/auth-api/migrations/` | `0001` to `0018`; applied **before** the new Worker deploys |
-| `apps/auth-api/src/routes/v1/`, `v2/` | the response shapes installed desktop builds keep reading forever |
-| `apps/auth-api/src/server/` | the handlers behind those routes |
-| `apps/auth-api/test/*-migration.test.ts` | `email-challenge-delivery-migration`, `marketplace-migration`, `mobile-auth-migration` |
-| `.github/workflows/ci.yml` | the CI deploy path: "Apply production D1 migrations" before the Worker deploy, one job |
-| `scripts/deploy-auth-api.ts` | the manual deploy path: remote D1 migrations, build, then `wrangler deploy` |
-| `apps/auth-api/package.json` | `deploy` and `deploy:test` — the entrypoints into that script |
-| `apps/auth-api/wrangler.jsonc` | the D1 binding and environments both paths deploy against |
-
-Two deploy paths, both ordered migrations-then-deploy. Neither one covers the other, and the
-deploy-race reasoning in gate E only holds while *both* keep that order.
+`src/main/ipc-channel-coverage.test.ts` links main and preload statically.
 
 `auth:*` channels in `packages/contracts/src/ipc-endpoints.ts` are the desktop side of this contract.
 
