@@ -3,3 +3,14 @@
 .env
 # Reuse the local identity. Existing worktree state is never replaced.
 .tommy/dev-state.json
+# Local agent instruction files.
+AGENTS.md
+apps/mobile/AGENTS.md
+packages/contracts/AGENTS.md
+packages/team-client/AGENTS.md
+packages/ui/AGENTS.md
+src/backend/AGENTS.md
+src/main/AGENTS.md
+src/main/ipc/AGENTS.md
+src/preload/AGENTS.md
+src/renderer/AGENTS.md
