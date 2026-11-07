@@ -34,7 +34,6 @@ export const messages = defineMessages("onboarding", {
   "onboarding.error.cancelDownload": "Tommy could not cancel the {provider} download. Try again.",
   "onboarding.error.refresh": "Tommy could not refresh your local AI providers. Try again.",
   "onboarding.toast.connecting": "Connecting {provider}. Finish the sign-in if a browser window opens.",
-  "onboarding.progress": "Onboarding step {step} of {total}",
   "onboarding.action.connect": "Connect",
   "onboarding.server.title": "Set up {server}",
   "onboarding.server.description":
