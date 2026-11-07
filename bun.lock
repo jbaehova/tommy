@@ -7,13 +7,17 @@
       "dependencies": {
         "@agentclientprotocol/sdk": "1.9.0",
         "@anthropic-ai/claude-agent-sdk": "0.3.309",
-        "@anthropic-ai/sdk": "0.137.0",
+        "@anthropic-ai/sdk": "1.4.0",
         "@fontsource-variable/inter": "catalog:",
         "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
         "@kobalte/core": "catalog:",
         "@modelcontextprotocol/sdk": "1.32.1",
         "@noble/hashes": "catalog:",
         "@norbert_bodziony/bloub": "catalog:",
+        "@paper-design/shaders": "catalog:",
+        "@solidjs/web": "catalog:",
+        "@speed-highlight/core": "catalog:",
+        "@tanstack/virtual-core": "catalog:",
         "@tommy/brand": "workspace:*",
         "@tommy/contracts": "workspace:*",
         "@tommy/i18n": "workspace:*",
@@ -21,10 +25,6 @@
         "@tommy/team-client": "workspace:*",
         "@tommy/ui": "workspace:*",
         "@tommy/user-errors": "workspace:*",
-        "@paper-design/shaders": "catalog:",
-        "@solidjs/web": "catalog:",
-        "@speed-highlight/core": "catalog:",
-        "@tanstack/virtual-core": "catalog:",
         "class-variance-authority": "catalog:",
         "cuelume": "0.2.8",
         "effect": "catalog:",
@@ -78,16 +78,16 @@
         "@legendapp/list": "3.6.0",
         "@noble/hashes": "catalog:",
         "@norbert_bodziony/bloub": "catalog:",
+        "@react-native-masked-view/masked-view": "0.3.2",
+        "@shopify/react-native-skia": "2.14.0",
+        "@speed-highlight/core": "catalog:",
+        "@tanstack/react-query": "^5.104.5",
         "@tommy/brand": "workspace:*",
         "@tommy/contracts": "workspace:*",
         "@tommy/i18n": "workspace:*",
         "@tommy/logging": "workspace:*",
         "@tommy/team-client": "workspace:*",
         "@tommy/user-errors": "workspace:*",
-        "@react-native-masked-view/masked-view": "0.3.2",
-        "@shopify/react-native-skia": "2.14.0",
-        "@speed-highlight/core": "catalog:",
-        "@tanstack/react-query": "^5.104.5",
         "effect": "catalog:",
         "expo": "~58.0.17",
         "expo-application": "~58.1.2",
@@ -123,7 +123,6 @@
         "expo-system-ui": "~58.0.6",
         "expo-updates": "~58.0.18",
         "expo-video": "~58.0.12",
-        "expo-widgets": "~58.0.22",
         "heroui-native": "^1.0.11",
         "katex": "catalog:",
         "lucide-react-native": "^1.61.0",
@@ -228,13 +227,13 @@
       "dependencies": {
         "@kobalte/core": "catalog:",
         "@norbert_bodziony/bloub": "catalog:",
+        "@speed-highlight/core": "catalog:",
+        "@tanstack/virtual-core": "catalog:",
         "@tommy/brand": "workspace:*",
         "@tommy/contracts": "workspace:*",
         "@tommy/i18n": "workspace:*",
         "@tommy/team-client": "workspace:*",
         "@tommy/user-errors": "workspace:*",
-        "@speed-highlight/core": "catalog:",
-        "@tanstack/virtual-core": "catalog:",
         "class-variance-authority": "catalog:",
         "katex": "catalog:",
         "lucide-solid": "catalog:",
@@ -346,7 +345,7 @@
 
     "@anthropic-ai/claude-agent-sdk-win32-x64": ["@anthropic-ai/claude-agent-sdk-win32-x64@0.3.309", "", { "os": "win32", "cpu": "x64" }, "sha512-otGHQimz6F++6SajGqSAKBclRPGTn60cx+8u3dnhMa5yovKZ5SgChFgstFsiDIWr/ZBqpJysvFemSgHX61mlmQ=="],
 
-    "@anthropic-ai/sdk": ["@anthropic-ai/sdk@0.137.0", "", { "dependencies": { "@opentelemetry/api": "^1.4.1", "json-schema-to-ts": "^3.1.1", "standardwebhooks": "^1.0.0" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["zod"], "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-YpEnbPz8kWF1BWthwUCnRhci7OvDLSUO8NFKoevoPkjNkK9CJeibZITgxr9vhqOP8Le61e5tNDHFTxw1dc6Png=="],
+    "@anthropic-ai/sdk": ["@anthropic-ai/sdk@1.4.0", "", { "dependencies": { "@opentelemetry/api": "^1.4.1", "json-schema-to-ts": "^3.1.1", "standardwebhooks": "^1.0.0" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["zod"], "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-tyuibnhQL57kLOx5oomY4Ld7jOVOPNC5v3IiyRtR3l+Friv66tI4VbuZYF2NMel/T0WMuQMBFOMKDBUbUh8gPA=="],
 
     "@asamuzakjp/css-color": ["@asamuzakjp/css-color@6.0.7", "", { "dependencies": { "@csstools/css-calc": "^3.3.0", "@csstools/css-color-parser": "^4.1.10", "@csstools/css-parser-algorithms": "^4.0.0", "@csstools/css-tokenizer": "^4.0.0", "lru-cache": "^11.5.2" } }, "sha512-vC/bk1Lz7Tn/EfU9/apOTBk80/8dyGyWMowPoV1tJ52muDGsDqt2HPT2klrFUiY60MQmQv9q8yIht15JnBgDGw=="],
 
@@ -848,22 +847,6 @@
 
     "@noxcturnal/noxcturnal-win32-x64-msvc": ["@noxcturnal/noxcturnal-win32-x64-msvc@0.1.8", "", { "os": "win32", "cpu": "x64" }, "sha512-A39bKv270jJnC5NN6mAy46E2d3LPywjrbmNJhgckPQNldV9acTYUKZcySCYeLgP/2yAVUh3UFSjo84pFX2npVw=="],
 
-    "@tommy/brand": ["@tommy/brand@workspace:packages/brand"],
-
-    "@tommy/contracts": ["@tommy/contracts@workspace:packages/contracts"],
-
-    "@tommy/i18n": ["@tommy/i18n@workspace:packages/i18n"],
-
-    "@tommy/logging": ["@tommy/logging@workspace:packages/logging"],
-
-    "@tommy/mobile": ["@tommy/mobile@workspace:apps/mobile"],
-
-    "@tommy/team-client": ["@tommy/team-client@workspace:packages/team-client"],
-
-    "@tommy/ui": ["@tommy/ui@workspace:packages/ui"],
-
-    "@tommy/user-errors": ["@tommy/user-errors@workspace:packages/user-errors"],
-
     "@opentelemetry/api": ["@opentelemetry/api@1.10.0", "", {}, "sha512-lMkyes8iHrG+mk6WH7X70MdCLI2RS0FwNBY1PyQ8UemaijE2m5mv5A0Niy3HtbYTFrgkUEQjFMXmSAk2hQDuPQ=="],
 
     "@oxc-parser/binding-android-arm-eabi": ["@oxc-parser/binding-android-arm-eabi@0.154.0", "", { "os": "android", "cpu": "arm" }, "sha512-sDdEtDl7vKdCvf54j72RJbowE3jCmyRz/+oOB6IAwQxAHZ0eI+Dcj4hvVnm0b9Dy31plUkdmfds9C+/Zt895Tg=="],
@@ -1171,6 +1154,22 @@
     "@testing-library/dom": ["@testing-library/dom@10.4.2", "", { "dependencies": { "@babel/code-frame": "^7.10.4", "@babel/runtime": "^7.12.5", "@types/aria-query": "^5.0.1", "aria-query": "5.3.0", "dom-accessibility-api": "^0.5.9", "lz-string": "^1.5.0", "picocolors": "1.1.1", "pretty-format": "^27.0.2" } }, "sha512-yzr2S9HyAIdhz2/6qHgbs665Q7PKVcDF05vsOlHPxG1mo36gKVesdYVeDLnXgfjJ03CrKRk08knc6+E/9m8v2Q=="],
 
     "@testing-library/jest-dom": ["@testing-library/jest-dom@7.0.1", "", { "dependencies": { "@adobe/css-tools": "^4.4.0", "aria-query": "^5.0.0", "css.escape": "^1.5.1", "dom-accessibility-api": "^0.6.3", "picocolors": "^1.1.1", "redent": "^3.0.0" }, "peerDependencies": { "@testing-library/dom": ">=10 <11", "vitest": ">= 0.32" }, "optionalPeers": ["vitest"] }, "sha512-oMDTC3oA+6CXSO2JZnvOI7CA6oVub6kij5ggk9ohwye5slmkwxYDXcPOVxgMw/RQlticjtO0C1RZkR97HgrWMw=="],
+
+    "@tommy/brand": ["@tommy/brand@workspace:packages/brand"],
+
+    "@tommy/contracts": ["@tommy/contracts@workspace:packages/contracts"],
+
+    "@tommy/i18n": ["@tommy/i18n@workspace:packages/i18n"],
+
+    "@tommy/logging": ["@tommy/logging@workspace:packages/logging"],
+
+    "@tommy/mobile": ["@tommy/mobile@workspace:apps/mobile"],
+
+    "@tommy/team-client": ["@tommy/team-client@workspace:packages/team-client"],
+
+    "@tommy/ui": ["@tommy/ui@workspace:packages/ui"],
+
+    "@tommy/user-errors": ["@tommy/user-errors@workspace:packages/user-errors"],
 
     "@tsrs/darwin-arm64": ["@tsrs/darwin-arm64@0.16.0-ts7.1.0-dev.20260929", "", { "os": "darwin", "cpu": "arm64" }, "sha512-9e7ZeELv0Fq06PL7xr0w7jeU45cd2UcDAejH3uloTPD37Vm6h099u/hAj90CPbY88ky15eXCiKE5hJzqvSvCBA=="],
 
@@ -1907,8 +1906,6 @@
     "expo-updates-interface": ["expo-updates-interface@58.0.1", "", { "peerDependencies": { "expo": "*" } }, "sha512-OF+3BtMXtUsXWDfpHVNus9yHpx7WjMwjxDfeeN9LQBYSq/UtYmNNHBSfzChYTuqljWFSOAHRfsDykV9EB73Wlg=="],
 
     "expo-video": ["expo-video@58.0.12", "", { "peerDependencies": { "expo": "*", "react": "*", "react-native": "*" } }, "sha512-OmtZXbzlM1evzf29/WHOGm7fpdvUB/BjTRiJyHDKEftTVeAoUI5GLkQ/gmzXfyWrYXNOPomxIQ3dxgiIcDf98Q=="],
-
-    "expo-widgets": ["expo-widgets@58.0.22", "", { "dependencies": { "@expo/plist": "^0.10.1", "@expo/ui": "~58.0.22" }, "peerDependencies": { "expo": "*", "react": "*", "react-native": "*" } }, "sha512-7YUkvcIXg83n7cTs6yAQ0fuceJkxLYnec9xJHvpgiuk67N2qSaHeiT+o9aTFcYbIzIpmlvCFYljWYWtivnkkUQ=="],
 
     "exponential-backoff": ["exponential-backoff@3.1.3", "", {}, "sha512-ZgEeZXj30q+I0EN+CbSSpIyPaJ5HVQD18Z1m+u1FXbAeT94mr1zw50q4q6jiiC447Nl/YTcIYSAftiGqetwXCA=="],
 
