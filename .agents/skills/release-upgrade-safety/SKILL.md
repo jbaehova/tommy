@@ -154,7 +154,7 @@ Ask two questions and report the answers with the table:
   artifact.
 
 Moving a pin needs the version assertion on a matching host, which `pin:bun-runtime` performs only
-for the target it runs on. [docs/RELEASING.md](../../../docs/RELEASING.md) holds the procedure.
+for the target it runs on. docs/RELEASING.md holds the procedure.
 
 ## Step 3 — report and hand off
 

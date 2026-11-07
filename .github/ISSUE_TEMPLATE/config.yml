@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/jbaehova/tommy/security/advisories/new
+    about: Report it privately. Do not open a public issue.
+  - name: Troubleshooting guide
+    url: https://github.com/jbaehova/tommy/blob/main/docs/TROUBLESHOOTING.md
+    about: Common problems with agents, the server and the apps.
