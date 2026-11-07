@@ -64,11 +64,17 @@ export const messages = defineMessages("mobile.settings", {
   "mobile.settings.feedback.retry": "Retry saving haptics setting",
   "mobile.settings.notifications.title": "Notifications",
   "mobile.settings.notifications.toggle": "Allow notifications",
+  "mobile.settings.notifications.footer":
+    "Agents tell you when they finish, stop with an error, or need your input, an approval, or a step in the browser. Nothing comes while Tommy is in use here or in the desktop app.",
   "mobile.settings.notifications.footerAndroid":
     "Agents tell you when they finish, stop with an error, or need your input, an approval, or a step in the browser. Nothing comes while Tommy is in use here or in the desktop app.",
+  "mobile.settings.notifications.denied": "Notifications for Tommy are off in iOS Settings.",
   "mobile.settings.notifications.deniedAndroid": "Notifications for Tommy are off in Android settings.",
+  "mobile.settings.notifications.openSettings": "Open iOS Settings",
   "mobile.settings.notifications.openSettingsAndroid": "Open Android settings",
   "mobile.settings.notifications.preview": "Show reply preview",
+  "mobile.settings.notifications.previewFooter":
+    "Shows the start of a reply, a question, or the action to approve. Apple cannot read it.",
   "mobile.settings.notifications.previewFooterAndroid":
     "Shows the start of a reply, a question, or the action to approve. Google and the Tommy account service cannot read it.",
   "mobile.settings.notifications.sound": "Sound",
@@ -78,7 +84,10 @@ export const messages = defineMessages("mobile.settings", {
   "mobile.settings.notifications.sound.mech": "Mechanical",
   "mobile.settings.notifications.sound.bubble": "Bubbly",
   "mobile.settings.notifications.sound.press": "Clicky",
+  "mobile.settings.notifications.sound.default": "iOS default",
   "mobile.settings.notifications.sound.defaultAndroid": "Android default",
+  "mobile.settings.notifications.soundFooter":
+    "Notifications play this sound. The Tommy sound is the sound that the desktop app plays when a task finishes. The four sounds after it are the sounds of the desktop sound themes.",
   "mobile.settings.notifications.soundFooterAndroid":
     "Notifications play this sound. The Tommy sound is the sound that the desktop app plays when a task finishes. The four sounds after it are the sounds of the desktop sound themes.",
   "mobile.settings.notifications.level.all": "All activity",

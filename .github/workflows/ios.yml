@@ -1,0 +1,92 @@
+name: iOS
+
+# Builds the iPhone app for the simulator, without signing, and checks it in the real app on a
+# simulator (`scripts/ios-simulator-smoke.ts`). A build for a phone needs the signing team of its
+# owner, so CI builds none. See docs/INSTALL.md.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/mobile/**"
+      - "packages/**"
+      - "scripts/ios-simulator-smoke.ts"
+      - "bun.lock"
+      - ".github/workflows/ios.yml"
+  pull_request:
+    paths:
+      - "apps/mobile/**"
+      - "packages/**"
+      - "scripts/ios-simulator-smoke.ts"
+      - "bun.lock"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  simulator:
+    name: Simulator build and smoke
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: Select Xcode
+        run: |
+          xcode=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          sudo xcode-select --switch "$xcode/Contents/Developer"
+          xcodebuild -version
+          xcrun simctl list runtimes
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Generate the native project
+        run: bun run mobile:ios:prebuild
+      - name: Install pods
+        working-directory: apps/mobile/ios
+        run: pod install
+      - name: Build
+        working-directory: apps/mobile/ios
+        run: |
+          log="$RUNNER_TEMP/xcodebuild.log"
+          if ! xcodebuild \
+            -workspace Tommy.xcworkspace \
+            -scheme Tommy \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            build >"$log" 2>&1; then
+            grep -E "error:" -A4 "$log" | head -200
+            tail -40 "$log"
+            exit 1
+          fi
+          grep -E "\*\* BUILD" "$log"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: xcodebuild-log
+          path: ${{ runner.temp }}/xcodebuild.log
+      - name: Smoke test in the simulator
+        run: |
+          brew install openssl@3 >/dev/null 2>&1 || true
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          export PATH="$HOME/.maestro/bin:$PATH"
+          bun scripts/ios-simulator-smoke.ts apps/mobile/ios/build/DerivedData/Build/Products/Release-iphonesimulator/Tommy.app
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-smoke
+          if-no-files-found: ignore
+          path: .tommy-build/ios-simulator-smoke/

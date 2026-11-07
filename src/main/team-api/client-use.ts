@@ -31,6 +31,7 @@ import { PROVIDER_DEFAULT_ROUTES } from "@tommy/contracts/team-protocol/provider
 import { PROVIDERS_ADMIN_ROUTES } from "@tommy/contracts/team-protocol/providers-v1";
 import { PROVIDERS_RUNTIMES_V2_ROUTES } from "@tommy/contracts/team-protocol/providers-v2";
 import { ANDROID_PUSH_NOTIFICATIONS_ROUTES } from "@tommy/contracts/team-protocol/push-notifications-android-v1";
+import { IOS_PUSH_NOTIFICATIONS_ROUTES } from "@tommy/contracts/team-protocol/push-notifications-ios-v1";
 import { ROUTINE_RECOVERY_ROUTES } from "@tommy/contracts/team-protocol/routine-recovery-v1";
 import { ROUTINE_RESULTS_ROUTES } from "@tommy/contracts/team-protocol/routine-results-v1";
 import { SERVER_AUDIT_ROUTES } from "@tommy/contracts/team-protocol/server-audit-v1";
@@ -72,6 +73,8 @@ const PASSIVE_ROUTES: ReadonlySet<string> = new Set([
   SERVER_AUDIT_ROUTES.read,
   ANDROID_PUSH_NOTIFICATIONS_ROUTES.register,
   ANDROID_PUSH_NOTIFICATIONS_ROUTES.remove,
+  IOS_PUSH_NOTIFICATIONS_ROUTES.register,
+  IOS_PUSH_NOTIFICATIONS_ROUTES.remove,
   STORAGE_ROUTES.usage,
   STORAGE_DISK_ROUTES.disk,
   MACHINE_RESOURCES_ROUTES.metrics,

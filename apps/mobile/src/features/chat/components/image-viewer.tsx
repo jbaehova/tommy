@@ -9,7 +9,7 @@ import Download from "lucide-react-native/icons/download";
 import Share from "lucide-react-native/icons/share";
 import X from "lucide-react-native/icons/x";
 import { useCallback, useEffect, useState } from "react";
-import { AccessibilityInfo, Modal, StyleSheet, useWindowDimensions, View } from "react-native";
+import { AccessibilityInfo, Modal, Platform, StyleSheet, useWindowDimensions, View } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, {
   type AnimatedRef,
@@ -544,7 +544,7 @@ export function ImageViewer({
   const fadeStyle = useAnimatedStyle(() => ({ opacity: backdrop.get() }));
 
   // Android draws no live blur here and Reduce Transparency asks for none, so both dim instead.
-  const blur = false;
+  const blur = Platform.OS === "ios" && reduceTransparency === false;
   const mounted = pages
     .map((page, slot) => ({ page, slot }))
     .filter(({ slot }) => Math.abs(slot - shown) <= PAGE_WINDOW);

@@ -1,4 +1,5 @@
 import type { ColorValue } from "react-native";
+import { isAndroid } from "@/shared/lib/platform";
 
 /**
  * Android paints `selectionColor` as an opaque highlight behind the text, so a text-colored
@@ -6,5 +7,5 @@ import type { ColorValue } from "react-native";
  * highlight; iOS already draws the selection translucent.
  */
 export function selectionColorProps(color: ColorValue | undefined) {
-  return { cursorColor: color, selectionHandleColor: color };
+  return isAndroid ? { cursorColor: color, selectionHandleColor: color } : { selectionColor: color };
 }

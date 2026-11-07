@@ -26,6 +26,7 @@ import {
 } from "@/features/workspace/context/mobile-workspace-context";
 import { AdaptiveSplit, useSplitLayout } from "@/shared/components/adaptive-split";
 import { useReducedMotion } from "@/shared/lib/motion";
+import { isAndroid } from "@/shared/lib/platform";
 import { useText } from "@/shared/lib/text";
 import { Dock } from "@/shared/ui/dock";
 import { appHeaderOptions } from "@/shared/ui/top-bar";
@@ -37,15 +38,17 @@ const NOTIFICATION_CHANNEL_WAIT_MS = 8_000;
  * Android: autoFocus focuses the name field of a form sheet while the sheet opens, and Android does
  * not show the keyboard then. Focusing the field again after the opening shows it.
  */
-const refocusNameField = {
-  transitionEnd: (event: { data: { closing: boolean } }) => {
-    if (event.data.closing) return;
-    const input = TextInput.State.currentlyFocusedInput();
-    if (!input) return;
-    input.blur();
-    input.focus();
-  },
-};
+const refocusNameField = isAndroid
+  ? {
+      transitionEnd: (event: { data: { closing: boolean } }) => {
+        if (event.data.closing) return;
+        const input = TextInput.State.currentlyFocusedInput();
+        if (!input) return;
+        input.blur();
+        input.focus();
+      },
+    }
+  : undefined;
 
 export const unstable_settings = {
   anchor: "connected",

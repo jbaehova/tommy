@@ -5,6 +5,8 @@ export const messages = {
   "mobile.appLock.title": "앱 잠금",
   "mobile.appLock.method.pin": "PIN 코드",
   "mobile.appLock.method.phone": "휴대폰 잠금 해제",
+  "mobile.appLock.method.faceId": "Face ID",
+  "mobile.appLock.method.touchId": "Touch ID",
   "mobile.appLock.methods.title": "잠금 해제 방법",
   "mobile.appLock.methods.footer":
     "PIN, {method} 또는 둘 다 켤 수 있어요. 켜면 Tommy를 벗어날 때 잠기고, 돌아오면 둘 중 하나를 요청해요.",

@@ -19,6 +19,7 @@ import { useAgentBrowserTabs } from "@/features/workspace/components/use-live-wo
 import { useMobileWorkspace } from "@/features/workspace/context/mobile-workspace-context";
 import { SheetScrollView } from "@/shared/components/sheet-scroll-view";
 import { haptics } from "@/shared/lib/haptics";
+import { isIOS } from "@/shared/lib/platform";
 import { selectionColorProps } from "@/shared/lib/selection-color";
 import { useText } from "@/shared/lib/text";
 import { latestBrowserSheetControls, useBrowserSheetControls } from "../model/browser-sheet-bridge";
@@ -74,7 +75,7 @@ export function BrowserTabsSheet() {
   const share = () => {
     if (!tab) return;
     void haptics.impact("soft");
-    Share.share({ message: tab.url }).catch(() => undefined);
+    Share.share(isIOS ? { url: tab.url } : { message: tab.url }).catch(() => undefined);
   };
 
   const submit = () => {

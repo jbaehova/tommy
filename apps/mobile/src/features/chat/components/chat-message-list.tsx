@@ -84,6 +84,7 @@ import type { PendingApproval } from "@/features/workspace/model/pending-approva
 import { useColumnWidth } from "@/shared/components/adaptive-split";
 import { haptics } from "@/shared/lib/haptics";
 import { useMotionPreference, useReducedMotion } from "@/shared/lib/motion";
+import { isAndroid } from "@/shared/lib/platform";
 import { useText } from "@/shared/lib/text";
 import { mentionDraft } from "../model/chat-mentions";
 import type { ChatTarget } from "../model/chat-target";
@@ -184,7 +185,7 @@ function ChatBubble({
   // An animated size needs a layout event in JS for each new size. Android sends them late enough
   // that the background trails the text, so there, as with the animation off, the background fills
   // the bubble in the same layout pass as the text.
-  const sized = agent && animateSize && false;
+  const sized = agent && animateSize && !isAndroid;
   const size = useSharedValue({ width: 0, height: 0, measured: false });
   const shown = useSharedValue(collapsed ? 0 : 1);
   useEffect(() => {

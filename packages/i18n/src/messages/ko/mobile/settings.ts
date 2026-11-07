@@ -65,11 +65,17 @@ export const messages = {
   "mobile.settings.feedback.retry": "햅틱 설정 다시 저장",
   "mobile.settings.notifications.title": "알림",
   "mobile.settings.notifications.toggle": "알림 허용",
+  "mobile.settings.notifications.footer":
+    "에이전트가 작업을 마치거나, 오류로 멈추거나, 입력·승인·브라우저 단계가 필요할 때 알려 줘요. 여기나 데스크톱 앱에서 Tommy를 사용 중일 때는 알림이 오지 않아요.",
   "mobile.settings.notifications.footerAndroid":
     "에이전트가 작업을 마치거나, 오류로 멈추거나, 입력·승인·브라우저 단계가 필요할 때 알려 줘요. 여기나 데스크톱 앱에서 Tommy를 사용 중일 때는 알림이 오지 않아요.",
+  "mobile.settings.notifications.denied": "iOS 설정에서 Tommy 알림이 꺼져 있어요.",
   "mobile.settings.notifications.deniedAndroid": "Android 설정에서 Tommy 알림이 꺼져 있어요.",
+  "mobile.settings.notifications.openSettings": "iOS 설정 열기",
   "mobile.settings.notifications.openSettingsAndroid": "Android 설정 열기",
   "mobile.settings.notifications.preview": "답변 미리보기 표시",
+  "mobile.settings.notifications.previewFooter":
+    "답변의 시작 부분, 질문, 승인할 작업을 표시해요. Apple은 이 내용을 읽을 수 없어요.",
   "mobile.settings.notifications.previewFooterAndroid":
     "답변의 시작 부분, 질문, 승인할 작업을 표시해요. Google과 Tommy 계정 서비스는 이 내용을 읽을 수 없어요.",
   "mobile.settings.notifications.sound": "소리",
@@ -79,7 +85,10 @@ export const messages = {
   "mobile.settings.notifications.sound.mech": "기계음",
   "mobile.settings.notifications.sound.bubble": "뽀글뽀글",
   "mobile.settings.notifications.sound.press": "딸깍",
+  "mobile.settings.notifications.sound.default": "iOS 기본값",
   "mobile.settings.notifications.sound.defaultAndroid": "Android 기본값",
+  "mobile.settings.notifications.soundFooter":
+    "알림이 이 소리를 재생해요. Tommy 소리는 작업이 끝났을 때 데스크톱 앱이 재생하는 소리예요. 그 뒤의 네 가지 소리는 데스크톱 소리 테마의 소리예요.",
   "mobile.settings.notifications.soundFooterAndroid":
     "알림이 이 소리를 재생해요. Tommy 소리는 작업이 끝났을 때 데스크톱 앱이 재생하는 소리예요. 그 뒤의 네 가지 소리는 데스크톱 소리 테마의 소리예요.",
   "mobile.settings.notifications.level.all": "모든 활동",

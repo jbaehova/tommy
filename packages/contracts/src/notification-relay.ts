@@ -3,10 +3,9 @@ export const NOTIFICATION_SOUNDS = ["tommy", "warm", "mech", "bubble", "press", 
 export type NotificationSound = (typeof NOTIFICATION_SOUNDS)[number];
 
 /**
- * One Android notification that a host asks the Tommy account service to send through Firebase
- * Cloud Messaging. The service sends a data message with the sealed bytes and the sound only, and the
- * app opens the seal before Android shows the notification. A host credential alone,
- * without the keys of the phone, cannot make a phone show text.
+ * One Android notification that a host sends through Firebase Cloud Messaging. It is a data message
+ * with the sealed bytes and the sound only, and the app opens the seal before Android shows the
+ * notification. Google sees no text.
  */
 export interface AndroidNotificationRelayPush {
   /**
@@ -19,6 +18,26 @@ export interface AndroidNotificationRelayPush {
   /** The sealed notification, base64url. */
   sealed: string;
   /** The sound that the app plays, or `null` for none. */
+  sound: NotificationSound | null;
+  /** When the host made the notification, in seconds. */
+  timestamp: number;
+}
+
+/**
+ * One iPhone notification that a host sends to the Apple Push Notification service. The host sends
+ * the sealed bytes and the sound only, and the Notification Service Extension of the app opens the
+ * seal before iOS shows the notification. Apple sees the app name only.
+ */
+export interface IosNotificationRelayPush {
+  /** The APNs device token of the app (`IOS_PUSH_TOKEN_PATTERN` of `push-notifications-ios-v1`). */
+  token: string;
+  /** The APNs environment of the token. */
+  environment: "production" | "development";
+  /** The session of the phone on this host. */
+  sessionId: string;
+  /** The sealed notification, base64url. */
+  sealed: string;
+  /** The sound that iOS plays, or `null` for none. */
   sound: NotificationSound | null;
   /** When the host made the notification, in seconds. */
   timestamp: number;

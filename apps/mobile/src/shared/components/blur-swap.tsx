@@ -13,12 +13,13 @@ import Animated, {
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import type { TransitionMode } from "@/shared/lib/motion";
+import { isIOS } from "@/shared/lib/platform";
 
 const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
 // Only iOS draws the blur. On Android, `BlurTargetView` moves its children into a native view of its
 // own, which stops the layout animations of the rows inside, and a `BlurView` that mounts paints its
 // tint and the window background for a frame. Android sheets draw no blur at their edges either.
-const BLUR_VEIL = false;
+const BLUR_VEIL = isIOS;
 // The values of `BlurReveal`, so a swap looks like the other blurred reveals of the app. A fade for
 // reduced motion is shorter: it has no movement to show. The fade carries the change, so it stays.
 const DURATION = { blur: { enter: 240, leave: 180 }, fade: { enter: 160, leave: 120 } } as const;

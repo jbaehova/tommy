@@ -68,6 +68,7 @@ import { PROVIDERS_V4_CODECS } from "./providers-v4";
 import { PROVIDERS_V5_CODECS } from "./providers-v5";
 import { PROVIDERS_V8_CODECS } from "./providers-v8";
 import { ANDROID_PUSH_NOTIFICATIONS_CODECS } from "./push-notifications-android-v1";
+import { IOS_PUSH_NOTIFICATIONS_CODECS } from "./push-notifications-ios-v1";
 import { ROUTINE_FLOWS_CODECS } from "./routine-flows-v1";
 import { ROUTINE_RECOVERY_CODECS } from "./routine-recovery-v1";
 import { ROUTINE_RESULTS_CODECS } from "./routine-results-v1";
@@ -122,6 +123,7 @@ const CODECS: ReadonlyMap<string, OptionalRouteCodec> = new Map([
   ...INSTANCE_TRANSFER_CODECS,
   ...AGENT_PUBLISH_CODECS,
   ...ANDROID_PUSH_NOTIFICATIONS_CODECS,
+  ...IOS_PUSH_NOTIFICATIONS_CODECS,
   ...WORKSPACE_DIRECTORY_CODECS,
   ...AGENT_HOST_SETTINGS_CODECS,
   ...AGENT_BACKUP_MODELS_CODECS,

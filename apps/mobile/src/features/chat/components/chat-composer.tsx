@@ -54,6 +54,7 @@ import {
 } from "@/shared/lib/composer-metrics";
 import { haptics } from "@/shared/lib/haptics";
 import { useMotionPreference, useReducedMotion } from "@/shared/lib/motion";
+import { isAndroid } from "@/shared/lib/platform";
 import { selectionColorProps } from "@/shared/lib/selection-color";
 import { useText } from "@/shared/lib/text";
 import { editMentionDraft, insertMention, mentionDraft, mentionQuery } from "../model/chat-mentions";
@@ -656,7 +657,7 @@ export const ChatComposer = memo(function ChatComposer({
   // Android takes the focus from the field when its keyboard hides, which a drag in this list does, and
   // when the plus menu that asks for the skills closes. There the list stays while an `@` query is in
   // the text, and closes with a choice or the end of the query. iOS keeps the field focused for both.
-  const suggestionsVisible = Boolean((focused || true) && query && suggestionCount > 0 && !disabled);
+  const suggestionsVisible = Boolean((focused || isAndroid) && query && suggestionCount > 0 && !disabled);
   useEffect(() => {
     onSuggestionsVisibleChange?.(suggestionsVisible);
   }, [onSuggestionsVisibleChange, suggestionsVisible]);

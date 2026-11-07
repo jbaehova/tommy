@@ -13,6 +13,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
+import { isAndroid } from "@/shared/lib/platform";
 
 /**
  * Text in the foreground colour with a muted band that moves across it, as the desktop activity
@@ -93,9 +94,9 @@ export function ThinkingTextGradient({
           pointerEvents="none"
           style={StyleSheet.absoluteFill}
           renderToHardwareTextureAndroid
-          maskElement={copy("#000")}
+          maskElement={isAndroid ? copy("#000") : band("#000")}
         >
-          {band(muted)}
+          {isAndroid ? band(muted) : copy(muted)}
         </MaskedView>
       ) : null}
     </View>

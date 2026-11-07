@@ -1,5 +1,8 @@
 {
-  "platforms": ["android"],
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["SpeechModule"]
+  },
   "android": {
     "modules": ["run.tommy.speech.SpeechModule"]
   }

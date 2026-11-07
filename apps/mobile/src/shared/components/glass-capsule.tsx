@@ -6,6 +6,7 @@ import Animated, { cubicBezier } from "react-native-reanimated";
 import { useCSSVariable, useUniwind } from "uniwind";
 import { ChromeGlassSheen } from "@/shared/components/chrome-glass-sheen";
 import { useChromeGlass } from "@/shared/lib/chrome-glass";
+import { isAndroid } from "@/shared/lib/platform";
 
 /** The height of the bottom search capsules: home search and the Marketplace field. */
 export const GLASS_CAPSULE_HEIGHT = 52;
@@ -13,10 +14,12 @@ const CSS_EASE_SMOOTH = cubicBezier(0.32, 0.72, 0, 1);
 /** How long a tint takes to come in and to go, as the task result of home search. */
 const TINT_IN = 380;
 const TINT_OUT = 280;
+/** The shadow of the solid capsule on iOS. */
+const CAPSULE_SHADOW = "0 6px 18px rgba(0, 0, 0, 0.07)";
 /** The blur radius of the Android capsule, near the 18 px of the design; the native limit is 25. */
 const BLUR_RADIUS = 24;
 /** Android 12 and later draw the blur. Earlier versions keep the solid glass. */
-export const ANDROID_BLUR = Number(Platform.Version) >= 31;
+export const ANDROID_BLUR = isAndroid && Number(Platform.Version) >= 31;
 
 /** Glass where the system has it; a solid capsule elsewhere, and with Reduce Transparency on. */
 export function GlassCapsule({
@@ -59,7 +62,7 @@ export function GlassCapsule({
   const { theme } = useUniwind();
   const blurFill = String(useCSSVariable("--tommy-bg-chrome-blur"));
   const blurs = ANDROID_BLUR && !liquidGlass && blurTarget !== undefined && !blurPaused;
-  const fallback = milky;
+  const fallback = isAndroid ? milky : { backgroundColor: String(fallbackBackground), boxShadow: CAPSULE_SHADOW };
   return (
     <GlassView
       glassEffectStyle={
@@ -73,7 +76,7 @@ export function GlassCapsule({
       style={[
         liquidGlass ? { backgroundColor: "transparent" } : fallback,
         // The fill lies in its own layer over the blur.
-        !liquidGlass ? { backgroundColor: "transparent" } : null,
+        isAndroid && !liquidGlass ? { backgroundColor: "transparent" } : null,
         {
           borderCurve: "continuous",
           borderRadius: height / 2,
@@ -83,7 +86,7 @@ export function GlassCapsule({
         },
       ]}
     >
-      {!liquidGlass ? (
+      {isAndroid && !liquidGlass ? (
         // The blur stays mounted while the field is solid: a `BlurView` that mounts paints its tint
         // and the window background for a frame. The solid fill then covers it, and the blur method
         // `none` stops the blur, which otherwise blurs the whole target on each frame that it changes.

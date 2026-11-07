@@ -1,12 +1,12 @@
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { type RefObject, useEffect } from "react";
-import { Dimensions, type ScaledSize } from "react-native";
+import { Dimensions, Platform, type ScaledSize } from "react-native";
 
 /**
  * An iPhone window changes width only when iPhone Duo folds or unfolds: other iPhones keep the app in
  * portrait. iPad and Android keep the list as it is.
  */
-const FOLDS = false;
+const FOLDS = Platform.OS === "ios" && !Platform.isPad;
 /** The frames over which the rows measure again at the new width, and the list keeps its place. */
 const SETTLE_FRAMES = 12;
 

@@ -6,6 +6,7 @@ import {
 } from "@tommy/contracts/ipc";
 import {
   type AndroidNotificationRelayPush,
+  type IosNotificationRelayPush,
   NOTIFICATION_SEALED_LIMIT,
   type NotificationSound,
 } from "@tommy/contracts/notification-relay";
@@ -33,7 +34,12 @@ import {
 } from "@tommy/team-client/push-notification-seal";
 import { Effect, Exit, Fiber, Result, Schema, Scope } from "effect";
 import { isNoUpdateAnswer } from "../backend/agent/routine-quiet-runs";
-import type { PushNotificationStore, PushTarget, StoredPushRegistration } from "./push-notification-store";
+import type {
+  PushNotificationStore,
+  PushPlatform,
+  PushTarget,
+  StoredPushRegistration,
+} from "./push-notification-store";
 import type { TeamApiAgents } from "./team-api/dependencies";
 import { markerExclusionsForCapabilities } from "./team-api/request-helpers";
 
@@ -57,13 +63,12 @@ const HELD_EVENT_LIMIT = 20;
  * that it is back. The kept events wait this long, so the phone does not show them on screen.
  */
 const HELD_FLUSH_DELAY_MS = 3_000;
-/** A notification that Google did not take is sent again after these times. */
+/** A notification that Google or Apple did not take is sent again after these times. */
 const RESEND_DELAYS_MS = [10_000, 60_000] as const;
 
-export interface NotificationRelayRequest {
-  platform: "android";
-  push: AndroidNotificationRelayPush;
-}
+export type NotificationRelayRequest =
+  | { platform: "android"; push: AndroidNotificationRelayPush }
+  | { platform: "ios"; push: IosNotificationRelayPush };
 
 type PushNotificationAgents = Pick<
   TeamApiAgents,
@@ -73,6 +78,8 @@ type PushNotificationAgents = Pick<
 interface PushNotificationOptions {
   agents: PushNotificationAgents;
   store: Pick<PushNotificationStore, "list" | "replace">;
+  /** The phones that this server can reach: Android with a Firebase key, iPhone with an APNs key. */
+  platforms: ReadonlySet<PushPlatform>;
   /** Sends one notification. `gone` means the phone gets no more. */
   send(request: NotificationRelayRequest): Effect.Effect<"sent" | "gone", PushNotificationSendFailure>;
   /** The agents that the member's phone with this protocol and these capabilities cannot see. */
@@ -132,16 +139,16 @@ interface Registration {
 }
 
 /**
- * Sends a notification to a member's Android phone when an agent that the member can see
+ * Sends a notification to a member's phone when an agent that the member can see
  * finishes, fails, cannot start a message, or waits for input, an approval or a browser step, while
  * the app is not on screen.
  * It decides as the desktop does (`notificationForAgentEvent`): the member's level, the agent's own
  * switch, and no notification for a quiet routine run. It sends nothing while a window of the member's
  * desktop app has focus (`desktop-focus-v1`). The agent name and the text are sealed for the phone, so
- * Google sees the token, the time, and sealed bytes only.
+ * Google and Apple see the token, the time, and sealed bytes only.
  *
  * The phones are kept in a file, so they get notifications after this computer restarts, also when
- * they do not connect again. The account service sends nothing for a session that has ended.
+ * they do not connect again.
  */
 export class PushNotificationService {
   readonly #options: PushNotificationOptions;
@@ -163,7 +170,15 @@ export class PushNotificationService {
     this.#now = options.now ?? Date.now;
   }
 
-  /** Reads the saved phones when the host starts. They count as away until they connect again. */
+  /** Whether this server sends notifications to phones of `platform`. */
+  sends(platform: PushPlatform): boolean {
+    return this.#options.platforms.has(platform);
+  }
+
+  /**
+   * Reads the saved phones when the host starts. They count as away until they connect again. A phone
+   * of a platform that the server no longer reaches, as after its key was removed, stays in the file.
+   */
   start(): void {
     this.#running = true;
     for (const stored of this.#options.store.list()) {
@@ -275,6 +290,8 @@ export class PushNotificationService {
         });
         return false;
       };
+      // The key of this platform was removed. The phone gets notifications again when it comes back.
+      if (!this.sends(registration.stored.platform)) return skip("platform-not-configured");
       // While the app is on screen, it shows the event itself.
       if (!value.away && registration.connected) {
         if (!only) this.#hold(registration, event, now);
@@ -378,7 +395,7 @@ export class PushNotificationService {
       sealed = sealPushNotification(short, keys, this.#options.randomBytes(NOTIFICATION_NONCE_BYTES));
     }
     const request = relayRequest(stored, sealed, Math.floor(this.#now() / 1_000));
-    // A short fault at Google refuses one send.
+    // A short fault at Google or Apple refuses one send.
     for (let attempt = 0; ; attempt += 1) {
       const result = yield* Effect.result(this.#options.send(request));
       if (Result.isSuccess(result)) {
@@ -387,7 +404,7 @@ export class PushNotificationService {
           result: result.success,
           bytes: sealed.length,
         });
-        // The app was removed, or Google refused the token.
+        // The app was removed, or Google or Apple refused the token.
         if (result.success === "gone" && this.#registrations.get(stored.sessionId) === registration) {
           this.remove(stored.sessionId);
         }
@@ -499,7 +516,20 @@ function soundOf(value: StoredPushRegistration["value"]): NotificationSound | nu
 }
 
 function relayRequest(stored: StoredPushRegistration, sealed: string, timestamp: number): NotificationRelayRequest {
-  const { sessionId, value } = stored;
+  const { sessionId } = stored;
+  if (stored.platform === "ios") {
+    const { value } = stored;
+    const push = {
+      token: value.token,
+      environment: value.environment,
+      sessionId,
+      sealed,
+      sound: soundOf(value),
+      timestamp,
+    };
+    return { platform: "ios", push };
+  }
+  const { value } = stored;
   return { platform: "android", push: { token: value.token, sessionId, sealed, sound: soundOf(value), timestamp } };
 }
 

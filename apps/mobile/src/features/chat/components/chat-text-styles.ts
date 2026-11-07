@@ -1,4 +1,4 @@
-import { StyleSheet, type TextStyle } from "react-native";
+import { Platform, StyleSheet, type TextStyle } from "react-native";
 import { APP_FONT } from "@/shared/lib/app-font";
 
 export type ChatTextType = "body" | "body-sm" | "h4" | "h5";
@@ -17,7 +17,7 @@ export const CHAT_TEXT_STYLES = StyleSheet.create({
 /** The iOS Dynamic Type style of each heading. */
 export const CHAT_HEADING_RAMP = { h4: "title3", h5: "headline" } as const;
 
-const CODE_FONT = "monospace";
+const CODE_FONT = Platform.OS === "ios" ? "Menlo" : "monospace";
 
 /**
  * Inline code. Its chip adds one point above and below, so a chip is as tall as the line of the
