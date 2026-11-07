@@ -1,4 +1,5 @@
-# Remote production keys retain their existing copy behavior.
-remote/.env.keys
+# Ignored files that a new worktree copies from the main checkout (see scripts/prepare-dev-environment.ts).
+# Local settings and keys of this computer, such as the Firebase values of an Android build.
+.env
 # Reuse the local identity. Existing worktree state is never replaced.
 .tommy/dev-state.json
