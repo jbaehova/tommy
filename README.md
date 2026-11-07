@@ -160,12 +160,14 @@ Build it on the server from a checkout, then install it as root:
 ```bash
 bun install --frozen-lockfile
 bun run package:linux
-sudo bash scripts/hosting/tommy-install dist/linux-unpacked
+sudo bash scripts/hosting/tommy-install dist/linux-unpacked https://tommy.example.com
 sudo tommy pair
 ```
 
 `tommy-install` creates the `tommy` system user, installs the app in `/opt/Tommy`, keeps its data
-in `/var/lib/tommy`, and starts `tommy.service`. Run it again to upgrade; the data stays.
+in `/var/lib/tommy`, and starts `tommy.service`. The second argument is the public HTTPS address of
+the server; it is kept in `/etc/tommy/server.env`, so an upgrade can leave it out. Run it again to
+upgrade; the data stays.
 `sudo tommy pair` shows a one-time code and a QR code for a new device. `tommy` with no arguments
 lists the other commands (`status`, `devices`, `revoke-device`, `logs`, `restart`).
 

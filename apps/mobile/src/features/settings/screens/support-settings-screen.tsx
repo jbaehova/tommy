@@ -13,9 +13,6 @@ import { formatSupportLogEntry, type SupportLogLevel, supportLog } from "@/featu
 import { clearSupportLog, supportLogFileText } from "@/features/support/model/support-log-capture";
 import { useText } from "@/shared/lib/text";
 
-/** The Tommy account, the same contact as the website. */
-const SUPPORT_X_HANDLE = "@Tommy_";
-const SUPPORT_X_URL = "https://x.com/Tommy_";
 const ISSUES_URL = "https://github.com/jbaehova/tommy/issues/new";
 /** The screen shows the newest events. The saved file has all of them. */
 const SHOWN_ENTRIES = 100;
@@ -72,9 +69,6 @@ export function SupportSettingsScreen() {
       <SettingsSection title={t("mobile.settings.support.help")} footer={t("mobile.settings.support.helpFooter")}>
         <SettingsRow onPress={() => open(ISSUES_URL)}>
           <Typography.Paragraph>{t("mobile.settings.support.issues")}</Typography.Paragraph>
-        </SettingsRow>
-        <SettingsRow onPress={() => open(SUPPORT_X_URL)} supportingText={SUPPORT_X_HANDLE}>
-          <Typography.Paragraph>{t("mobile.settings.support.message")}</Typography.Paragraph>
         </SettingsRow>
         {linkError ? <SettingsNote>{linkError}</SettingsNote> : null}
       </SettingsSection>

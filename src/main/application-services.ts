@@ -161,7 +161,6 @@ import {
   ManagedSkillService,
   retireManagedSkills,
   SKILL_CREATOR_SKILL_SLUG,
-  T3_SKILL_SLUG,
 } from "./managed-skill-service";
 import { McpHostSignIns } from "./mcp-host-sign-ins";
 import { McpOAuthProxySettingsFile } from "./mcp-oauth-proxy-store";
@@ -617,18 +616,9 @@ export async function createApplicationServices({
     undefined,
     DATA_SKILL_SLUG,
   );
-  const t3Skill = new ManagedSkillService(
-    app.isPackaged
-      ? join(process.resourcesPath, "managed-skills", T3_SKILL_SLUG, "SKILL.md")
-      : resolve(__dirname, `../../resources/managed-skills/${T3_SKILL_SLUG}/SKILL.md`),
-    undefined,
-    undefined,
-    T3_SKILL_SLUG,
-  );
   await Effect.runPromise(retireManagedSkills(store.list()));
   await Effect.runPromise(skillCreator.syncAll(store.list()));
   await Effect.runPromise(dataSkill.syncAll(store.list()));
-  await Effect.runPromise(t3Skill.syncAll(store.list()));
   performance.mark("tommy:services.skills");
   const sidebarLayout = new SidebarLayoutStore(join(app.getPath("userData"), SIDEBAR_LAYOUT_FILE));
   await runCauseEffect(sidebarLayout.initialize());
@@ -1048,7 +1038,6 @@ export async function createApplicationServices({
       Effect.gen(function* () {
         yield* skillCreator.syncAgent(agent);
         yield* dataSkill.syncAgent(agent);
-        yield* t3Skill.syncAgent(agent);
       }),
     sidebarLayout,
     preferredModel: setupState.preferredModel,

@@ -1,7 +1,11 @@
 #!/bin/bash
 # Installs the unpacked Linux build as Tommy, as root, from the root of a built checkout:
 #
-#   bash scripts/hosting/tommy-install dist/linux-unpacked
+#   bash scripts/hosting/tommy-install dist/linux-unpacked [https://tommy.example.com]
+#
+# The optional second argument is the public HTTPS address of the server (the one that
+# nginx-tommy.conf serves). It goes into /etc/tommy/server.env, and pairing codes name it. Give it
+# again only to change it.
 #
 # Each path, the user and the unit are its own, so a Tommy install on the same computer keeps
 # running. Run it again to upgrade. The data in /var/lib/tommy stays.
@@ -9,11 +13,16 @@ set -euo pipefail
 
 SOURCE=$(cd "$(dirname "$0")" && pwd)
 RELEASE=${1:?Name the unpacked build.}
+PUBLIC_URL=${2:-}
 INSTALL=/opt/Tommy
 USER_NAME=tommy
 
 [ "$(id -u)" -eq 0 ] || { echo "Run this as root." >&2; exit 1; }
 [ -x "$RELEASE/tommy" ] || { echo "$RELEASE has no tommy executable." >&2; exit 1; }
+case "$PUBLIC_URL" in
+  "" | https://*) ;;
+  *) echo "The public address must start with https://." >&2; exit 1 ;;
+esac
 id "$USER_NAME" >/dev/null 2>&1 ||
   useradd --system --create-home --home-dir "/var/lib/$USER_NAME" --shell /bin/bash "$USER_NAME"
 
@@ -45,17 +54,13 @@ install -m 0755 "$SOURCE/tommy-server" "$INSTALL/hosted/tommy-server"
 install -m 0755 "$SOURCE/tommy" "$INSTALL/hosted/tommy"
 ln -sfn "$INSTALL/hosted/tommy" /usr/local/bin/tommy
 
-# T3 Code on this server, when it is installed. The agents reach it only through tommy-t3.
-if [ -x /home/t3code/.local/bin/t3 ]; then
-  install -m 0755 "$SOURCE/tommy-t3" "$INSTALL/hosted/tommy-t3"
-  install -m 0755 "$SOURCE/tommy-t3-rpc" "$INSTALL/hosted/tommy-t3-rpc"
-  install -m 0755 "$SOURCE/tommy-t3-mac" "$INSTALL/hosted/tommy-t3-mac"
-  ln -sfn "$INSTALL/hosted/tommy-t3" /usr/local/bin/vps-t3
-  rule=$(mktemp)
-  echo "$USER_NAME ALL=(t3code) NOPASSWD: $INSTALL/hosted/tommy-t3" >"$rule"
-  visudo -cf "$rule" >/dev/null
-  install -m 0440 "$rule" /etc/sudoers.d/tommy-t3
-  rm -f "$rule"
+# The settings of this server that are not secret. The unit reads them.
+install -d -m 0755 /etc/tommy
+if [ -n "$PUBLIC_URL" ]; then
+  printf 'TOMMY_PUBLIC_URL=%s\n' "$PUBLIC_URL" >/etc/tommy/server.env
+  chmod 0644 /etc/tommy/server.env
+elif ! grep -qs '^TOMMY_PUBLIC_URL=https://' /etc/tommy/server.env; then
+  echo "No public address is set, so pairing codes name no server. Run this again with the address." >&2
 fi
 install -m 0644 "$SOURCE/tommy.service" /etc/systemd/system/tommy.service
 # The keys that the agents use (OP_SERVICE_ACCOUNT_TOKEN and others), one per line. Each agent gets them.
