@@ -10,8 +10,11 @@ import { DevicePairing, LanguageStep } from "./lazy-views";
 import { usePlatform } from "./platform";
 import { WorkspaceShell } from "./WorkspaceShell";
 
-/** The one server of this app. The pairing screen starts with it, and the user can change it. */
-const DEFAULT_SERVER_ADDRESS = "tommy.example.com";
+/**
+ * The server that the pairing screen starts with. A build sets it with
+ * `RENDERER_VITE_DEFAULT_SERVER_ADDRESS` in the root `.env`; without it the field starts empty.
+ */
+const DEFAULT_SERVER_ADDRESS = import.meta.env.RENDERER_VITE_DEFAULT_SERVER_ADDRESS?.trim() ?? "";
 
 /** The placeholder every lazy view below falls back to while its code loads. */
 function LoadingScreen() {

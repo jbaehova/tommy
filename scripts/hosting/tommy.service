@@ -1,4 +1,4 @@
-# Tommy on the VPS. `tommy-install` installs this unit. Nginx holds TLS on port 443 and forwards
+# Tommy on a Linux server. `tommy-install` installs this unit. Nginx holds TLS on port 443 and forwards
 # the device paths to the gateway on loopback. See nginx-tommy.conf.
 [Unit]
 Description=Tommy server
@@ -11,7 +11,8 @@ User=tommy
 RuntimeDirectory=tommy
 RuntimeDirectoryMode=0700
 Environment=XDG_RUNTIME_DIR=/run/tommy
-Environment=TOMMY_PUBLIC_URL=https://tommy.example.com
+# TOMMY_PUBLIC_URL, the public HTTPS address. `tommy-install` writes it.
+EnvironmentFile=-/etc/tommy/server.env
 # The command line tools of the agents and the one key file. See scripts/hosting/tommy-install.
 Environment=PATH=/var/lib/tommy/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EnvironmentFile=-/var/lib/tommy/.config/tommy/agent.env
