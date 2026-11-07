@@ -167,11 +167,11 @@ POST complete {flowId, query} ----------------> check state, give code to McpOAu
 | Loopback listener checks (Host, method, path) | [`src/main/loopback-callback-server.ts`](../../src/main/loopback-callback-server.ts) |
 | Desktop IPC (`servers:mcp:sign-in-relay`, `servers:mcp:open-sign-in-relay`, `servers:mcp:complete-sign-in-relay`) | [`src/main/ipc/mcp-server-handlers.ts`](../../src/main/ipc/mcp-server-handlers.ts) |
 | Paste dialog | `McpSignInRelayDialog` in [`packages/ui/src/features/settings/McpSignInPage.tsx`](../../packages/ui/src/features/settings/McpSignInPage.tsx) |
-| Browser client (paste only) | [`src/renderer/src/features/web-client/web-server-settings.ts`](../../src/renderer/src/features/web-client/web-server-settings.ts) |
-| Marketplace | [`src/renderer/src/features/settings/marketplace-controller.ts`](../../src/renderer/src/features/settings/marketplace-controller.ts), [`web-marketplace.ts`](../../src/renderer/src/features/web-client/web-marketplace.ts) |
+| Browser client (paste only) | `src/renderer/src/features/web-client/web-server-settings.ts` |
+| Marketplace | `src/renderer/src/features/settings/marketplace-controller.ts`, `web-marketplace.ts` |
 | Provider page capture on the host (`BROWSER` command, ACP link) | [`src/backend/agent/browser-capture.ts`](../../src/backend/agent/browser-capture.ts), [`src/main/provider-host-sign-ins.ts`](../../src/main/provider-host-sign-ins.ts) |
-| Provider Connect on a joined server | [`src/main/ipc/provider-admin-handlers.ts`](../../src/main/ipc/provider-admin-handlers.ts), [`web-provider-relay.ts`](../../src/renderer/src/features/web-client/web-provider-relay.ts) |
-| Agent links (`agent:open-message-link`, `agent:paste-message-link`, `agent:cancel-message-link`) | [`src/main/message-link-relay.ts`](../../src/main/message-link-relay.ts), [`web-message-link-relay.ts`](../../src/renderer/src/features/web-client/web-message-link-relay.ts) |
+| Provider Connect on a joined server | [`src/main/ipc/provider-admin-handlers.ts`](../../src/main/ipc/provider-admin-handlers.ts), `web-provider-relay.ts` |
+| Agent links (`agent:open-message-link`, `agent:paste-message-link`, `agent:cancel-message-link`) | [`src/main/message-link-relay.ts`](../../src/main/message-link-relay.ts), `web-message-link-relay.ts` |
 
 ### How the client takes the callback
 
@@ -313,12 +313,12 @@ state on each of them.
 
 | Connector | Service | Sign-in | Contract |
 | --- | --- | --- | --- |
-| GitHub | [`github-connector-service.ts`](../../src/main/github-connector-service.ts), `github-device-flow.ts` | Device flow of a GitHub App with only the public client ID | `ipc-github-connector.ts`; joined server: `connectors-v1` GitHub routes |
+| GitHub | `github-connector-service.ts`, `github-device-flow.ts` | Device flow of a GitHub App with only the public client ID | `ipc-github-connector.ts`; joined server: `connectors-v1` GitHub routes |
 | Slack | `src/backend/messaging/slack/` | Hosted OAuth in the account Worker, which ends in `tommy://slack-workspace` with a sealed grant | `slack-workspace-grant.ts`, `ipc-messaging.ts` |
 | Discord | `src/backend/messaging/discord/` | The same, with `tommy://discord-guild` | `discord-guild-grant.ts`, `ipc-messaging.ts` |
 | Telegram | `src/backend/messaging/telegram/` | A one-use link code in a `t.me` link. No OAuth | `telegram-app.ts`, `ipc-messaging.ts` |
-| 1Password | [`onepassword-connector-service.ts`](../../src/main/onepassword-connector-service.ts) | The user's `op` session creates a read-only service account, or the user pastes a token | `ipc-onepassword-connector.ts`; joined server: `onepassword-connector-v1` (token only) |
-| Bitwarden | [`bitwarden-connector-service.ts`](../../src/main/bitwarden-connector-service.ts) | A `bw` session key, kept in memory only; a joined server signs in with an API key and the master password | `ipc-bitwarden-connector.ts`; joined server: `bitwarden-connector-v1` |
+| 1Password | `onepassword-connector-service.ts` | The user's `op` session creates a read-only service account, or the user pastes a token | `ipc-onepassword-connector.ts`; joined server: `onepassword-connector-v1` (token only) |
+| Bitwarden | `bitwarden-connector-service.ts` | A `bw` session key, kept in memory only; a joined server signs in with an API key and the master password | `ipc-bitwarden-connector.ts`; joined server: `bitwarden-connector-v1` |
 
 To add a connector:
 
@@ -331,24 +331,24 @@ To add a connector:
    (`tommy://...`) reaches only the computer that opened the page. Add its kind to
    [`deep-link-router.ts`](../../src/main/deep-link-router.ts), and keep a grant out of the renderer.
 4. Add the id to `CONNECTOR_IDS` and its entry to `CONNECTORS` in
-   [`connectors.ts`](../../packages/ui/src/features/connectors/connectors.ts). `server` is the capability that
+   `connectors.ts`. `server` is the capability that
    lets a joined server run it, or `null` when only the user's own computer can, as for a vault app.
-   [`connector-access.ts`](../../src/renderer/src/features/connectors/connector-access.ts) reads it;
+   `connector-access.ts` reads it;
    no surface has its own gate.
 5. Add its name, tagline, Marketplace category and mark to `CONNECTOR_LISTINGS` in
-   [`connector-catalog.tsx`](../../packages/ui/src/features/connectors/connector-catalog.tsx), its
+   `connector-catalog.tsx`, its
    panel to `ConnectorDetail` and `ConnectorDetailPanel`, and its row state to `connectorSummary`.
 6. Add a controller (`ConnectorController` in
-   [`connector-controller.ts`](../../src/renderer/src/features/connectors/connector-controller.ts)),
+   `connector-controller.ts`),
    with `createConnectorActions` for its actions, and create it in `createConnectorSet` in
-   [`connector-registry.ts`](../../src/renderer/src/features/connectors/connector-registry.ts).
+   `connector-registry.ts`.
    `connect` is the one-click Connect of a Marketplace card; leave it out when the panel must ask
    for input first. `watch` follows a state that changes with no event from main. The type checker
    names each place that still misses the new id.
 7. Add the text keys in all languages and a `changelog.d/<branch>.md` file. Update `PRIVACY.md`
    when the connector sends new data out.
 
-[`connectors-context.tsx`](../../src/renderer/src/features/connectors/connectors-context.tsx) makes
+`connectors-context.tsx` makes
 two registries on the desktop: one for the server on screen (Marketplace and chat cards) and one
 for the server whose settings are open. The browser client makes one in `WebWorkspace.tsx`. A
 registry gives each connector its access: `available` with its controller, `local-only`,
@@ -356,7 +356,7 @@ registry gives each connector its access: `available` with its controller, `loca
 
 On a joined server, the optional capability `connectors-v1`
 ([`connectors-v1.ts`](../../packages/contracts/src/team-protocol/connectors-v1.ts), host route
-[`route-connectors.ts`](../../src/main/team-api/route-connectors.ts)) carries GitHub, Slack, Discord
+`route-connectors.ts`) carries GitHub, Slack, Discord
 and Telegram:
 
 - **GitHub**: the host runs the device flow. The client shows `userCode` and opens
@@ -364,7 +364,7 @@ and Telegram:
 - **Slack and Discord**: the host answers the install page and a `nonce`, and opens nothing. The
   client opens the page. The install ends in an `tommy://` link on the client, with a grant that is
   sealed to a one-use key of the host. `RelayedMessagingInstalls`
-  ([`relayed-messaging-installs.ts`](../../src/main/relayed-messaging-installs.ts)) sends the grant
+  (`relayed-messaging-installs.ts`) sends the grant
   with `messagingComplete` only to the server whose install this computer opened, and only once. The
   client cannot open the grant.
 - **Telegram**: the client opens the `t.me` link. There is no callback.
@@ -375,7 +375,7 @@ is frozen once it ships.
 
 The optional capability `discord-access-v1`
 ([`discord-access-v1.ts`](../../packages/contracts/src/team-protocol/discord-access-v1.ts), host route
-[`route-discord-access.ts`](../../src/main/team-api/route-discord-access.ts)) reads and sets which
+`route-discord-access.ts`) reads and sets which
 Discord roles can use Tommy in each Discord server of the host, and lists the server's roles through
 Signal (`listRoles`). The host keeps the list in `projection_messaging_allowed_roles`. An empty list
 lets everyone. With a list, `MessagingService` ignores a mention from a member who has none of the
@@ -383,8 +383,8 @@ roles, before it reacts or posts. Signal passes the author's role IDs with each 
 from an older Signal has none, so a server with a list ignores it.
 
 The optional capability `onepassword-connector-v1`
-([`onepassword-connector-v1.ts`](../../packages/contracts/src/team-protocol/onepassword-connector-v1.ts),
-host route [`route-onepassword-connector.ts`](../../src/main/team-api/route-onepassword-connector.ts))
+(`onepassword-connector-v1.ts`,
+host route `route-onepassword-connector.ts`)
 carries 1Password. A server often has no screen for the 1Password app, so an owner or admin pastes a
 service account token in Marketplace › Apps › 1Password. The token goes to the host once, in `connect`. The
 host checks it with 1Password and keeps it in its own encrypted store. No answer carries it. Status
@@ -393,8 +393,8 @@ and disconnect act on that host only. A host older than this capability hides 1P
 ### Bitwarden on a joined server
 
 The optional capability `bitwarden-connector-v1`
-([`bitwarden-connector-v1.ts`](../../packages/contracts/src/team-protocol/bitwarden-connector-v1.ts),
-host route [`route-bitwarden-connector.ts`](../../src/main/team-api/route-bitwarden-connector.ts))
+(`bitwarden-connector-v1.ts`,
+host route `route-bitwarden-connector.ts`)
 carries Bitwarden and self-hosted Vaultwarden. A session key unlocks only the CLI data of the
 computer that made it, so the host signs in with its own `bw`. An owner or admin enters the server
 address, the personal API key and the master password in Marketplace › Apps › Bitwarden. They go to the host
@@ -403,7 +403,7 @@ first sign-in can download `bw` and sync the vault for longer than the 15-second
 client reads `status` every 2 seconds until the state changes. The host stores the record only after
 it unlocks the vault and finds the folder `Shared with Tommy`, and unlocks again from it after a
 restart. The host must reach the server address over HTTPS; the instance firewall of
-[several instances on one host](../docker.md#several-instances-on-one-host) blocks private
+several instances on one host blocks private
 addresses. A host older than this capability hides Bitwarden.
 
 The phone uses the same routes in Server settings › Connectors › Bitwarden

@@ -416,7 +416,7 @@ No account API, Signal, IPC contract, or database migration changes are required
 ## Messaging connections
 
 The agents of a computer can answer in an external chat platform: Slack, Discord (see **Discord**
-below) and Telegram. [messaging.md](../messaging.md) has the setup, the limits and how to add a
+below) and Telegram. messaging.md has the setup, the limits and how to add a
 platform. Every workspace
 installs the one Tommy Slack app (`apps/slack-app`), and the workspace is linked to the host that
 connected it. People mention @Tommy or send it a direct message. The workspace's Slack Orchestrator,
@@ -551,7 +551,7 @@ transport for its events. `messaging-types.ts` is the seam; the core never reads
   because the install returns to the host's own browser. A live connection does not count as use:
   a hosted server sleeps, and Signal starts it for the next message that addresses Tommy and keeps
   that message, sealed to the host, until the host connects
-  ([Connector events](../hosted-servers.md#connector-events)). **Apps → Discord** is the same page for Discord
+  (Connector events). **Apps → Discord** is the same page for Discord
   (`SlackIntegrationPanel` with `platform="discord"`). **Apps → Telegram** has its own page
   (`TelegramIntegrationPanel`), with one row per chat and one orchestrator for all chats.
 

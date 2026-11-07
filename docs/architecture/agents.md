@@ -4,7 +4,7 @@
 
 `src/main/automation-server.ts` is a loopback HTTP listener through which a local script sends
 messages, runs routines, and answers pending questions and approvals for an enabled agent. It also
-reads delivery results, changes the agent's model and account, and starts a new chat. [docs/automation.md](../automation.md) has the routes and the
+reads delivery results, changes the agent's model and account, and starts a new chat. docs/automation.md has the routes and the
 commands. The listener runs only while at least one agent has `allowAutomation`, and binds
 `127.0.0.1` on a free port. It writes the URL and a new bearer token to `<userData>/automation/`
 (folder `0700`, files `0600`) and deletes them when it stops. It refuses any request with an
