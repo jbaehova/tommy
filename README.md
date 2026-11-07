@@ -56,8 +56,7 @@ and pairs them. It asks you before it changes the system. You can talk to it in 
 
 - Install by hand: [docs/INSTALL.md](docs/INSTALL.md) is the same guide, written for people too.
 - Download the apps: [Releases](https://github.com/jbaehova/tommy/releases/latest) has the Mac app
-  (signed and notarized), the Android APK and the Linux AppImage. The server still needs the
-  install steps above.
+  (signed and notarized) and the Android APK. The server still needs the install steps above.
 
 ## Features
 
