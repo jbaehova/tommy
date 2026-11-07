@@ -18,9 +18,9 @@ A smoke test does not replace tests or CI. Do not run broad checks here.
 - Run `node --version`. Node 24 is necessary.
 - Prefix each `bun run dev*` command with `env -u ELECTRON_RUN_AS_NODE`.
   An agent shell can leak this variable, and then Electron starts as Node.
-- In a fresh worktree, run `bun run dev:bootstrap` once. When it reports a
-  missing `.env.keys`, copy the file from the main checkout. Do not
-  create a new one.
+- In a fresh worktree, run `bun run dev:prepare` once. It copies the files
+  that `.worktreeinclude` lists (such as `.env`) from the main checkout and
+  installs the packages. Do not create a new `.env`.
 
 ## Step 1 — Find what to test
 
