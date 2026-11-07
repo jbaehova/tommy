@@ -34,7 +34,6 @@ export const messages = {
   "onboarding.error.cancelDownload": "Tommy가 {provider} 다운로드를 취소하지 못했어요. 다시 시도해 주세요.",
   "onboarding.error.refresh": "Tommy가 로컬 AI 제공자를 새로 고치지 못했어요. 다시 시도해 주세요.",
   "onboarding.toast.connecting": "{provider}에 연결하는 중이에요. 브라우저 창이 열리면 로그인을 마쳐 주세요.",
-  "onboarding.progress": "온보딩 {total}단계 중 {step}단계",
   "onboarding.action.connect": "연결",
   "onboarding.server.title": "{server} 설정",
   "onboarding.server.description":

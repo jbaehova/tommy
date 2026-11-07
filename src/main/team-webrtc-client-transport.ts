@@ -618,7 +618,7 @@ export class TeamWebRtcClientTransport extends EventEmitter<TeamWebRtcClientTran
       clearTimeout(pending.timer);
       this.#pending.delete(requestId);
       pending.reject(
-        new TeamWebRtcRequestError(503, "remote_disconnected", sourceText("error.remote.hostDisconnected")),
+        new TeamWebRtcRequestError(503, "remote_disconnected", sourceText("error.remote.serverDisconnected")),
       );
     }
     if (active?.expirationTimer) clearTimeout(active.expirationTimer);
@@ -1131,7 +1131,7 @@ export class TeamWebRtcClientTransport extends EventEmitter<TeamWebRtcClientTran
     // The handshake started on the channel that closed, and a new channel does not start it again.
     // Without this, the attempt and each caller that joined it waited for the 30 s timeout.
     if (!active.connected && active.authentication?.started)
-      active.cancelConnectionWait?.(new Error(sourceText("error.remote.hostDisconnected")));
+      active.cancelConnectionWait?.(new Error(sourceText("error.remote.serverDisconnected")));
     this.#files.setPeerAuthenticated(hostId, false);
     active.connected = false;
     this.#lastEventSequence.delete(hostId);
@@ -1140,7 +1140,7 @@ export class TeamWebRtcClientTransport extends EventEmitter<TeamWebRtcClientTran
       clearTimeout(pending.timer);
       this.#pending.delete(requestId);
       pending.reject(
-        new TeamWebRtcRequestError(503, "remote_disconnected", sourceText("error.remote.hostDisconnected")),
+        new TeamWebRtcRequestError(503, "remote_disconnected", sourceText("error.remote.serverDisconnected")),
       );
     }
     this.emit("disconnected", hostId);

@@ -4,16 +4,6 @@ export const messages = defineMessages("mobile.server", {
   "mobile.server.drawer.routines": "Routines",
   "mobile.server.drawer.usage": "Usage",
   "mobile.server.drawer.serverSettings": "Server settings",
-  // The cloud server that Tommy runs for the user, with a paid plan. The phone shows the plans and
-  // the servers of the account; the purchase is in Tommy on the computer.
-  // The name of a server before the first read of its name.
-  // {members}, {storage}, {sites} and {speed} are the texts of the four facts of a plan.
-  // The steps on the desktop app. The names after "Settings" are the desktop Settings tabs and buttons.
-  // The plan and the billing period of one server of the account, such as "Standard · Yearly". {date} is a date.
-  // For screen readers, after the name of a setup step.
-  "mobile.server.role.owner": "owner",
-  "mobile.server.role.admin": "admin",
-  "mobile.server.role.member": "member",
   "mobile.server.role.ownerLabel": "Owner",
   "mobile.server.role.adminLabel": "Admin",
   "mobile.server.role.memberLabel": "Member",
@@ -58,8 +48,6 @@ export const messages = defineMessages("mobile.server", {
   "mobile.server.threads.section.read": "Read",
   "mobile.server.threads.section.closed": "Archived",
   "mobile.server.threads.showAll": { one: "Show all ({count})", other: "Show all ({count})" },
-  "mobile.server.drawer.threadsUnread": { one: "{count} unread", other: "{count} unread" },
-  "mobile.server.drawer.threadsWorking": { one: "{count} working", other: "{count} working" },
   "mobile.server.threads.new": "New thread",
   "mobile.server.threads.agentTitle": "{name}’s threads",
   "mobile.server.threads.rowMetaTime": "{agent} · {status} · {when}",

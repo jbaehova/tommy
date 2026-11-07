@@ -75,7 +75,6 @@ export const messages = defineMessages("sidebar", {
   "sidebar.channel.noMessages": "No messages yet",
   "sidebar.channel.workingPreview": "Working · {preview}",
   "sidebar.channel.unread": { one: "{count} unread message", other: "{count} unread messages" },
-  "sidebar.people.unread": { one: "{count} unread direct message", other: "{count} unread direct messages" },
   "sidebar.state.working": "Thinking",
   "sidebar.state.responded": "Responded",
   "sidebar.state.unread": { one: "{count} new reply", other: "{count} new replies" },

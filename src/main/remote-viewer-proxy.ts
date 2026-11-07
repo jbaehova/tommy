@@ -239,7 +239,7 @@ export class RemoteViewerProxy {
     for (const [streamId, stream] of this.#streams) {
       if (stream.serverId !== serverId) continue;
       this.#streams.delete(streamId);
-      stream.socket.close(1011, sourceText("error.remote.hostDisconnected"));
+      stream.socket.close(1011, sourceText("error.remote.serverDisconnected"));
     }
   };
 
