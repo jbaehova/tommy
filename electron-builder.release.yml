@@ -1,0 +1,11 @@
+# The release build of CI (.github/workflows/release.yml). It adds Developer ID signing, the
+# hardened runtime and notarization to electron-builder.yml. The certificate comes from CSC_LINK
+# and CSC_KEY_PASSWORD, and notarization from APPLE_API_KEY, APPLE_API_KEY_ID and APPLE_API_ISSUER.
+extends: electron-builder.yml
+mac:
+  # Any "Developer ID Application" certificate in the keychain that electron-builder makes from CSC_LINK.
+  identity: Developer ID Application
+  hardenedRuntime: true
+  notarize: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist

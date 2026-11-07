@@ -67,7 +67,8 @@ toolsets:
 mac:
   category: public.app-category.productivity
   minimumSystemVersion: "13.0"
-  # For the developer only: no Developer ID, no notarization. Ad hoc signing is the arm64 minimum.
+  # A local build is signed ad hoc, the arm64 minimum, and is not notarized. A release build uses
+  # electron-builder.release.yml, which adds the Developer ID, the hardened runtime and notarization.
   identity: "-"
   notarize: false
   hardenedRuntime: false
@@ -88,6 +89,9 @@ mac:
   darkModeSupport: true
   extendInfo:
     NSMicrophoneUsageDescription: Tommy uses the microphone for voice prompts.
+    # Computer Use runs its driver as a child process, so macOS asks for these grants in Tommy's name.
+    NSScreenCaptureUsageDescription: Tommy captures the screen so an agent can see the app windows you ask it to control.
+    NSAppleEventsUsageDescription: Tommy sends Automation events so an agent can control the apps you ask it to control.
     NSUserActivityTypes:
       - NSUserActivityTypeBrowsingWeb
   # No `arch` here: a target's own `arch` list replaces the one given on the command line, so

@@ -50,9 +50,16 @@ module.exports = ({ config: baseConfig }) => {
   // new key each time, so the root .env names the file to keep, outside the repository. A leading
   // `~/` is the home folder, so one .env works on each computer of the same user.
   const keystore = process.env.TOMMY_ANDROID_KEYSTORE?.replace(/^~(?=\/)/u, homedir());
-  const config = keystore
+  const signed = keystore
     ? { ...baseConfig, plugins: [...(baseConfig.plugins ?? []), ["./plugins/with-android-keystore", keystore]] }
     : baseConfig;
+  // A release build numbers its version code from the release version, so Android accepts it as
+  // an update of an older release.
+  const versionCode = Number(process.env.TOMMY_ANDROID_VERSION_CODE);
+  const config =
+    Number.isInteger(versionCode) && versionCode > 0
+      ? { ...signed, android: { ...signed.android, versionCode } }
+      : signed;
   const missing = FIREBASE_VARIABLES.filter((name) => !process.env[name]);
   if (missing.length === FIREBASE_VARIABLES.length) return config;
   if (missing.length > 0) throw new Error(`Set ${missing.join(", ")} in the root .env file.`);

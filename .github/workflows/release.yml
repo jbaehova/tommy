@@ -1,0 +1,207 @@
+name: Release
+
+# A tag `v<version>` (the version in package.json) builds the apps and publishes a GitHub release.
+# A manual run builds, signs and notarizes the same files and keeps them as workflow artifacts only,
+# so the signing setup can be checked before a tag. See docs/RELEASING.md.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      android_code: ${{ steps.read.outputs.android_code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: read
+        name: Read and check the version
+        shell: bash
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            [[ "$GITHUB_REF_NAME" == "v$version" ]] || { echo "Tag $GITHUB_REF_NAME does not match package.json $version." >&2; exit 1; }
+            git fetch --quiet origin main
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "The tagged commit is not on main." >&2; exit 1; }
+          fi
+          IFS=. read -r major minor patch <<<"$version"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "android_code=$((major * 1000000 + minor * 1000 + patch))" >>"$GITHUB_OUTPUT"
+
+  mac:
+    name: Mac (Apple Silicon, signed and notarized)
+    needs: version
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: Check the signing secrets
+        shell: bash
+        env:
+          MAC_CERTIFICATE_P12: ${{ secrets.MAC_CERTIFICATE_P12 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          missing=()
+          for name in MAC_CERTIFICATE_P12 MAC_CERTIFICATE_PASSWORD APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER; do
+            [[ -n "${!name}" ]] || missing+=("$name")
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "Missing secrets: ${missing[*]}. See docs/RELEASING.md." >&2
+            exit 1
+          fi
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Build, sign and notarize
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          export APPLE_API_KEY="$RUNNER_TEMP/AuthKey.p8"
+          printf '%s\n' "$APPLE_API_KEY_P8" >"$APPLE_API_KEY"
+          unset APPLE_API_KEY_P8
+          bun run build
+          # hdiutil on a hosted runner can fail with "Resource busy" when nothing is wrong. Only that
+          # error gets another attempt; each attempt signs and notarizes again.
+          log="$RUNNER_TEMP/electron-builder.log"
+          for attempt in 1 2 3; do
+            if bun x electron-builder --config electron-builder.release.yml --mac --arm64 --publish never 2>&1 | tee "$log"; then
+              exit 0
+            fi
+            grep -Eq 'hdiutil: .*(Device not configured|Resource busy)' "$log" || exit 1
+            echo "::warning::hdiutil failed (attempt $attempt of 3)."
+          done
+          exit 1
+      - name: Check the signature and the notarization
+        shell: bash
+        run: |
+          app=dist/mac-arm64/Tommy.app
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+          xcrun stapler validate "$app"
+          for dmg in dist/*.dmg; do xcrun stapler validate "$dmg" || true; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-mac
+          if-no-files-found: error
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.blockmap
+            dist/latest-mac.yml
+
+  linux:
+    name: Linux (x64 AppImage)
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Build
+        run: |
+          bun run build
+          bun x electron-builder --linux AppImage --x64 --publish never -c.linux.target=AppImage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          if-no-files-found: error
+          path: |
+            dist/*.AppImage
+            dist/latest-linux*.yml
+
+  android:
+    name: Android (arm64 APK)
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Build the APK
+        shell: bash
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          TOMMY_ANDROID_VERSION_CODE: ${{ needs.version.outputs.android_code }}
+          ORG_GRADLE_PROJECT_reactNativeArchitectures: arm64-v8a
+        run: |
+          # The same key signs every release, so the phone accepts each one as an update. The
+          # release has no Firebase values: notifications need the server owner's own project.
+          [[ -n "$ANDROID_KEYSTORE" ]] || { echo "Missing secret ANDROID_KEYSTORE. See docs/RELEASING.md." >&2; exit 1; }
+          export TOMMY_ANDROID_KEYSTORE="$RUNNER_TEMP/tommy.keystore"
+          printf '%s' "$ANDROID_KEYSTORE" | base64 -d >"$TOMMY_ANDROID_KEYSTORE"
+          unset ANDROID_KEYSTORE
+          bun run mobile:android:apk
+          mkdir -p dist
+          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk \
+            "dist/Tommy-${{ needs.version.outputs.version }}-android-arm64.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          if-no-files-found: error
+          path: dist/*.apk
+
+  publish:
+    name: Publish
+    if: github.ref_type == 'tag'
+    needs: [version, mac, linux, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - name: Write checksums
+        working-directory: release
+        run: sha256sum * >SHA256SUMS.txt
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --repo "$GITHUB_REPOSITORY" --title "Tommy ${{ needs.version.outputs.version }}" \
+            --generate-notes --verify-tag
