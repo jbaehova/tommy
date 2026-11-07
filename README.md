@@ -1,16 +1,160 @@
+<div align="center">
+
+<img src="docs/assets/icon.png" width="112" alt="Tommy app icon">
+
 # Tommy
 
-Tommy is a personal workspace for AI agents. One server runs the agents, and the Mac and Android
-apps connect to it directly over WSS. There is no relay or account service in between. Each agent
-keeps its own workspace, conversation and identity across provider switches and restarts.
+**Your own crew of AI agents, on your own server, in your pocket.**
+
+One server runs your agents day and night. The Mac and Android apps connect to it directly.
+No relay, no account service, no cloud copy of your chats.
+
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-8a63d2?style=flat-square)](LICENSE)
+[![Fork of OpenBot](https://img.shields.io/badge/fork%20of-OpenBot-ff8a3d?style=flat-square)](https://github.com/nightly-labs/openbot)
+![Platforms](https://img.shields.io/badge/platforms-Linux%20server%20%7C%20macOS%20%7C%20Android-1e88e5?style=flat-square)
+![Electron](https://img.shields.io/badge/Electron-47848F?style=flat-square&logo=electron&logoColor=white)
+![SolidJS](https://img.shields.io/badge/SolidJS-2C4F7C?style=flat-square&logo=solid&logoColor=white)
+![Bun](https://img.shields.io/badge/Bun-1.4.2-000?style=flat-square&logo=bun&logoColor=white)
+
+[Features](#features) &nbsp;&bull;&nbsp; [Screenshots](#screenshots) &nbsp;&bull;&nbsp;
+[Run a server](#run-a-server) &nbsp;&bull;&nbsp; [Apps](#apps) &nbsp;&bull;&nbsp;
+[Development](#development) &nbsp;&bull;&nbsp; [Built on OpenBot](#built-on-openbot)
+
+<br>
+
+<img src="docs/assets/hero.jpg" alt="Tommy on the Mac and on an Android phone, with eight agents and a chat that compares three databases" width="100%">
+
+</div>
 
 > [!WARNING]
 > Agents run with `danger-full-access`. They can read and modify files, run commands, use the
 > network and control the embedded browser. Run only agents and tasks you trust.
 
-## Run a server
+## Features
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 🧠 Agents that stay
+
+Each agent has its own workspace, conversation, memory and identity. Switch it from Claude to Codex,
+restart the server, and it still knows who it is and what it was doing.
+
+</td>
+<td width="50%" valign="top">
+
+### 🔌 Your choice of model
+
+Run **Claude**, **Codex**, **Cursor** and **Pi** side by side. Tommy downloads and pins each
+provider CLI, so every agent gets a known-good runtime.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 📡 Direct, private connection
+
+Pair a device with a one-time code or QR code. The apps talk to your server over WSS, with no
+relay in between. Your workspaces, chats and files stay on the server.
+
+</td>
+<td valign="top">
+
+### 📱 Mac and Android apps
+
+A full desktop client for the Mac, and an Android app with push notifications, tasks, routines and
+usage. Start a job at your desk and check on it from the bus.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🌐 Browser and Computer Use
+
+Agents open, read and drive a sandboxed embedded browser. With
+[agent-desktop](https://github.com/vercel-labs/agent-desktop), they can also operate desktop apps
+through the accessibility tree.
+
+</td>
+<td valign="top">
+
+### ⏰ Routines and workflows
+
+Schedule recurring work, chain steps into workflows, and trigger them from webhooks. Quiet runs
+stay quiet; failures tell you.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🧩 Skills and MCP
+
+Ask an agent to turn a workflow into a skill, then share it with the others from a local library
+with versions. Add MCP servers by command or URL.
+
+</td>
+<td valign="top">
+
+### 🤝 Agents that work together
+
+Agents send each other messages, replies, reactions and managed file transfers, and hand work to
+the right teammate.
+
+</td>
+</tr>
+</table>
+
+## Screenshots
+
+<div align="center">
+
+<img src="docs/assets/desktop.jpg" alt="Tommy on the Mac: an agent audits monthly subscriptions and shows a table of overlaps" width="100%">
+
+<sub><b>Mac.</b> Every agent in one sidebar, rich answers with tables you can copy as Markdown or CSV.</sub>
+
+<br><br>
+
+<img src="docs/assets/mobile.jpg" alt="Tommy on Android: the agent list, and a chat where an agent sends a step to a coding session" width="100%">
+
+<sub><b>Android.</b> The same agents and chats, with push notifications.</sub>
+
+</div>
+
+<sub>Screenshots use demo agents and demo data.</sub>
+
+## How it works
+
+```mermaid
+flowchart LR
+    subgraph Devices
+        mac["🖥️ Mac app"]
+        android["📱 Android app"]
+    end
+    subgraph Server["Your Linux server"]
+        nginx["nginx (HTTPS)"]
+        tommy["Tommy service"]
+        db[("SQLite<br>tommy.db")]
+        providers["Claude, Codex<br>Cursor, Pi"]
+        browser["Sandboxed browser"]
+    end
+    mac -- "WSS" --> nginx
+    android -- "WSS" --> nginx
+    nginx --> tommy
+    tommy --> db
+    tommy --> providers
+    tommy --> browser
+```
 
 The server is the Linux build of the desktop app, run as a systemd service on a virtual display.
+The SQLite database on the server is the source of truth. A signed-in phone keeps only an encrypted
+read-only cache, deleted on sign-out.
+
+## Run a server
+
 Build it on the server from a checkout, then install it as root:
 
 ```bash
@@ -61,6 +205,9 @@ cache, and the root `postinstall` clones Electron from `~/Library/Caches/Tommy/e
 `du` still shows the full size of each clone. Delete the directory to clear the cache; an entry that
 nobody used for 30 days is removed by the next save.
 
+<details>
+<summary><b>All commands</b></summary>
+
 | Command | Purpose |
 | --- | --- |
 | `bun run dev` | Start the Electron client with renderer HMR. Each worktree opens a profile of its own, keyed to its path; `--shared` opens the shared `Tommy Dev` profile instead. Ports come from the dev registry, so a sibling worktree never takes one this stack won. It refuses a second stack in the same worktree unless you pass `--force`. Before it starts, it runs `bun install --frozen-lockfile` only when `bun.lock`, a workspace `package.json` or a patch changed since the last successful run. |
@@ -78,7 +225,39 @@ nobody used for 30 days is removed by the next save.
 | `bun run package:linux` | Build the unpacked Linux app that `tommy-install` installs. `dist:linux` builds an AppImage. |
 | `bun run prepare:agent-desktop` | Stage the pinned Computer Use driver for this computer, for a dev build. Packages stage their own. |
 
-## Local skills
+</details>
+
+### Architecture
+
+```text
+Electron main
+├── provider CLIs (Claude, Codex, Cursor, Pi) as child processes
+├── SQLite command log and read projections
+├── secure typed IPC handlers
+├── direct connection server for paired devices
+└── sandboxed WebContentsView browser host
+    ↕ typed preload bridge
+SolidJS renderer
+```
+
+| Path | Owns |
+| --- | --- |
+| `src/main` | Electron lifecycle, window security, local protocol, and IPC registration. |
+| `src/backend` | Provider adapters, persistence, message scheduling, transfers, and the browser host. |
+| `src/preload` | The typed `window.tommy` API, and nothing more. |
+| `src/renderer` | The SolidJS interface. |
+| `apps/mobile` | The Android app (Expo). |
+| `scripts/hosting` | The Linux server install. |
+| `packages/contracts` | Process-boundary contracts, shared limits, and pure validation. |
+| `packages/i18n` | The interface text in English and Korean. See [docs/i18n.md](docs/i18n.md). |
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for dependency direction, state ownership, and
+rules for new modules, and [CONTRIBUTING.md](CONTRIBUTING.md) before a security-sensitive change.
+
+## Reference
+
+<details>
+<summary><b>Local skills</b></summary>
 
 Ask an agent to create a skill from a reusable workflow. It prepares a folder with `SKILL.md` and
 calls `create_skill`. The skill is saved in a shared local library and enabled for that agent. Other
@@ -99,32 +278,10 @@ skill preview shows it, and **Try skill** puts it in the selected agent's draft 
 MCP servers are added in **Server settings → MCP**: a command (stdio) or a URL, with headers or a
 browser sign-in.
 
-## Architecture
+</details>
 
-```text
-Electron main
-├── provider CLIs (Codex, Claude, Grok, OpenCode and others) as child processes
-├── SQLite command log and read projections
-├── secure typed IPC handlers
-├── direct connection server for paired devices
-└── sandboxed WebContentsView browser host
-    ↕ typed preload bridge
-SolidJS renderer
-```
-
-- `src/main` owns the Electron lifecycle, window security, local protocol, and IPC registration.
-- `src/backend` owns provider adapters, persistence, message scheduling, transfers, and the browser host.
-- `src/preload` exposes only the typed `window.tommy` API.
-- `src/renderer` contains the SolidJS interface.
-- `apps/mobile` contains the Android app (Expo).
-- `scripts/hosting` contains the Linux server install.
-- `packages/contracts` contains process-boundary contracts, shared limits, and pure validation.
-- `packages/i18n` contains the interface text in English and Korean. See [docs/i18n.md](docs/i18n.md).
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for dependency direction, state ownership, and
-rules for new modules.
-
-## Chat attachments
+<details>
+<summary><b>Chat attachments</b></summary>
 
 Attach MP3 audio and MOV or MP4 video through the file picker or drag and drop. The limits are
 100 MB per file, 250 MB per message, and 10 files per message. Tommy gives the agent the original
@@ -137,7 +294,10 @@ it with its own tools, and sends one back with `tommy.attach_files_to_response`.
 SVG images use the same limits. The chat shows an SVG as an image, but the agent gets it as a file,
 because providers take only raster images.
 
-## Local data
+</details>
+
+<details>
+<summary><b>Local data</b></summary>
 
 - `~/Tommy/Agents/<agent-id>`: one working directory per agent.
 - `~/Tommy/Shared`: files intentionally shared between agents.
@@ -148,8 +308,8 @@ because providers take only raster images.
   provider session bindings, queues, reactions, and attachment indexes.
 - `provider-runtimes` in the app data folder: the provider CLIs Tommy downloads and pins, one store
   for the whole computer.
-- `~/.codex`, `~/.claude`, `~/.grok`, `~/.gemini`, `~/.cursor`, `~/.cline`, `~/.kimi`: login and
-  session history, managed by each provider's own CLI.
+- `~/.claude`, `~/.codex`, `~/.cursor`, `~/.pi`: login and session history, managed by each
+  provider's own CLI.
 
 Deleting an agent removes its workspace, owned generated attachments, and deliveries addressed only
 to that agent. Tommy keeps one stable conversation when an agent changes provider. Native provider
@@ -158,8 +318,37 @@ session identifiers stay private and are used only to resume provider runtime st
 The renderer is never exposed as a public website. The embedded browser uses a separate sandboxed
 Electron session and cannot access `window.tommy` or managed local attachments.
 
+</details>
+
+## Built on OpenBot
+
+<table>
+<tr>
+<td>
+
+Tommy is a fork of **[OpenBot](https://github.com/nightly-labs/openbot)** by
+[Synthetify Labs](https://openbot.run/), a local-first desktop workspace for persistent AI
+teammates. The agent model, the provider adapters, the embedded browser and much of the interface
+come from OpenBot. Thank you to its authors.
+
+Tommy takes that base in a different direction: one always-on server that you own, with thin
+clients that connect to it directly. Fixes from upstream are ported over time.
+
+</td>
+</tr>
+</table>
+
+| | OpenBot | Tommy |
+| --- | --- | --- |
+| **Shape** | Desktop app, local-first | One Linux server, with Mac and Android clients |
+| **Connection** | Runs on your computer | Devices pair with a QR code and connect over WSS, no relay |
+| **Accounts** | Optional OpenBot accounts | None: pairing is between your device and your server |
+| **Providers** | Codex, Claude, Grok, Gemini, Cursor and many more | Claude, Codex, Cursor, Pi |
+| **Computer Use** | `cua-driver` | [`agent-desktop`](https://github.com/vercel-labs/agent-desktop) |
+| **Platforms** | macOS, Windows, Linux | Linux server, macOS client, Android client |
+
 ## License and attribution
 
 Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE), for noncommercial purposes only.
-Commercial use needs a separate license from the copyright owner. Tommy is based on OpenBot; see
-[NOTICE](NOTICE) for the origin of this software and for third-party notices.
+Commercial use needs a separate license from the copyright owner. See [NOTICE](NOTICE) for the
+origin of this software and for third-party notices.
