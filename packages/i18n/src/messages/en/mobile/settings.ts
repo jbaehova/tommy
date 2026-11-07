@@ -105,7 +105,7 @@ export const messages = defineMessages("mobile.settings", {
   "mobile.settings.notifications.serverFooter":
     "The events of this server that notify this phone. The desktop app has its own settings.",
   "mobile.settings.notifications.serverUnsupported":
-    "This server cannot send notifications. Update Tommy on the computer that runs it.",
+    "This server cannot send notifications to this phone yet. It needs the notification key of the app (see docs/INSTALL.md), or a newer Tommy.",
   "mobile.settings.notifications.thisPhone": "This phone",
   "mobile.settings.notifications.whatYouHear": "What you hear about",
   "mobile.settings.notifications.wholeServer": "Whole server",

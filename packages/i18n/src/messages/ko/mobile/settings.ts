@@ -106,7 +106,7 @@ export const messages = {
   "mobile.settings.notifications.serverFooter":
     "이 휴대전화로 알림을 보내는 이 서버의 이벤트예요. 데스크톱 앱에는 별도의 설정이 있어요.",
   "mobile.settings.notifications.serverUnsupported":
-    "이 서버는 알림을 보낼 수 없어요. 서버가 실행되는 컴퓨터에서 Tommy를 업데이트해 주세요.",
+    "이 서버는 아직 이 휴대전화로 알림을 보낼 수 없어요. 서버에 앱의 알림 키를 넣거나(docs/INSTALL.md 참고) Tommy를 업데이트해 주세요.",
   "mobile.settings.notifications.thisPhone": "이 휴대전화",
   "mobile.settings.notifications.whatYouHear": "알림 받을 내용",
   "mobile.settings.notifications.wholeServer": "서버 전체",
