@@ -6,7 +6,7 @@ name: iOS
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/ios-app]
     paths:
       - "apps/mobile/**"
       - "packages/**"
