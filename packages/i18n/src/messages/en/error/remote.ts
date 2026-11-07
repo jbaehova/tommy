@@ -30,7 +30,6 @@ export const messages = defineMessages("error.remote", {
   "error.remote.pinnedKeyMissing": "The remote host does not have a pinned device key.",
   "error.remote.hostDidNotConnect": "The server did not connect.",
   "error.remote.connectionCancelled": "The remote connection was cancelled.",
-  "error.remote.hostDisconnected": "The server disconnected.",
   "error.remote.eventGap": "The host event sequence has a gap.",
   "error.remote.malformedKnownEvent": "The host returned a malformed known event.",
   "error.remote.fileTransportIsStopped": "The file transport is stopped.",

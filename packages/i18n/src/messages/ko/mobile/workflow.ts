@@ -21,8 +21,6 @@ export const messages = {
   "mobile.workflow.alert.runFailedTitle": "워크플로를 시작할 수 없어요",
   "mobile.workflow.alert.runFailedBody": "서버가 실행을 시작하지 않았어요. 다시 시도하세요.",
   "mobile.workflow.alert.tryAgain": "Tommy가 이 작업을 할 수 없었어요. 다시 시도하세요.",
-  "mobile.workflow.drawer.needYou": { other: "{count}개가 확인 필요" },
-  "mobile.workflow.drawer.running": { other: "{count}개 실행 중" },
   "mobile.workflow.detail.steps": { other: "단계 {count}개" },
   "mobile.workflow.detail.stepsTitle": "단계",
   "mobile.workflow.detail.loadFailed": "워크플로를 불러올 수 없어요.",

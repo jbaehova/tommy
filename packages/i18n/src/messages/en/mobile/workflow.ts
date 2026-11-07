@@ -20,8 +20,6 @@ export const messages = defineMessages("mobile.workflow", {
   "mobile.workflow.alert.runFailedTitle": "Could not start the workflow",
   "mobile.workflow.alert.runFailedBody": "The server did not start the run. Try again.",
   "mobile.workflow.alert.tryAgain": "Tommy could not do this. Try again.",
-  "mobile.workflow.drawer.needYou": { one: "{count} needs you", other: "{count} need you" },
-  "mobile.workflow.drawer.running": { one: "{count} running", other: "{count} running" },
   "mobile.workflow.detail.steps": { one: "{count} step", other: "{count} steps" },
   "mobile.workflow.detail.stepsTitle": "Steps",
   "mobile.workflow.detail.loadFailed": "Could not load the workflow.",

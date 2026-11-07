@@ -76,7 +76,6 @@ export const messages = {
   "sidebar.channel.noMessages": "아직 메시지가 없어요",
   "sidebar.channel.workingPreview": "작업 중 · {preview}",
   "sidebar.channel.unread": { other: "읽지 않은 메시지 {count}개" },
-  "sidebar.people.unread": { other: "읽지 않은 다이렉트 메시지 {count}개" },
   "sidebar.state.working": "생각 중",
   "sidebar.state.responded": "응답함",
   "sidebar.state.unread": { other: "새 답변 {count}개" },
