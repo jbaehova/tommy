@@ -1,4 +1,5 @@
 const { existsSync, mkdirSync, writeFileSync } = require("node:fs");
+const { homedir } = require("node:os");
 const { dirname, join } = require("node:path");
 
 // Android notifications come through Firebase Cloud Messaging, which needs the Firebase file of the
@@ -46,8 +47,9 @@ function writeGoogleServicesFile(packageName) {
 /** @param {{ config: import('expo/config').ExpoConfig }} context */
 module.exports = ({ config: baseConfig }) => {
   // The phone only accepts an update that has the key of the installed app. `expo prebuild` makes a
-  // new key each time, so the root .env names the file to keep, outside the repository.
-  const keystore = process.env.TOMMY_ANDROID_KEYSTORE;
+  // new key each time, so the root .env names the file to keep, outside the repository. A leading
+  // `~/` is the home folder, so one .env works on each computer of the same user.
+  const keystore = process.env.TOMMY_ANDROID_KEYSTORE?.replace(/^~(?=\/)/u, homedir());
   const config = keystore
     ? { ...baseConfig, plugins: [...(baseConfig.plugins ?? []), ["./plugins/with-android-keystore", keystore]] }
     : baseConfig;
