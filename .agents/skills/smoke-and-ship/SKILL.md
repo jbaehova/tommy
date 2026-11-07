@@ -42,7 +42,7 @@ Run the `ship` skill. Use the smoke result again:
 - Do not run `smoke` again in Gate 1. For a UI change, use the screenshots
   from Step 1 when they show before and after. Take only the missing ones.
 - Put the smoke table in the PR `## Verification` section.
-- When a Gate 1 fix, a NorbiAI fix, or a CI fix changes user-visible
+- When a Gate 1 fix, a review fix, or a CI fix changes user-visible
   behavior, smoke the affected items again before the push. When an item
   fails, stop as Step 2 says.
 

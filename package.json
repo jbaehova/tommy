@@ -103,6 +103,7 @@
     "lint": "biome check --max-diagnostics=none .",
     "format": "biome check --write --max-diagnostics=none .",
     "i18n:check": "bun scripts/i18n-check.ts",
+    "check": "bun run lint && bun run check:ui && bun run i18n:check && bun run typecheck && bun run build && bun run verify:preload && bun run test:desktop",
     "check:staged": "biome check --write --staged --files-ignore-unknown=true --no-errors-on-unmatched",
     "check:ui": "bun scripts/ui-foundation-check.ts",
     "test:desktop": "vitest run",

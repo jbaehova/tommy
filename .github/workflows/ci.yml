@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Lint
+        run: bun run lint
+      - name: UI rules
+        run: bun run check:ui
+      - name: Translations
+        run: bun run i18n:check
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Build
+        run: bun run build
+      - name: Preload bundle
+        run: bun run verify:preload
+      - name: Tests
+        run: bun run test:desktop

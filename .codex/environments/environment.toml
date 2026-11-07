@@ -13,11 +13,6 @@ icon = "run"
 command = "bun run dev --isolated"
 
 [[actions]]
-name = "Storybook"
-icon = "tool"
-command = "bun run storybook"
-
-[[actions]]
 name = "Test"
 icon = "test"
-command = "bun run test"
+command = "bun run test:changed"

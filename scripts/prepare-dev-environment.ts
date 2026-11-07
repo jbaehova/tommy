@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import { constants, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { developmentInstanceIdForWorktree } from "../src/main/development-profile";
 import { type DevelopmentStateOutcome, ensureDevelopmentState } from "./development-secrets";
 
 const scriptsRoot = dirname(fileURLToPath(import.meta.url));
@@ -148,22 +147,6 @@ function fingerprintFiles(projectRoot: string, files: string[], extra: string[])
   return hash.digest("hex");
 }
 
-export function prepareDevelopmentWorktree(input: DevelopmentPreparationInput = {}): DevelopmentStateOutcome {
-  const projectRoot = input.projectRoot ?? developmentProjectRoot;
-  const stateOutcome = prepareDevelopmentEnvironment({ ...input, projectRoot });
-  const executable = input.executable ?? process.execPath;
-  const run = input.run ?? execDevelopmentCommand;
-  const options = { cwd: projectRoot, stdio: "inherit" as const };
-  const instanceId = developmentInstanceIdForWorktree(projectRoot);
-
-  run(executable, ["run", "dev:seed", "--if-missing"], {
-    ...options,
-    env: { ...process.env, TOMMY_DEV_INSTANCE_ID: instanceId },
-  });
-  run(executable, ["run", "marketplace:seed:local"], options);
-  return stateOutcome;
-}
-
 /**
  * Copies each ignored file that `.worktreeinclude` lists from the main checkout, so a worktree made
  * by any harness gets the local secrets without a manual copy. An existing file is never replaced.
@@ -225,7 +208,7 @@ function execDevelopmentCommand(
 if (import.meta.main) {
   // Generating secrets without saying so leaves a contributor guessing where the file came from.
   // stdout rather than a logger, because this runs before `bun install` on a fresh clone.
-  if (prepareDevelopmentWorktree() === "created") {
+  if (prepareDevelopmentEnvironment() === "created") {
     process.stdout.write("Prepared local development state.\n");
   }
 }

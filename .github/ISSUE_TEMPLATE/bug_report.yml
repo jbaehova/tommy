@@ -1,0 +1,42 @@
+name: Bug report
+description: Something does not work as it should.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      multiple: true
+      options:
+        - Mac app
+        - Android app
+        - Linux server
+        - Development checkout
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Settings › About shows it. For a checkout, give the commit.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >-
+        The support log or `tommy logs` output. Remove keys, tokens, host names and personal data first.
+      render: text
