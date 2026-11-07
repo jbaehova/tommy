@@ -102,7 +102,8 @@ export class HostReleaseService {
         catch: () => new ReleaseCheckFailed(),
       });
       this.#latestVersion = version;
-      this.#phase = newerRelease(version, this.#options.currentVersion) ? "available" : "up-to-date";
+      this.#phase =
+        version !== null && newerRelease(version, this.#options.currentVersion) ? "available" : "up-to-date";
     }).pipe(
       Effect.catch(() =>
         Effect.sync(() => {
@@ -121,11 +122,22 @@ export class HostReleaseService {
   }).bind(this);
 }
 
-/** The version of the latest published release for `target`. Rejects on any fault of the feed. */
-async function fetchLatestRelease(target: ReleaseTarget, request: typeof fetch, signal: AbortSignal): Promise<string> {
+/**
+ * The version of the latest published release for `target`, or `null` when the repository has no
+ * release yet (GitHub answers 404). Rejects on any other fault of the feed.
+ */
+async function fetchLatestRelease(
+  target: ReleaseTarget,
+  request: typeof fetch,
+  signal: AbortSignal,
+): Promise<string | null> {
   const response = await request(`https://github.com/jbaehova/tommy/releases/latest/download/${target.feed}`, {
     signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
   });
+  if (response.status === 404) {
+    await response.body?.cancel();
+    return null;
+  }
   if (!response.ok || !response.body) {
     await response.body?.cancel();
     throw new Error("Release feed unavailable");
