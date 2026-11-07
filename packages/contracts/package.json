@@ -180,7 +180,7 @@
     "typecheck": "bun ../../scripts/type-checker.ts --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "emoji-regex": "10.6.0",
+    "emoji-regex": "11.0.0",
     "fflate": "catalog:",
     "marked": "catalog:"
   },
