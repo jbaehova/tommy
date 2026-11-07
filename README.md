@@ -6,12 +6,12 @@
 
 **Your own crew of AI agents, on your own server, in your pocket.**
 
-One server runs your agents day and night. The Mac and Android apps connect to it directly.
+One server runs your agents day and night. The Mac, Android and iPhone apps connect to it directly.
 No relay, no account service, no cloud copy of your chats.
 
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-8a63d2?style=flat-square)](LICENSE)
 [![Fork of OpenBot](https://img.shields.io/badge/fork%20of-OpenBot-ff8a3d?style=flat-square)](https://github.com/nightly-labs/openbot)
-![Platforms](https://img.shields.io/badge/platforms-Linux%20server%20%7C%20macOS%20%7C%20Android-1e88e5?style=flat-square)
+![Platforms](https://img.shields.io/badge/platforms-Linux%20server%20%7C%20macOS%20%7C%20Android%20%7C%20iOS-1e88e5?style=flat-square)
 ![Electron](https://img.shields.io/badge/Electron-47848F?style=flat-square&logo=electron&logoColor=white)
 ![SolidJS](https://img.shields.io/badge/SolidJS-2C4F7C?style=flat-square&logo=solid&logoColor=white)
 ![Bun](https://img.shields.io/badge/Bun-1.4.2-000?style=flat-square&logo=bun&logoColor=white)
@@ -38,7 +38,7 @@ computer that will be your server (or on a computer that can reach it over SSH),
 ```text
 Install Tommy for me. Read
 https://raw.githubusercontent.com/jbaehova/tommy/main/docs/INSTALL.md
-and follow it step by step. First ask me which parts to install (server, Mac app, Android app)
+and follow it step by step. First ask me which parts to install (server, Mac app, Android app, iPhone app)
 and for every value it needs, such as my domain. Show me each sudo command before you run it.
 ```
 
@@ -50,13 +50,15 @@ and pairs them. It asks you before it changes the system. You can talk to it in 
 - A Linux server that stays on (Ubuntu 24.04 or Debian 12, 4 GB of memory or more), with a domain
   name that points to it and ports 80 and 443 open.
 - At least one agent account: Claude, ChatGPT (Codex), Cursor or Pi.
-- For the apps: a Mac with Apple Silicon and macOS 13 or later, or an Android phone.
+- For the apps: a Mac with Apple Silicon and macOS 13 or later, an Android phone, or an iPhone. The
+  iPhone app is built on a Mac with Xcode and needs an Apple Developer Program membership.
 
 **Other ways**
 
 - Install by hand: [docs/INSTALL.md](docs/INSTALL.md) is the same guide, written for people too.
 - Download the apps: [Releases](https://github.com/jbaehova/tommy/releases/latest) has the Mac app
-  (signed and notarized) and the Android APK. The server still needs the install steps above.
+  (signed and notarized) and the Android APK. The iPhone app has no download: build it from the
+  guide. The server still needs the install steps above.
 
 ## Features
 
@@ -90,10 +92,10 @@ relay in between. Your workspaces, chats and files stay on the server.
 </td>
 <td valign="top">
 
-### 📱 Mac and Android apps
+### 📱 Mac, Android and iPhone apps
 
-A full desktop client for the Mac, and an Android app with push notifications, tasks, routines and
-usage. Start a job at your desk and check on it from the bus.
+A full desktop client for the Mac, and Android and iPhone apps with push notifications, tasks,
+routines and usage. Start a job at your desk and check on it from the bus.
 
 </td>
 </tr>
@@ -161,6 +163,7 @@ flowchart LR
     subgraph Devices
         mac["🖥️ Mac app"]
         android["📱 Android app"]
+        iphone["📱 iPhone app"]
     end
     subgraph Server["Your Linux server"]
         nginx["nginx (HTTPS)"]
@@ -171,6 +174,7 @@ flowchart LR
     end
     mac -- "WSS" --> nginx
     android -- "WSS" --> nginx
+    iphone -- "WSS" --> nginx
     nginx --> tommy
     tommy --> db
     tommy --> providers
@@ -227,6 +231,8 @@ Optional build settings go in the root `.env`; [.env.example](.env.example) list
 - `FIREBASE_ANDROID_API_KEY`, `FIREBASE_ANDROID_APP_ID`, `FIREBASE_PROJECT_ID`,
   `FIREBASE_PROJECT_NUMBER` and `FIREBASE_STORAGE_BUCKET` come from your own Firebase project.
   Without them the Android app works but gets no notifications.
+- `TOMMY_IOS_BUNDLE_ID` and `TOMMY_APPLE_TEAM_ID` are the bundle ID and the Apple team of an iPhone
+  build. A simulator build needs neither.
 
 <details>
 <summary><b>All commands</b></summary>
@@ -238,7 +244,7 @@ Optional build settings go in the root `.env`; [.env.example](.env.example) list
 | `bun run dev:stop` | Stop the processes that this worktree's stack started. Never stop a stack with `pkill -f electron` or `pkill -f bun`: on a machine running several worktrees those kill the other checkouts' work mid-write. |
 | `bun run dev:forget` | Remove a stale entry from the dev registry. |
 | `bun run dev:automation` | Drive a running dev app through CDP. Prints its usage with `--help`. |
-| `bun run mobile` | Start the Expo development server for the Android app. `mobile:android` installs a development build on a connected device, and `mobile:android:apk` builds the release APK. |
+| `bun run mobile` | Start the Expo development server for the phone apps. `mobile:android` installs a development build on a connected device, and `mobile:android:apk` builds the release APK. `mobile:ios:prebuild` makes the Xcode project, and `mobile:ios` builds and installs the iPhone app on a simulator or, with `--device`, on a connected iPhone. |
 | `bun run package` | Build the Mac app into `dist/mac-arm64`. `dist:mac` also makes the DMG. |
 | `bun run typecheck` | Type-check every project. |
 | `bun run lint` | Run Biome on the whole repository. `bun run format` also writes the fixes. |
@@ -270,7 +276,7 @@ SolidJS renderer
 | `src/backend` | Provider adapters, persistence, message scheduling, transfers, and the browser host. |
 | `src/preload` | The typed `window.tommy` API, and nothing more. |
 | `src/renderer` | The SolidJS interface. |
-| `apps/mobile` | The Android app (Expo). |
+| `apps/mobile` | The Android and iPhone app (Expo). |
 | `scripts/hosting` | The Linux server install. |
 | `packages/contracts` | Process-boundary contracts, shared limits, and pure validation. |
 | `packages/i18n` | The interface text in English and Korean. See [docs/i18n.md](docs/i18n.md). |
@@ -364,12 +370,12 @@ clients that connect to it directly. Fixes from upstream are ported over time.
 
 | | OpenBot | Tommy |
 | --- | --- | --- |
-| **Shape** | Desktop app, local-first | One Linux server, with Mac and Android clients |
+| **Shape** | Desktop app, local-first | One Linux server, with Mac, Android and iPhone clients |
 | **Connection** | Runs on your computer | Devices pair with a QR code and connect over WSS, no relay |
 | **Accounts** | Optional OpenBot accounts | None: pairing is between your device and your server |
 | **Providers** | Codex, Claude, Grok, Gemini, Cursor and many more | Claude, Codex, Cursor, Pi |
 | **Computer Use** | `cua-driver` | [`agent-desktop`](https://github.com/vercel-labs/agent-desktop) |
-| **Platforms** | macOS, Windows, Linux | Linux server, macOS client, Android client |
+| **Platforms** | macOS, Windows, Linux | Linux server, macOS client, Android and iPhone clients |
 
 ## License and attribution
 

@@ -1,34 +1,8 @@
 # Channels, messaging, and mobile
 
-## iPhone Live Activity updates
+## Phone notifications
 
-The phone and a host build the same Live Activity view with `@tommy/team-client`:
-`dynamic-island-coordinator.ts` gives the state, and `live-activity-props.ts` turns it into the props
-that the widget shows. While the app runs, `use-live-activity.ts` publishes them itself.
-
-iOS stops the app and its connections in the background. So the phone registers the push token of
-its activity with the active host (`live-activity-push-v1`, `POST /v1/live-activity/registration`),
-with `away: true` when it leaves the foreground. `LiveActivityPushService` in `src/main` keeps the
-registration in memory for that session. While the phone is away, each agent event (at most once a
-second) reads the runtime snapshot of the agents the member can see and the member's read state,
-builds the props, and sends a change. A change of state has priority 10; a change inside a state
-waits 5 seconds and has priority 5. An unchanged state is sent again every 10 minutes, so its stale
-date moves on; a host that sleeps stops this, and the view then shows that it is out of date. An idle
-state ends the activity.
-
-`live-activity-seal.ts` seals the props with keys derived from a secret that the phone makes for
-that host (an HMAC of the phone secret and the server ID). The
-host sends the sealed text to `POST /v2/remote/hosts/:hostId/live-activity` with its machine
-credential. The Worker checks the credential and a per-host rate limit, makes the APNs payload and
-provider token itself, and forwards the request. It stores and logs nothing. The widget cannot load a
-library, so the phone composes its layout with the two widget keys and the App Group folder, and
-`live-activity-open.ts` opens the sealed props with its own SHA-256. Button links that change host
-state carry an HMAC signature, which the app checks with the key of the host that the action goes
-to, so one host cannot sign an action for another.
-
-## iPhone notifications
-
-A host sends an iOS notification when an agent finishes a turn, stops with an error, cannot start a
+A host sends a phone notification when an agent finishes a turn, stops with an error, cannot start a
 message or a routine run (`error` with the code `delivery_start_failed`), or waits for input, an
 approval, or a step in the browser (`browser-takeover-requested`, also for a password or a code).
 The desktop and the web client notify about the same events (`agentEventCanNotify`), and all three
@@ -41,7 +15,7 @@ device. The title is the agent name. When the phone shows previews, the text is 
 preview of a desktop notification: the lead of the answer of that turn, the question, or the action
 to approve, with secrets redacted. The lead (`messageSummary` in `packages/team-client`) is the first
 sentences of the message, without code blocks, tables, headings or mail headers, with tool names as
-words and redaction marks as `•••`. The Live Activity shows the same lead. Otherwise it is the fixed desktop text, such as "Finished working.".
+words and redaction marks as `•••`. Otherwise it is the fixed desktop text, such as "Finished working.".
 
 Channels are an exception. The desktop and the web client notify an agent reply in a channel from
 the channel list (`channelReplyNotifications`), because the channel service consumes the
@@ -60,72 +34,62 @@ click opens the channel. The phone gets no channel reply notification. For a pho
 takeover on a channel thread (`PushNotificationService` reads `HostService.channelForThread`), and a
 tap opens the channel. An older phone gets the agent name as the title, as before.
 
-The phone registers with every connected server that supports `push-notifications-v1`
-(`POST /v1/push-notifications/registration`): the APNs token of the app, the secret of that host (the
-same one as for the Live Activity), the language, the level, a mute end, the preview switch, the sound
-(`none` when Play sound is off), the start of its Live Activity of that host, and `away`. One sound is for notifications and the Live Activity. With
-notifications off, Live Activities on and Play sound on, it registers with no token: the host then
-sends no notification, and uses the registration only to make the Live Activity play the sound. It
-tells each host again after each connection and when a choice changes, and removes the registration
-when nothing is left for that host or the user signs out. A level of
-"Nothing" and a mute with no end remove it too. `PushNotificationService` in `src/main` keeps the
-registrations in `tommy-push-notifications-v1.json` in the user data folder, readable only by the
-user, so a phone that does not connect after the host restarts still gets notifications. It sends
-only while the phone is away or its connection is closed. iOS can suspend the app before it says
-that it goes away, and the host sees the lost path about 30 seconds later. So an event that comes
-while the phone looks on screen is kept in memory for 5 minutes (`HELD_EVENT_MS`). When the phone
-says that it is away, or its path fails, and does not come back within 3 seconds, the host sends
-each kept event that the member has not seen: a reply that is still unread in the agent's own chat,
-a failed turn that still shows as failed, or a request that nobody answered. A send that the
-account service, Apple or Google does not take goes again after 10 and 60 seconds. No event goes while the member uses a
-desktop app, which shows the event and asks for input, an approval, or a browser step itself: that
-computer had input in the last 30 seconds (`powerMonitor.getSystemIdleState`), and
-the window of the host's own desktop app has focus or shows the event as a desktop notification, for
-the owner (`desktopShowsAgentEvent`: desktop notifications on, and the mute and the level of this
-computer's server let the event through); or the member sent, answered, or typed from another session in the last 30
-seconds (`TeamApiServer.lastMemberUseElsewhere`, kept in memory). The time is short because a task
-can end at any time after the member leaves the computer. While the phone shows a Live Activity of
-this host that iOS still updates (8 hours from its start, which the phone gives because a host that
-restarted does not know it), and the next view of the activity shows the event, the host sends no
-notification (`LiveActivityPushService.showsEvent`). The view shows one item, so a reply while
-another agent works, or a failure while another agent waits, still notifies. An activity whose last
-update did not go out does not replace notifications. With a sound (Settings > Notifications > Sound), the next
-update of the activity alerts at once, so iOS lights up the screen, shows the activity, and plays
-that sound; with Play sound off, the activity updates silently. iOS does not tell the host when
-the user removes the activity, so until the app runs again such an event shows nowhere.
+An iPhone registers with every connected server that supports `push-notifications-ios-v1`
+(`POST /v1/push-notifications/ios-registration`), and an Android phone with every server that
+supports `push-notifications-android-v1` (`POST /v1/push-notifications/android-registration`): the
+push token of the app (the APNs token on iOS, with its Apple environment, the Firebase token on
+Android), the secret of that host, the language, the level, a mute end, the preview switch, the
+sound (`none` when Play sound is off), and `away`. A server advertises each capability only when it
+has the key of that platform (see [Sending](#sending)). The phone tells each host again after each
+connection and when a choice changes, and removes the registration when nothing is left for that
+host or the user signs out. A level of "Nothing" and a mute with no end remove it too.
+`PushNotificationService` in `src/main` keeps the registrations in `tommy-push-notifications-v1.json`
+in the user data folder, readable only by the user, with the platform of each entry, so a phone that
+does not connect after the host restarts still gets notifications. A host from before a platform
+drops its entries when it reads the file. It sends only while the phone is away or its connection is
+closed. iOS and Android can stop the app before it says that it goes away, and the host sees the
+lost path about 30 seconds later. So an event that comes while the phone looks on screen is kept in
+memory for 5 minutes (`HELD_EVENT_MS`). When the phone says that it is away, or its path fails, and
+does not come back within 3 seconds, the host sends each kept event that the member has not seen: a
+reply that is still unread in the agent's own chat, a failed turn that still shows as failed, or a
+request that nobody answered. A send that Apple or Google does not take goes again after 10 and 60
+seconds. No event goes while the member uses a desktop app, which shows the event and asks for
+input, an approval, or a browser step itself: that computer had input in the last 30 seconds
+(`powerMonitor.getSystemIdleState`), and the window of the host's own desktop app has focus or shows
+the event as a desktop notification, for the owner (`desktopShowsAgentEvent`: desktop notifications
+on, and the mute and the level of this computer's server let the event through); or the member sent,
+answered, or typed from another session in the last 30 seconds
+(`TeamApiServer.lastMemberUseElsewhere`, kept in memory). The time is short because a task can end at
+any time after the member leaves the computer.
 
-`push-notification-seal.ts` seals the notification with keys of their own, made from the host secret.
-The host sends it to `POST /v2/remote/hosts/:hostId/notification` with its machine credential and the
-account session of the phone. The Worker checks the credential and a per-host rate limit, and sends
-nothing for a session that has ended, a revoked membership, or a signed-out device, because the host
-does not learn about these. It makes the APNs alert itself, with "Tommy" as the only text,
-`mutable-content`, the sound, and the sealed bytes. It stores and logs nothing. A `410` answer, from
-the Worker or Apple, removes the registration.
+### Sending
 
-The Notification Service Extension of the app (`apps/mobile/plugins/with-notification-service.js`,
+`push-notification-seal.ts` seals the notification with keys of their own, made from the host
+secret, so Apple and Google see the token, the time and sealed bytes only. The server sends it
+itself; there is no relay.
+
+- iPhone: `ApnsSender` (`src/main/apns-sender.ts`) reads the APNs key of the app owner from
+  `apns-key.json` in the home folder of the server user, signs a provider token, and sends an alert
+  over HTTP/2 to the production or the sandbox APNs, as the registration says. The alert has "Tommy"
+  as the only text, `mutable-content`, the sound, and the sealed bytes.
+- Android: `FcmSender` (`src/main/fcm-sender.ts`) reads the Firebase service account key from
+  `fcm-service-account.json` in the same folder and sends a high-priority data message with `sealed`
+  and, unless the notification is silent, `sound`.
+
+Without a key, the server does not advertise the capability of that platform, and its phones get no
+notifications. An answer that the token no longer reaches the app (APNs `410`, `BadDeviceToken` or
+`Unregistered`; Firebase `UNREGISTERED` or `SENDER_ID_MISMATCH`) removes the registration.
+
+### Opening
+
+On iPhone, the Notification Service Extension of the app (`apps/mobile/plugins/with-notification-service.js`,
 `NotificationService.swift`) opens the seal with the keys that the app writes into the App Group
 file `push-notifications.json`, and shows the agent name and the text. It refuses content that names
 another server than the one whose keys open it. A notification that it cannot open keeps the app
-name only. A tap opens the chat of the agent.
+name only. With a picture of the agent in the App Group (`notification-avatars.ts`), the notification
+is a communication notification with the agent as the sender. A tap opens the chat of the agent.
 
-## Android notifications
-
-An Android phone gets the same notifications in the same conditions, through Firebase Cloud
-Messaging. Android has no Live Activity, so the host does not check one. The phone registers with
-every connected server that supports `push-notifications-android-v1`
-(`POST /v1/push-notifications/android-registration`): the Firebase token of the app, the secret of
-that host, the language, the level, a mute end, the preview switch, and the sound. A registration
-always has a token. `PushNotificationService` keeps it in the same file, as an entry with
-`platform: "android"`; a host from before this capability drops such an entry when it reads the file.
-
-The host sends the sealed notification to `POST /v2/remote/hosts/:hostId/android-notification`. The
-Worker checks the credential, the notification limit of the host and the session, as for an iPhone.
-It signs an OAuth token with the Firebase service account key (`FCM_SERVICE_ACCOUNT`) and sends a
-high-priority data message with `sealed` and, unless the notification is silent, `sound`. It stores
-and logs nothing. Firebase answers `UNREGISTERED` or `SENDER_ID_MISMATCH` for a token that no longer
-reaches the app, and the Worker answers `410`, which removes the registration.
-
-`TommyMessagingService.kt` (`apps/mobile/modules/android-notifications`) gets the message, also
+On Android, `TommyMessagingService.kt` (`apps/mobile/modules/android-notifications`) gets the message, also
 while the app does not run. It opens the seal with the keys that the app writes into
 `push-notifications.json` in its files folder, and gives the notification to `expo-notifications`,
 so a tap reaches the app as on iOS. Android plays the sound of the notification channel, so the app
