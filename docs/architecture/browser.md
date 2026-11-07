@@ -62,7 +62,7 @@ browser applies host `status` events, and reads the status every 3 seconds while
 A provider key stays in the dialog input until it is sent to the host.
 
 Browser sign-in, account reads, and connection tickets are always available. No host or D1
-migration is needed. See [web client delivery](../web-client.md) for the seven review scopes, local
+migration is needed. See web client delivery for the seven review scopes, local
 commands, and release checks.
 
 Browser chat pages, drafts, file bytes, and chat visibility preferences stay in memory. A protected

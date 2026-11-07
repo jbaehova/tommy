@@ -5,7 +5,7 @@ the public URL (`null` until the account service registers the route), an option
 (`null` accepts all types), and at most 128 JSON Pointer filters. Each filter compares one scalar
 value. All filters must match. Filters and payload templates do not run code. Agent routines and
 channel routines use the same model. Types: `packages/contracts/src/ipc-events.ts`. There is no
-shared, host-level event source. The [user guide](../webhooks.md) has the request format.
+shared, host-level event source. The user guide has the request format.
 
 The flow is: signed request → route → routine → run.
 

@@ -25,7 +25,7 @@ publishes.
   whether Claude is ready.
 - On a Linux host with no browser, a host admin can sign in Claude from another computer: the host
   runs `claude auth login --claudeai`, and Tommy sends the code that Anthropic's page shows to the
-  CLI on the host. See [hosted servers](hosted-servers.md).
+  CLI on the host. See hosted servers.
 - Team members can send messages to the Claude agents on your computer or host. These turns use your
   Claude sign-in.
 

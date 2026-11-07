@@ -46,7 +46,7 @@ lowercased and bounded to 64 safe characters; every other parameter and the hash
 construction. The path travels on every event of the page load, not only `screen_view`, because
 OpenPanel reads campaign attribution from whichever event creates the session, and the two events
 are sent concurrently.
-See [PRIVACY.md](../../PRIVACY.md) for the data boundary.
+See PRIVACY.md for the data boundary.
 
 `rememberLandingFirstTouch` saves the first visit in `localStorage` (`@tommy/contracts/first-touch`
 owns the shape, the parser and the 90-day age). The web client sends it with `email/verify`, and
@@ -54,7 +54,7 @@ owns the shape, the parser and the 90-day age). The web client sends it with `em
 `AccountAttribution` (`src/server/account-attribution.ts`) checks it again, keeps the first value
 for each account in D1 `account_attribution`, and sends `account_attributed`. `BillingSales` copies
 it to the `payment_succeeded` and `revenue` ledger events. The flow and its limits are in
-[ANALYTICS.md](../../ANALYTICS.md#first-touch-attribution).
+ANALYTICS.md.
 
 The OpenPanel Growth dashboard uses a session funnel from `landing_viewed` to
 `landing_download_clicked`. A download click is not a completed download or installation.
