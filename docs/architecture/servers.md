@@ -476,7 +476,7 @@ main process, the web client and the mobile app each give it their own focus sig
 The host keeps the focus period of each session apart from `#sessionUse`, so a focused desktop does
 not stop the phone's push notifications. A ping moves `lastClientUseAt` only for 30 minutes after the
 later of the last user action of its session and the start of its focus period. The route is in `PASSIVE_ROUTES`, so the generic client use path
-does not count it. See [hosted servers](../hosted-servers.md) step 5.
+does not count it. See hosted servers step 5.
 
 ### Admin capabilities
 
@@ -787,7 +787,7 @@ A webhook belongs to its routine. The host keeps the trigger, the encrypted secr
 SQLite. D1 keeps only the route ID, the host, and the owner account.
 Signal sends each signed request to the connected host without a cloud queue. All `events-v1`
 routes need a host administrator. See [Webhook routines](events.md) and the
-[webhook guide](../webhooks.md).
+webhook guide.
 
 ## Desktop server notifications
 
@@ -817,7 +817,7 @@ creates them and the Customer Portal settings.
   `tommy_user_id` and `tommy_server_id` (`BILLING_METADATA`). The billing service calls the
   `onSubscriptionSynced` hook after each subscription sync; the hosting side uses it to provision,
   stop and resume servers, so billing does not know about boat. See
-  [hosted servers](../hosted-servers.md#lifecycle). The webhook links a new Stripe customer to the
+  hosted servers. The webhook links a new Stripe customer to the
   account from `tommy_user_id`. It never moves a known
   customer to another account, and it skips a subscription that names no account.
 - Desktop Settings → Billing and the web Billing dialog render `@tommy/ui/features/billing`: one
@@ -825,7 +825,7 @@ creates them and the Customer Portal settings.
   Hosted plans support cancellation that keeps data, Keep server, and explicit deletion now or
   after the paid period. A stored deletion date and subscription ID drive the cron; a fresh
   terminal Stripe state and a per-server operation lease guard deletion. See
-  [server deletion](../hosted-servers.md#billing-and-server-deletion). The price is the list price of the Stripe Price in the subscription's currency (from
+  server deletion. The price is the list price of the Stripe Price in the subscription's currency (from
   `currency_options` when that is not the Price's base currency), before discounts and tax. The
   webhook stores it with the subscription. The
   account button opens the Customer Portal for the payment method and invoices.
@@ -1022,7 +1022,7 @@ The tenant process owns an in-memory activity generation in `src/backend/restart
 Backend work and main-process sessions advance it, so work between status polls resets the idle
 grace. This counter contains no user data and is never sent to the host. Health and restart
 readiness remain false until agent initialization succeeds.
-See [multi-tenant hosting](../multi-tenant-hosting.md) for installation, permissions, and acceptance.
+See multi-tenant hosting for installation, permissions, and acceptance.
 
 ## Hosted servers
 
@@ -1036,13 +1036,13 @@ start a stopped server when a connection fails. No message
 waits in the Worker while a server is stopped; the client keeps it and connects again. The Worker's boat key cannot read files or run commands in a
 sandbox. On a hosted server only, main reads the memory of the machine, and the backend holds new
 turns while it is low and limits the turns that run at the same time. See
-[hosted servers](../hosted-servers.md) for the flow, the configuration, the memory guards and the template.
+hosted servers for the flow, the configuration, the memory guards and the template.
 
 A self-hosted server uses the same Linux build, scripts and units on the owner's own computer, with
 `/opt/Tommy/hosted/mode` set to `self`. It has no claim: main starts in server mode
 (`src/main/server-mode.ts`, `TOMMY_SERVER=1`), and the `tommy` terminal command signs it in over
 a Unix socket in the 0700 runtime directory of the service user. Main publishes the host after each
-sign-in. See [self-hosted servers](../self-hosted-server.md).
+sign-in. See self-hosted servers.
 
 ### Remote release checks
 
@@ -1054,7 +1054,7 @@ The host checks that the manifest contains a compatible asset and returns only v
 and installation method. Feed errors return a safe status and can be retried.
 The method is `self-update` when the host's updater can install, also in a container of
 `docker/instances`, whose host pulls the image on request
-([Updates from the app](../docker.md#updates-from-the-app)). Other containers report `container`.
+(Updates from the app). Other containers report `container`.
 
 `HostReleaseService` owns release discovery. `RequestedUpdate` still owns idle restarts and
 `UpdateService` still owns app updates. Desktop and web use the new capability when available;

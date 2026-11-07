@@ -210,7 +210,7 @@ device disconnects. With the setting on, the entry is named `Electron`.
 To see when a Mac slept, run `pmset -g log | grep -E " Sleep | Wake "`. `logs/main/main.log` (see
 [Report a problem](#report-a-problem)) has a `Keeping this computer awake.` line when Tommy
 starts to keep it awake. For routines that run when no computer of yours is on, use a
-[hosted server](hosted-servers.md) or a [self-hosted server](self-hosted-server.md).
+hosted server or a self-hosted server.
 
 ## A company firewall or proxy blocks Tommy
 
@@ -236,7 +236,7 @@ Ask the network administrator to allow these hosts over HTTPS (TCP 443) and WebS
 
 Teams and remote servers also send WebRTC traffic to the other device or to the TURN relay that
 Signal names, on the UDP and TCP ports that it names. A filter that blocks WebRTC makes these
-connections slow or stops them. Conversations stay on the computer; the [privacy policy](../PRIVACY.md) lists what each
+connections slow or stops them. Conversations stay on the computer; the privacy policy lists what each
 host receives.
 
 If the filter puts `example.com` in a blocked category, the administrator can ask the vendor to
