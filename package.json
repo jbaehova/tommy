@@ -87,7 +87,7 @@
     "dev:restart-client": "bun scripts/dev-stack.ts restart-client",
     "mobile": "bun run --cwd apps/mobile start",
     "mobile:android": "bun run --cwd apps/mobile android",
-    "mobile:android:build:local": "bun run --cwd apps/mobile android:build:local",
+    "mobile:android:apk": "bun run --cwd apps/mobile android:apk",
     "mobile:lint": "bun run --cwd apps/mobile lint",
     "build": "electron-vite build",
     "typecheck:node": "bun scripts/type-checker.ts --noEmit -p tsconfig.node.json",

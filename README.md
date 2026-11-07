@@ -16,8 +16,8 @@ No relay, no account service, no cloud copy of your chats.
 ![SolidJS](https://img.shields.io/badge/SolidJS-2C4F7C?style=flat-square&logo=solid&logoColor=white)
 ![Bun](https://img.shields.io/badge/Bun-1.4.2-000?style=flat-square&logo=bun&logoColor=white)
 
-[Features](#features) &nbsp;&bull;&nbsp; [Screenshots](#screenshots) &nbsp;&bull;&nbsp;
-[Run a server](#run-a-server) &nbsp;&bull;&nbsp; [Apps](#apps) &nbsp;&bull;&nbsp;
+[Install](#install) &nbsp;&bull;&nbsp; [Features](#features) &nbsp;&bull;&nbsp;
+[Screenshots](#screenshots) &nbsp;&bull;&nbsp; [Server](#server) &nbsp;&bull;&nbsp;
 [Development](#development) &nbsp;&bull;&nbsp; [Built on OpenBot](#built-on-openbot)
 
 <br>
@@ -29,6 +29,35 @@ No relay, no account service, no cloud copy of your chats.
 > [!WARNING]
 > Agents run with `danger-full-access`. They can read and modify files, run commands, use the
 > network and control the embedded browser. Run only agents and tasks you trust.
+
+## Install
+
+**Let your coding agent install it.** Open Claude Code, Codex or another coding agent on the
+computer that will be your server (or on a computer that can reach it over SSH), and paste this:
+
+```text
+Install Tommy for me. Read
+https://raw.githubusercontent.com/jbaehova/tommy/main/docs/INSTALL.md
+and follow it step by step. First ask me which parts to install (server, Mac app, Android app)
+and for every value it needs, such as my domain. Show me each sudo command before you run it.
+```
+
+The agent checks the requirements, builds and installs the server, sets up HTTPS, installs the apps
+and pairs them. It asks you before it changes the system. You can talk to it in any language.
+
+**What you need**
+
+- A Linux server that stays on (Ubuntu 24.04 or Debian 12, 4 GB of memory or more), with a domain
+  name that points to it and ports 80 and 443 open.
+- At least one agent account: Claude, ChatGPT (Codex), Cursor or Pi.
+- For the apps: a Mac with Apple Silicon and macOS 13 or later, or an Android phone.
+
+**Other ways**
+
+- Install by hand: [docs/INSTALL.md](docs/INSTALL.md) is the same guide, written for people too.
+- Download the apps: [Releases](https://github.com/jbaehova/tommy/releases/latest) has the Mac app
+  (signed and notarized), the Android APK and the Linux AppImage. The server still needs the
+  install steps above.
 
 ## Features
 
@@ -153,45 +182,25 @@ The server is the Linux build of the desktop app, run as a systemd service on a 
 The SQLite database on the server is the source of truth. A signed-in phone keeps only an encrypted
 read-only cache, deleted on sign-out.
 
-## Run a server
+## Server
 
-Build it on the server from a checkout, then install it as root:
+The server is installed by [docs/INSTALL.md](docs/INSTALL.md#1-server). Manage it with the `tommy`
+command:
 
-```bash
-bun install --frozen-lockfile
-bun run package:linux
-sudo bash scripts/hosting/tommy-install dist/linux-unpacked https://tommy.example.com
-sudo tommy pair
-```
+| Command | Purpose |
+| --- | --- |
+| `sudo tommy status` | Show the state of the server. |
+| `sudo tommy pair` | Show a one-time code and a QR code that pair a new device. |
+| `sudo tommy devices` | List the paired devices. `revoke-device <id>` removes one. |
+| `sudo tommy logs` | Follow the log of the service. |
+| `sudo tommy restart` | Restart the service. |
 
-`tommy-install` creates the `tommy` system user, installs the app in `/opt/Tommy`, keeps its data
-in `/var/lib/tommy`, and starts `tommy.service`. The second argument is the public HTTPS address of
-the server; it is kept in `/etc/tommy/server.env`, so an upgrade can leave it out. Run it again to
-upgrade; the data stays.
-`sudo tommy pair` shows a one-time code and a QR code for a new device. `tommy` with no arguments
-lists the other commands (`status`, `devices`, `revoke-device`, `logs`, `restart`).
+The app lives in `/opt/Tommy`, the data in `/var/lib/tommy`, and the public address in
+`/etc/tommy/server.env`. To update, pull, build and run `tommy-install` again
+([steps](docs/INSTALL.md#update-the-server-later)); the data and paired devices stay.
 
-Devices reach the server over HTTPS. `scripts/hosting/nginx-tommy.conf` is the public entry: set
-`server_name` to your host name, get a certificate for it, and install the file in
-`/etc/nginx/sites-available`. It forwards only the pairing and connection paths to loopback; the
-Team API stays on loopback with no public path.
-
-## Apps
-
-Optional build settings go in the root `.env`; `.env.example` lists them.
-
-- **Mac:** `bun run dist:mac` builds the app. `bun run package` builds an unpacked app for a quick
-  check. `RENDERER_VITE_DEFAULT_SERVER_ADDRESS` in `.env` fills the server field of the pairing
-  screen.
-- **Android:** `bun run mobile:android` builds and installs a development build on a connected
-  device, and `bun run mobile:android:build:local` builds a release bundle. Two settings in the root
-  `.env` are optional:
-  - `TOMMY_ANDROID_KEYSTORE` names a signing key kept outside the repository (`~/` is the home
-    folder). Without it, each
-    `expo prebuild` makes a new key, and the phone refuses the next build as an update.
-  - `FIREBASE_ANDROID_API_KEY`, `FIREBASE_ANDROID_APP_ID`, `FIREBASE_PROJECT_ID`,
-    `FIREBASE_PROJECT_NUMBER` and `FIREBASE_STORAGE_BUCKET` come from your own Firebase project.
-    Without them the app works but gets no notifications.
+Devices reach the server over HTTPS. `scripts/hosting/nginx-tommy.conf` forwards only the pairing
+and connection paths to loopback; the Team API stays on loopback with no public path.
 
 ## Development
 
@@ -211,6 +220,15 @@ cache, and the root `postinstall` clones Electron from `~/Library/Caches/Tommy/e
 `du` still shows the full size of each clone. Delete the directory to clear the cache; an entry that
 nobody used for 30 days is removed by the next save.
 
+Optional build settings go in the root `.env`; [.env.example](.env.example) lists them:
+
+- `RENDERER_VITE_DEFAULT_SERVER_ADDRESS` fills the server field of the Mac pairing screen.
+- `TOMMY_ANDROID_KEYSTORE` names the Android signing key, kept outside the repository (`~/` is the
+  home folder). Keep the same key for every build, or the phone refuses the next build as an update.
+- `FIREBASE_ANDROID_API_KEY`, `FIREBASE_ANDROID_APP_ID`, `FIREBASE_PROJECT_ID`,
+  `FIREBASE_PROJECT_NUMBER` and `FIREBASE_STORAGE_BUCKET` come from your own Firebase project.
+  Without them the Android app works but gets no notifications.
+
 <details>
 <summary><b>All commands</b></summary>
 
@@ -221,7 +239,8 @@ nobody used for 30 days is removed by the next save.
 | `bun run dev:stop` | Stop the processes that this worktree's stack started. Never stop a stack with `pkill -f electron` or `pkill -f bun`: on a machine running several worktrees those kill the other checkouts' work mid-write. |
 | `bun run dev:forget` | Remove a stale entry from the dev registry. |
 | `bun run dev:automation` | Drive a running dev app through CDP. Prints its usage with `--help`. |
-| `bun run mobile` | Start the Expo development server for the Android app. |
+| `bun run mobile` | Start the Expo development server for the Android app. `mobile:android` installs a development build on a connected device, and `mobile:android:apk` builds the release APK. |
+| `bun run package` | Build the Mac app into `dist/mac-arm64`. `dist:mac` also makes the DMG. |
 | `bun run typecheck` | Type-check every project. |
 | `bun run lint` | Run Biome on the whole repository. `bun run format` also writes the fixes. |
 | `bun run check:ui` | Check the UI foundation rules. |
