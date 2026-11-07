@@ -1,8 +1,8 @@
 # Development check design notes
 
-These notes explain the checks referenced by [repository instructions](../AGENTS.md#checks).
+These notes explain the checks in [CONTRIBUTING.md](../CONTRIBUTING.md#checks).
 Read the relevant section when changing CI, dependencies, or lint rules. Routine tasks use the
-short command list in `AGENTS.md`.
+short command list in `CONTRIBUTING.md`.
 
 ## Check coverage
 
@@ -10,7 +10,7 @@ CI runs one job, `Check`, from [.github/workflows/ci.yml](../.github/workflows/c
 `main` and on each pull request. Its steps run in this order: install with the frozen lockfile,
 `lint`, `check:ui`, `i18n:check`, `typecheck`, `build`, `verify:preload` and `test:desktop`.
 `bun run check` runs the same steps on one computer. It reads the whole repository, so agents
-leave it to CI (see [AGENTS.md](../AGENTS.md#checks)).
+leave it to CI (see [CONTRIBUTING.md](../CONTRIBUTING.md#checks)).
 
 Full lint and typecheck read more than the changed files. A shared export can break desktop,
 mobile, or a package outside the edited project. Lint uses

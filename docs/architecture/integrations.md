@@ -323,7 +323,7 @@ state on each of them.
 To add a connector:
 
 1. Add the IPC contract in `packages/contracts/src/ipc-<name>-connector.ts`, the handlers in
-   `src/main/ipc/<name>-connector-handlers.ts` (read [src/main/ipc/AGENTS.md](../../src/main/ipc/AGENTS.md)),
+   `src/main/ipc/<name>-connector-handlers.ts`,
    the preload decoders and the preview mock.
 2. Add the service in `src/main/<name>-connector-service.ts`. Keep its secret in encrypted storage,
    and call `registerSecretValue` on every token before the first log line.

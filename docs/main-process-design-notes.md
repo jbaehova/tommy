@@ -1,7 +1,6 @@
 # Main-process design notes
 
-[The main-process instructions](../src/main/AGENTS.md) contain the active rules and file ownership
-map. This document explains the decisions and the failures that led to them.
+This document explains the decisions of the main process and the failures that led to them.
 
 ## IPC coverage and privileged imports
 

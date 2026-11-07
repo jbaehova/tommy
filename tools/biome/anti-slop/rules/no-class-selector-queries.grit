@@ -15,7 +15,7 @@ language js(typescript)
 // GritQL has none. Measured against the sites this rule was written for, the
 // fence catches 8 of 11 with no false positive on the instrumentation
 // handles. The fence is what buys that, so the gap is not worth trading away;
-// AGENTS.md prose and review cover the rest.
+// CONTRIBUTING.md and review cover the rest.
 or {
   `$_.$method($selector)`,
   `$_.$method<$_>($selector)`
@@ -25,7 +25,7 @@ or {
   $call <: within or { `expect($...)`, `within($...)` },
   register_diagnostic(
     span=$call,
-    message="Do not assert on an element found by CSS class. See the Tests section of AGENTS.md: a class is a styling detail, so this asserts markup structure rather than behaviour and breaks on any refactor. Query by accessible role and name instead.",
+    message="Do not assert on an element found by CSS class. See Tests in CONTRIBUTING.md: a class is a styling detail, so this asserts markup structure rather than behaviour and breaks on any refactor. Query by accessible role and name instead.",
     severity="error"
   )
 }
