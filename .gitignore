@@ -60,8 +60,6 @@ keys
 *firebase-adminsdk*.json
 # Agent task checklist. Local to one worktree.
 /TASKS.md
-# Agent instruction files stay local, in every folder. Never commit.
-AGENTS.md
 
 # Persistent local development identity and migration recovery.
 .tommy/
