@@ -10,17 +10,15 @@ import { causeHelpers } from "../backend/effect-boundary";
 import { isMissingFileError } from "../backend/file-errors";
 import { isPathInside } from "../backend/path-containment";
 
-/** A skill of a removed feature. Agents read workspace skills, so an old copy must not stay. */
-const RETIRED_MANAGED_SKILL_SLUGS = ["tommy-site-hosting"] as const;
+/**
+ * Skills that Tommy no longer ships. Agents read workspace skills, so an old copy must not stay.
+ * `tommy-t3` was one installation's T3 Code bridge; such a skill belongs in the user's own skills.
+ */
+const RETIRED_MANAGED_SKILL_SLUGS = ["tommy-site-hosting", "tommy-t3"] as const;
 export const SKILL_CREATOR_SKILL_SLUG = "tommy-skill-creator";
 export const DATA_SKILL_SLUG = "tommy-data";
-export const T3_SKILL_SLUG = "tommy-t3";
 /** The skills Tommy writes into every agent workspace. Add a new managed skill here too. */
-export const MANAGED_SKILL_SLUGS: ReadonlySet<string> = new Set([
-  SKILL_CREATOR_SKILL_SLUG,
-  DATA_SKILL_SLUG,
-  T3_SKILL_SLUG,
-]);
+export const MANAGED_SKILL_SLUGS: ReadonlySet<string> = new Set([SKILL_CREATOR_SKILL_SLUG, DATA_SKILL_SLUG]);
 export const OWNERSHIP_MARKER = ".tommy-managed.json";
 /** The workspace skill folders Tommy writes. Each provider reads at least one of them. */
 export const MANAGED_SKILL_FOLDERS = [".agents/skills", ".claude/skills"] as const;

@@ -15,7 +15,6 @@ export const messages = {
   "mobile.settings.home.about": "Tommy 정보",
   "mobile.settings.home.support": "지원",
   "mobile.settings.support.help": "도움 받기",
-  "mobile.settings.support.message": "X로 메시지 보내기",
   "mobile.settings.support.issues": "GitHub에서 문제 신고",
   "mobile.settings.support.helpFooter":
     "무슨 일이 언제 일어났는지 알려 주세요. GitHub 이슈에 지원 로그 파일을 첨부해 주세요.",
@@ -66,17 +65,11 @@ export const messages = {
   "mobile.settings.feedback.retry": "햅틱 설정 다시 저장",
   "mobile.settings.notifications.title": "알림",
   "mobile.settings.notifications.toggle": "알림 허용",
-  "mobile.settings.notifications.footer":
-    "에이전트가 작업을 마치거나, 오류로 멈추거나, 입력·승인·브라우저 단계가 필요할 때 알려 줘요. 여기나 데스크톱 앱에서 Tommy를 사용 중일 때는 알림이 오지 않아요. 실시간 현황이 표시되는 동안에는 알림 대신 실시간 현황에 이벤트가 표시돼요.",
   "mobile.settings.notifications.footerAndroid":
     "에이전트가 작업을 마치거나, 오류로 멈추거나, 입력·승인·브라우저 단계가 필요할 때 알려 줘요. 여기나 데스크톱 앱에서 Tommy를 사용 중일 때는 알림이 오지 않아요.",
-  "mobile.settings.notifications.denied": "iOS 설정에서 Tommy 알림이 꺼져 있어요.",
   "mobile.settings.notifications.deniedAndroid": "Android 설정에서 Tommy 알림이 꺼져 있어요.",
-  "mobile.settings.notifications.openSettings": "iOS 설정 열기",
   "mobile.settings.notifications.openSettingsAndroid": "Android 설정 열기",
   "mobile.settings.notifications.preview": "답변 미리보기 표시",
-  "mobile.settings.notifications.previewFooter":
-    "답변의 시작 부분, 질문, 승인할 작업을 표시해요. Apple과 Tommy 계정 서비스는 이 내용을 읽을 수 없어요.",
   "mobile.settings.notifications.previewFooterAndroid":
     "답변의 시작 부분, 질문, 승인할 작업을 표시해요. Google과 Tommy 계정 서비스는 이 내용을 읽을 수 없어요.",
   "mobile.settings.notifications.sound": "소리",
@@ -86,10 +79,7 @@ export const messages = {
   "mobile.settings.notifications.sound.mech": "기계음",
   "mobile.settings.notifications.sound.bubble": "뽀글뽀글",
   "mobile.settings.notifications.sound.press": "딸깍",
-  "mobile.settings.notifications.sound.default": "iOS 기본값",
   "mobile.settings.notifications.sound.defaultAndroid": "Android 기본값",
-  "mobile.settings.notifications.soundFooter":
-    "알림과 실시간 현황이 이 소리를 재생해요. 실시간 현황은 화면도 켜요. Tommy 소리는 작업이 끝났을 때 데스크톱 앱이 재생하는 소리예요. 그 뒤의 네 가지 소리는 데스크톱 소리 테마의 소리예요.",
   "mobile.settings.notifications.soundFooterAndroid":
     "알림이 이 소리를 재생해요. Tommy 소리는 작업이 끝났을 때 데스크톱 앱이 재생하는 소리예요. 그 뒤의 네 가지 소리는 데스크톱 소리 테마의 소리예요.",
   "mobile.settings.notifications.level.all": "모든 활동",
@@ -136,7 +126,6 @@ export const messages = {
   "mobile.settings.voice.unavailable":
     "이 버전의 앱은 답변을 소리 내어 읽을 수 없어요. 음성 대화를 쓰려면 앱을 업데이트하세요.",
   "mobile.settings.voice.removeFailed": "삭제하지 못했어요. 다시 시도하세요.",
-  "mobile.settings.voice.engine.supertonic": "Supertonic 3",
   "mobile.settings.voice.supertonic.title": "Supertonic 3",
   "mobile.settings.voice.supertonic.footer":
     "모델을 한 번 다운로드하세요(Wi-Fi 권장). 삭제할 때까지 이 휴대폰에 남아 있어요.",

@@ -14,7 +14,6 @@ export const messages = defineMessages("mobile.settings", {
   "mobile.settings.home.about": "About Tommy",
   "mobile.settings.home.support": "Support",
   "mobile.settings.support.help": "Get help",
-  "mobile.settings.support.message": "Message us on X",
   "mobile.settings.support.issues": "Report a problem on GitHub",
   "mobile.settings.support.helpFooter":
     "Tell us what happened and when. Attach the support log file to your GitHub issue.",
@@ -65,17 +64,11 @@ export const messages = defineMessages("mobile.settings", {
   "mobile.settings.feedback.retry": "Retry saving haptics setting",
   "mobile.settings.notifications.title": "Notifications",
   "mobile.settings.notifications.toggle": "Allow notifications",
-  "mobile.settings.notifications.footer":
-    "Agents tell you when they finish, stop with an error, or need your input, an approval, or a step in the browser. Nothing comes while Tommy is in use here or in the desktop app. While the Live Activity shows, it shows the event instead.",
   "mobile.settings.notifications.footerAndroid":
     "Agents tell you when they finish, stop with an error, or need your input, an approval, or a step in the browser. Nothing comes while Tommy is in use here or in the desktop app.",
-  "mobile.settings.notifications.denied": "Notifications for Tommy are off in iOS Settings.",
   "mobile.settings.notifications.deniedAndroid": "Notifications for Tommy are off in Android settings.",
-  "mobile.settings.notifications.openSettings": "Open iOS Settings",
   "mobile.settings.notifications.openSettingsAndroid": "Open Android settings",
   "mobile.settings.notifications.preview": "Show reply preview",
-  "mobile.settings.notifications.previewFooter":
-    "Shows the start of a reply, a question, or the action to approve. Apple and the Tommy account service cannot read it.",
   "mobile.settings.notifications.previewFooterAndroid":
     "Shows the start of a reply, a question, or the action to approve. Google and the Tommy account service cannot read it.",
   "mobile.settings.notifications.sound": "Sound",
@@ -85,10 +78,7 @@ export const messages = defineMessages("mobile.settings", {
   "mobile.settings.notifications.sound.mech": "Mechanical",
   "mobile.settings.notifications.sound.bubble": "Bubbly",
   "mobile.settings.notifications.sound.press": "Clicky",
-  "mobile.settings.notifications.sound.default": "iOS default",
   "mobile.settings.notifications.sound.defaultAndroid": "Android default",
-  "mobile.settings.notifications.soundFooter":
-    "Notifications and the Live Activity play this sound. The Live Activity also lights up the screen. The Tommy sound is the sound that the desktop app plays when a task finishes. The four sounds after it are the sounds of the desktop sound themes.",
   "mobile.settings.notifications.soundFooterAndroid":
     "Notifications play this sound. The Tommy sound is the sound that the desktop app plays when a task finishes. The four sounds after it are the sounds of the desktop sound themes.",
   "mobile.settings.notifications.level.all": "All activity",
@@ -135,7 +125,6 @@ export const messages = defineMessages("mobile.settings", {
   "mobile.settings.voice.unavailable":
     "This version of the app cannot read replies aloud. Update the app to use a voice conversation.",
   "mobile.settings.voice.removeFailed": "Could not remove it. Try again.",
-  "mobile.settings.voice.engine.supertonic": "Supertonic 3",
   "mobile.settings.voice.supertonic.title": "Supertonic 3",
   "mobile.settings.voice.supertonic.footer":
     "Download the model once, preferably on Wi-Fi. It stays on this phone until you remove it.",
