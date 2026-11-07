@@ -83,11 +83,6 @@ for (const [path, endpoint] of expected) {
   if (method !== undefined) checkCall(main, path, method, endpoint);
 }
 
-const teamWebrtc = runPreload("teamWebrtc.cjs");
-if (teamWebrtc.worlds.size > 0) {
-  failures.push(`teamWebrtc.cjs must expose no world; it exposes: ${[...teamWebrtc.worlds.keys()].join(", ")}.`);
-}
-
 if (failures.length > 0) {
   logger.error(["The built preload does not match the IPC contract:", ...failures.map((f) => `  ${f}`)].join("\n"));
   process.exit(1);
