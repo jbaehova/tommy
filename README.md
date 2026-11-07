@@ -178,12 +178,16 @@ Team API stays on loopback with no public path.
 
 ## Apps
 
+Optional build settings go in the root `.env`; `.env.example` lists them.
+
 - **Mac:** `bun run dist:mac` builds the app. `bun run package` builds an unpacked app for a quick
-  check.
+  check. `RENDERER_VITE_DEFAULT_SERVER_ADDRESS` in `.env` fills the server field of the pairing
+  screen.
 - **Android:** `bun run mobile:android` builds and installs a development build on a connected
   device, and `bun run mobile:android:build:local` builds a release bundle. Two settings in the root
   `.env` are optional:
-  - `TOMMY_ANDROID_KEYSTORE` names a signing key kept outside the repository. Without it, each
+  - `TOMMY_ANDROID_KEYSTORE` names a signing key kept outside the repository (`~/` is the home
+    folder). Without it, each
     `expo prebuild` makes a new key, and the phone refuses the next build as an update.
   - `FIREBASE_ANDROID_API_KEY`, `FIREBASE_ANDROID_APP_ID`, `FIREBASE_PROJECT_ID`,
     `FIREBASE_PROJECT_NUMBER` and `FIREBASE_STORAGE_BUCKET` come from your own Firebase project.
