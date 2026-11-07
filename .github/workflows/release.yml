@@ -1,8 +1,9 @@
 name: Release
 
-# A tag `v<version>` (the version in package.json) builds the apps and publishes a GitHub release.
-# A manual run builds, signs and notarizes the same files and keeps them as workflow artifacts only,
-# so the signing setup can be checked before a tag. See docs/RELEASING.md.
+# A tag `v<version>` (the version in package.json) publishes a GitHub release as soon as the Mac app
+# is signed and notarized (about 9 minutes, most of it Apple's notary service). The Android APK
+# builds at the same time and joins the release when it is done. A manual run builds the same files
+# as workflow artifacts only, so the signing can be checked before a tag. See docs/RELEASING.md.
 on:
   push:
     tags: ["v*.*.*"]
@@ -114,38 +115,13 @@ jobs:
             dist/*.blockmap
             dist/latest-mac.yml
 
-  linux:
-    name: Linux (x64 AppImage)
-    needs: version
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: package.json
-      - name: Install
-        run: bun install --frozen-lockfile
-      - name: Build
-        run: |
-          bun run build
-          bun x electron-builder --linux AppImage --x64 --publish never -c.linux.target=AppImage
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-linux
-          if-no-files-found: error
-          path: |
-            dist/*.AppImage
-            dist/latest-linux*.yml
-
   android:
     name: Android (arm64 APK)
     needs: version
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -177,7 +153,19 @@ jobs:
           mkdir -p dist
           cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk \
             "dist/Tommy-${{ needs.version.outputs.version }}-android-arm64.apk"
-      - uses: actions/upload-artifact@v4
+      - name: Add the APK to the release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The publish job creates the release when the Mac app is ready, usually first.
+          for attempt in $(seq 1 80); do
+            gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+            sleep 30
+          done
+          gh release upload "$GITHUB_REF_NAME" dist/*.apk --repo "$GITHUB_REPOSITORY" --clobber
+      - if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
         with:
           name: release-android
           if-no-files-found: error
@@ -186,7 +174,7 @@ jobs:
   publish:
     name: Publish
     if: github.ref_type == 'tag'
-    needs: [version, mac, linux, android]
+    needs: [version, mac]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -195,9 +183,6 @@ jobs:
         with:
           path: release
           merge-multiple: true
-      - name: Write checksums
-        working-directory: release
-        run: sha256sum * >SHA256SUMS.txt
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}

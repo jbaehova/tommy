@@ -1,14 +1,16 @@
 # Releasing
 
-Releases come from CI only. A tag `v<version>` runs [release.yml](../.github/workflows/release.yml),
-which builds these files and publishes them as a GitHub release:
+Releases come from CI only. A tag `v<version>` runs [release.yml](../.github/workflows/release.yml).
+It keeps only what users cannot easily build themselves:
 
-| File | Built on | Notes |
-| --- | --- | --- |
-| `Tommy-<version>-arm64.dmg`, `.zip`, `latest-mac.yml` | `macos-15` | Developer ID signed, hardened runtime, notarized and stapled |
-| `Tommy-<version>-*.AppImage`, `latest-linux.yml` | `ubuntu-latest` | Unsigned |
-| `Tommy-<version>-android-arm64.apk` | `ubuntu-latest` | Signed with the release key; no Firebase, so no push notifications |
-| `SHA256SUMS.txt` | | Checksums of every file |
+| File | Built on | Ready after | Notes |
+| --- | --- | --- | --- |
+| `Tommy-<version>-arm64.dmg`, `.zip`, `latest-mac.yml` | `macos-15` | about 9 minutes | Developer ID signed, hardened runtime, notarized and stapled |
+| `Tommy-<version>-android-arm64.apk` | `ubuntu-latest` | about 25 minutes | Signed with the release key; no Firebase, so no push notifications |
+
+The release is published when the Mac app is ready; most of those 9 minutes are Apple's notary
+service. The APK joins the same release when its build is done. The server has no release file: it
+is built from source by [docs/INSTALL.md](INSTALL.md). GitHub shows the SHA-256 of each file.
 
 The standard GitHub-hosted runners are free for a public repository, macOS included.
 
