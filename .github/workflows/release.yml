@@ -87,14 +87,15 @@ jobs:
           unset APPLE_API_KEY_P8
           bun run build
           # hdiutil on a hosted runner can fail with "Resource busy" when nothing is wrong. Only that
-          # error gets another attempt; each attempt signs and notarizes again.
+          # error and a failed staple get another attempt; each attempt signs and notarizes again.
           log="$RUNNER_TEMP/electron-builder.log"
           for attempt in 1 2 3; do
             if bun x electron-builder --config electron-builder.release.yml --mac --arm64 --publish never 2>&1 | tee "$log"; then
               exit 0
             fi
-            grep -Eq 'hdiutil: .*(Device not configured|Resource busy)' "$log" || exit 1
-            echo "::warning::hdiutil failed (attempt $attempt of 3)."
+            # Apple's ticket service can drop the connection while the build staples the ticket.
+            grep -Eq 'hdiutil: .*(Device not configured|Resource busy)|staple and validate action failed' "$log" || exit 1
+            echo "::warning::hdiutil or stapling failed (attempt $attempt of 3)."
           done
           exit 1
       - name: Check the signature and the notarization
