@@ -1,5 +1,6 @@
 import { useVerticalBarEdgeIOS } from "expo-status-bar";
-import { Platform, useWindowDimensions } from "react-native";
+
+import { isIOS } from "@/shared/lib/platform";
 
 /**
  * Whether iOS shows the vertical bar beside the content, as on iPhone Duo. The bar holds the status
@@ -8,5 +9,5 @@ import { Platform, useWindowDimensions } from "react-native";
  */
 export function useVerticalBarShown(): boolean {
   const edge = useVerticalBarEdgeIOS();
-  return false;
+  return isIOS && edge !== null;
 }

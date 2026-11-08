@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { AccessibilityInfo } from "react-native";
+import { isAndroid } from "./platform";
 
 let reduced: boolean | null = null;
 let started = false;
@@ -25,7 +26,7 @@ function subscribe(listener: () => void) {
 
 function snapshot(): boolean {
   // Android has no such setting and always answers false. Until iOS answers, controls draw solid.
-  return false;
+  return isAndroid ? false : (reduced ?? true);
 }
 
 /**

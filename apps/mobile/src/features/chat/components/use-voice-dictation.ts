@@ -5,9 +5,11 @@ import { type SharedValue, useSharedValue, withTiming } from "react-native-reani
 import { showFailureAlert } from "@/features/analytics/failure-reports";
 import { AUTOMATIC_DICTATION_LANGUAGE, useDictationLanguage } from "@/features/settings/model/dictation-language";
 import { parakeetSupported, useParakeetModel } from "@/features/voice/model/parakeet-model";
+import { speechNative } from "@/features/voice/model/speech-native";
 import { useVoiceSettings } from "@/features/voice/model/voice-settings";
 import { haptics } from "@/shared/lib/haptics";
 import { phoneLanguages } from "@/shared/lib/phone-languages";
+import { isIOS } from "@/shared/lib/platform";
 import { speechRecognition } from "@/shared/lib/speech-recognition";
 import { currentText } from "@/shared/lib/text";
 import { useAppForeground } from "@/shared/lib/use-app-foreground";
@@ -71,7 +73,7 @@ let cachedAvailable: boolean | null = null;
  */
 function recognitionAvailable(): boolean {
   if (!speechRecognition) return false;
-
+  if (isIOS) return true;
   // Each chat asked again when it opened: on Android a synchronous package manager query.
   if (cachedAvailable !== null) return cachedAvailable;
   try {
@@ -117,7 +119,7 @@ async function recognitionOptions(module: Recognizer, supported: Promise<Support
   // service otherwise. Android fails without an installed language model, so
   // ask for on-device recognition only for an installed locale.
   const requiresOnDeviceRecognition =
-    module.supportsOnDeviceRecognition() && hasRecognitionLocale(lang, locales.installedLocales);
+    isIOS || (module.supportsOnDeviceRecognition() && hasRecognitionLocale(lang, locales.installedLocales));
   return { lang, requiresOnDeviceRecognition };
 }
 
@@ -211,6 +213,8 @@ function useSystemDictation({
       speechRecognition.addListener("start", () => {
         if (owner !== id || !session.current?.native || phaseRef.current !== "starting") return;
         session.current.listeningAt ??= performance.now();
+        // The recognizer's session silences haptics, and the composer's controls tap while the user speaks.
+        speechNative?.allowHapticsWhileRecording?.();
         update("listening");
         void haptics.impact("light");
       }),

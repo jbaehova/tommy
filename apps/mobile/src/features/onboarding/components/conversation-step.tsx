@@ -1,7 +1,7 @@
 import { Separator, Typography } from "heroui-native";
 import { useThemeColor } from "heroui-native/hooks";
 import { type ReactNode, useEffect, useRef } from "react";
-import { Keyboard, ScrollView, type ScrollViewInstance, TextInput, View } from "react-native";
+import { Keyboard, Platform, ScrollView, type ScrollViewInstance, TextInput, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -109,7 +109,7 @@ export function ConversationStep({
         contentContainerClassName="grow gap-4 px-6 pt-4 pb-4"
         keyboardShouldPersistTaps="handled"
         // Android has no interactive dismissal: a drag of the conversation closes the keyboard.
-        keyboardDismissMode={"on-drag"}
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         alwaysBounceVertical={false}
         showsVerticalScrollIndicator={false}
       >

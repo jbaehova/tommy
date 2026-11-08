@@ -1,12 +1,13 @@
 # Tommy Mobile
 
-The Android app of Tommy, built with Expo SDK 58, Expo Router, TypeScript 7, Biome, and Bun. It connects to a paired Tommy server directly over WSS. The app uses Expo Continuous Native Generation, so the native `android/` directory is intentionally not committed.
+The Android and iPhone app of Tommy, built with Expo SDK 58, Expo Router, TypeScript 7, Biome, and Bun. It connects to a paired Tommy server directly over WSS. The app uses Expo Continuous Native Generation, so the native `android/` and `ios/` directories are intentionally not committed.
 
 ## Requirements
 
 - Node.js 24 or newer (the repository pins 24 in `.nvmrc`)
 - Bun 1.4.2 (the version in the root `packageManager`)
 - An Android device or emulator; Expo Go works for quick checks
+- For iPhone: a Mac with Xcode and CocoaPods, and an iOS simulator or an iPhone
 
 
 ## Development
@@ -139,6 +140,26 @@ It reports a phone lock from `ACTION_SCREEN_OFF`. Android counts the app as away
 of the app is visible, so permission and biometric dialogs do not lock it. On Android 13 and later the
 recent apps show a blank card. The lock screen draws in a `Modal`, above sheets. Notification, quick action and
 share navigation waits until the user unlocks. Expo Go does not have the module: it measures with the phone clock and cannot see a phone lock.
+
+## iPhone
+
+The iPhone app uses the same screens as the Android app. The design is the same; iOS adds its own
+system parts: the native back swipe, Face ID or Touch ID for the app lock, Liquid Glass on iOS 26,
+the iOS share sheet and date pickers, and the system haptics.
+
+- `bun run mobile:ios:prebuild` makes `ios/` from `app.json`, `app.config.js` and the config plugins.
+  Run it again after a change to them.
+- `bun run mobile:ios` builds the app, installs it on a simulator and starts Metro. Add `--device` for
+  a connected iPhone, and `--configuration Release` for a build that runs without Metro.
+- A build for a phone needs `TOMMY_IOS_BUNDLE_ID` and `TOMMY_APPLE_TEAM_ID` in the root `.env`. See
+  [docs/INSTALL.md](../../docs/INSTALL.md#4-iphone-app).
+- `app.config.js` adds the share extension (`expo-sharing`) and the Notification Service Extension
+  (`plugins/with-notification-service.js`). Both share the App Group `group.<bundle ID>` with the app:
+  the app writes the notification keys and the agent pictures there.
+- The native modules in `modules/` have a Swift part in `ios/` beside the Kotlin part. `modules/speech`
+  fetches the sherpa-onnx xcframework at `pod install` and checks its SHA-256.
+- CI builds the app for the simulator when the native iPhone parts change (`.github/workflows/ios.yml`).
+  It blocks nothing; run it by hand from the Actions tab after other mobile changes.
 
 ## Source structure
 

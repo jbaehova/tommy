@@ -20,6 +20,7 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { useCSSVariable } from "uniwind";
 import { SheetScrollEdgeEffect } from "@/shared/components/sheet-scroll-edge-effect";
 import { useReducedMotion } from "@/shared/lib/motion";
+import { isIOS } from "@/shared/lib/platform";
 import type { VoiceMode } from "./use-voice-mode";
 
 const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
@@ -228,7 +229,7 @@ export function VoiceOverlay({
   reducedTransparency: boolean;
 }) {
   const { presence, exit } = voice;
-  const blurred = false;
+  const blurred = isIOS && !reducedTransparency;
   const veil = blurred ? VEIL.blurred : VEIL.plain;
   const veilStyle = useAnimatedStyle(() => ({ opacity: presence.get() * veil }));
   const topVeilStyle = useAnimatedStyle(() => ({ opacity: presence.get() * TOP_VEIL }));

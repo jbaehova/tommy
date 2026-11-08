@@ -1,5 +1,6 @@
 import * as ExpoHaptics from "expo-haptics";
 import { useHapticsPreference } from "../../features/settings/model/haptics";
+import { isAndroid } from "./platform";
 
 async function play(feedback: () => Promise<void>): Promise<void> {
   const { enabled, ready } = useHapticsPreference.getState();
@@ -28,7 +29,11 @@ export const haptics = {
     ),
   /** The tick when a long press opens a menu, so the user knows the finger can lift. */
   longPress: (): Promise<void> =>
-    play(() => ExpoHaptics.performAndroidHapticsAsync(ExpoHaptics.AndroidHaptics.Long_Press)),
+    play(() =>
+      isAndroid
+        ? ExpoHaptics.performAndroidHapticsAsync(ExpoHaptics.AndroidHaptics.Long_Press)
+        : ExpoHaptics.impactAsync(ExpoHaptics.ImpactFeedbackStyle.Medium),
+    ),
   notification: (type: "success" | "warning" | "error" = "success"): Promise<void> =>
     play(() =>
       ExpoHaptics.notificationAsync(

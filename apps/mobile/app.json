@@ -2,13 +2,24 @@
   "expo": {
     "name": "Tommy",
     "slug": "tommy",
-    "platforms": ["android"],
+    "platforms": ["ios", "android"],
     "version": "1.4.5",
     "orientation": "portrait",
     "icon": "./assets/icons/app-icon.png",
     "scheme": "tommy",
     "backgroundColor": "#141414",
     "userInterfaceStyle": "automatic",
+    "ios": {
+      "icon": "./assets/icons/app-icon.png",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Allow Tommy to connect to your Tommy server on the local network.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        },
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
     "android": {
       "package": "app.tommy.mobile",
       "icon": "./assets/icons/app-icon.png",
@@ -123,6 +134,27 @@
       [
         "expo-font",
         {
+          "ios": {
+            "fonts": [
+              "./assets/fonts/pretendard/Pretendard-Regular.otf",
+              "./assets/fonts/pretendard/Pretendard-Medium.otf",
+              "./assets/fonts/pretendard/Pretendard-SemiBold.otf",
+              "./assets/fonts/pretendard/Pretendard-Bold.otf",
+              "./assets/fonts/pretendard/Pretendard-ExtraBold.otf",
+              "katex/dist/fonts/KaTeX_AMS-Regular.ttf",
+              "katex/dist/fonts/KaTeX_Caligraphic-Regular.ttf",
+              "katex/dist/fonts/KaTeX_Fraktur-Regular.ttf",
+              "katex/dist/fonts/KaTeX_Main-Bold.ttf",
+              "katex/dist/fonts/KaTeX_Main-Italic.ttf",
+              "katex/dist/fonts/KaTeX_Main-Regular.ttf",
+              "katex/dist/fonts/KaTeX_Math-BoldItalic.ttf",
+              "katex/dist/fonts/KaTeX_Math-Italic.ttf",
+              "katex/dist/fonts/KaTeX_SansSerif-Regular.ttf",
+              "katex/dist/fonts/KaTeX_Size1-Regular.ttf",
+              "katex/dist/fonts/KaTeX_Size2-Regular.ttf",
+              "katex/dist/fonts/KaTeX_Typewriter-Regular.ttf"
+            ]
+          },
           "android": {
             "fonts": [
               {

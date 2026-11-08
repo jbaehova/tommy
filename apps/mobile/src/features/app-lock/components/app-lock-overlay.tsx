@@ -1,12 +1,15 @@
 import { usePathname } from "expo-router";
 import { Button, Typography } from "heroui-native";
 import { useThemeColor } from "heroui-native/hooks";
+import Fingerprint from "lucide-react-native/icons/fingerprint-pattern";
 import LockKeyhole from "lucide-react-native/icons/lock-keyhole";
+import ScanFace from "lucide-react-native/icons/scan-face";
 import { type ReactNode, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Alert, AppState, BackHandler, Modal, StyleSheet, useWindowDimensions, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { type EdgeInsets, useSafeAreaInsets } from "react-native-safe-area-context";
+import { FullWindowOverlay } from "react-native-screens";
 import { PinDots, PinPad } from "@/features/app-lock/components/pin-pad";
 import {
   cancelOwnerConfirmation,
@@ -24,6 +27,7 @@ import { type DeviceUnlockKind, deviceUnlockKind } from "@/features/app-lock/mod
 import { useMobileSession } from "@/features/auth/context/mobile-session-context";
 import { haptics } from "@/shared/lib/haptics";
 import { useReducedMotion } from "@/shared/lib/motion";
+import { isIOS } from "@/shared/lib/platform";
 import { type MobileText, useText } from "@/shared/lib/text";
 
 /** The attempts left are shown when this many or fewer remain. */
@@ -37,6 +41,8 @@ const MIN_LOCK_HEADER = 96;
 const MAX_LOCK_HEADER_SHARE = 0.42;
 
 export function deviceUnlockName(kind: DeviceUnlockKind | null, t: MobileText["t"]): string {
+  if (kind === "faceId") return t("mobile.appLock.method.faceId");
+  if (kind === "touchId") return t("mobile.appLock.method.touchId");
   return t("mobile.appLock.method.phone");
 }
 
@@ -51,6 +57,8 @@ function isAppActive(): boolean {
 }
 
 function DeviceUnlockIcon({ kind, size, color }: { kind: DeviceUnlockKind | null; size: number; color: string }) {
+  if (kind === "faceId") return <ScanFace size={size} color={color} strokeWidth={1.75} />;
+  if (kind === "touchId") return <Fingerprint size={size} color={color} strokeWidth={1.75} />;
   return <LockKeyhole size={size} color={color} strokeWidth={1.75} />;
 }
 
@@ -92,7 +100,7 @@ export function AppLockOverlay() {
     setShownMode(mode);
     // Only iOS plays the exit. The Android dialog is its own window: it would hold touches and the
     // Back button for the whole exit.
-    setLeaving(false);
+    setLeaving(isIOS && shownMode === "lock" && mode === null && Boolean(session) && !reduced);
   }
   useEffect(() => {
     if (!leaving) return;
@@ -115,6 +123,12 @@ export function AppLockOverlay() {
       {lockShown ? <LockScreen leaving={leaving} /> : null}
     </GestureHandlerRootView>
   );
+
+  if (isIOS) {
+    // A sheet that opens while the app is locked goes above this layer. A new key adds the layer
+    // again, on top of it.
+    return <FullWindowOverlay key={lockShown ? pathname : "cover"}>{content}</FullWindowOverlay>;
+  }
 
   return (
     <Modal

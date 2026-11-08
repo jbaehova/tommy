@@ -11,6 +11,7 @@ Tommy has three parts:
 | Server | The Linux service that runs the agents and keeps all data | Yes, one |
 | Mac app | The desktop client | Optional |
 | Android app | The phone client | Optional |
+| iPhone app | The phone client, built on a Mac | Optional |
 
 The apps connect directly to the server over HTTPS. There is no account and no relay.
 
@@ -198,6 +199,81 @@ bun run mobile:android:apk
 The APK is `apps/mobile/android/app/build/outputs/apk/release/app-release.apk`. Install it with
 `adb install -r <apk>` or copy it to the phone.
 
+### Notifications on the server (optional)
+
+The server sends Android notifications with the Firebase key of the same project. In the Firebase
+console, open Project settings › Service accounts › Generate new private key, copy the file to the
+server, and install it for the service:
+
+```bash
+sudo install -o tommy -g tommy -m 600 <downloaded-key>.json /var/lib/tommy/fcm-service-account.json
+sudo systemctl restart tommy
+```
+
+## 4. iPhone app
+
+There is no download: Apple installs an app only from the App Store, TestFlight, or a build signed
+for the phone. Build it on a Mac and install it on the iPhone over a cable.
+
+Requirements:
+
+- A Mac with the current Xcode from the App Store, CocoaPods (`brew install cocoapods`), Bun 1.4.2
+  and Node.js 24 as in [Build tools](#build-tools).
+- An iPhone with iOS 16.4 or later.
+- A paid Apple Developer Program membership. The app has a share extension, a notification
+  extension and an App Group, which a free personal team cannot sign. In Xcode, open Settings ›
+  Accounts and sign in with the Apple account of the membership.
+
+**Ask** the user for the team ID of the membership (developer.apple.com › Account › Membership) and
+for a bundle ID that is theirs, such as `com.example.tommy`. Apple gives each bundle ID to one team
+only. Put both in `.env` in the repository (copy `.env.example` first):
+
+```bash
+TOMMY_IOS_BUNDLE_ID=com.example.tommy
+TOMMY_APPLE_TEAM_ID=ABCDE12345
+```
+
+Connect the iPhone to the Mac, unlock it, and allow the Mac. Turn on Settings › Privacy & Security ›
+Developer Mode on the iPhone if iOS asks for it. Then:
+
+```bash
+git clone https://github.com/jbaehova/tommy.git ~/tommy
+cd ~/tommy
+bun install --frozen-lockfile
+bun run mobile:ios:prebuild
+bun run mobile:ios -- --device --configuration Release
+```
+
+Choose the iPhone when Expo asks. Xcode registers the bundle IDs and the App Group for the team and
+signs the build. The first time, iOS asks to trust the developer: Settings › General › VPN & Device
+Management. Then open Tommy, scan the QR code from `sudo tommy pair` or type the address and code.
+
+To update, run `git pull`, `bun install --frozen-lockfile` and the last two commands again. The
+pairing stays.
+
+### Notifications (optional)
+
+The server sends iPhone notifications to Apple with an APNs key of the same team:
+
+1. In the Apple Developer account, open Certificates, Identifiers & Profiles › Keys, add a key with
+   Apple Push Notifications service (APNs), and download `AuthKey_<key ID>.p8`. Apple lets you
+   download it once.
+2. Copy the `.p8` file to the server, and write the key file there. Use the key ID, the team ID and
+   the bundle ID of the app:
+
+   ```bash
+   node -e 'const [keyId, teamId, topic, file] = process.argv.slice(1);
+     process.stdout.write(JSON.stringify({ keyId, teamId, topic, privateKey: require("fs").readFileSync(file, "utf8") }))' \
+     <key ID> <team ID> <bundle ID> AuthKey_<key ID>.p8 | sudo install -o tommy -g tommy -m 600 /dev/stdin /var/lib/tommy/apns-key.json
+   rm AuthKey_<key ID>.p8
+   sudo systemctl restart tommy
+   ```
+
+3. In the app, open Settings › Notifications and allow notifications.
+
+A build from Xcode gets development push tokens and a TestFlight or App Store build gets production
+tokens. The app tells the server which one it has, so the same key works for both.
+
 ## Finish
 
 Tell the user:
@@ -205,6 +281,8 @@ Tell the user:
 - The server address, and that `sudo tommy status`, `sudo tommy logs` and `sudo tommy pair` manage
   it.
 - Which apps are installed, and that each one is paired or what is left to do.
+- Whether the server has the notification keys of the phones (`fcm-service-account.json`,
+  `apns-key.json`).
 - That they must sign in to a provider in Settings › Providers before the first agent can work.
 - That agents run with full access on the server: they can read and change files and run commands.
 - How to update: the [server steps](#update-the-server-later), and a new release or build for the

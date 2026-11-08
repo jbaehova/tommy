@@ -84,6 +84,7 @@ import { PROVIDERS_V4_CAPABILITY } from "./providers-v4";
 import { PROVIDERS_V5_CAPABILITY } from "./providers-v5";
 import { PROVIDERS_V8_CAPABILITY } from "./providers-v8";
 import { ANDROID_PUSH_NOTIFICATIONS_CAPABILITY } from "./push-notifications-android-v1";
+import { IOS_PUSH_NOTIFICATIONS_CAPABILITY } from "./push-notifications-ios-v1";
 import { TEAM_QUEUE_EDIT_CAPABILITY } from "./queue-edit-v1";
 import { QUIET_TURN_CAPABILITY } from "./quiet-turn-v1";
 import { TEAM_REASONING_EFFORTS_CAPABILITY } from "./reasoning-efforts-v1";
@@ -205,6 +206,7 @@ export {
   HOST_TIMEZONE_CAPABILITY,
   HOST_UPDATE_CAPABILITY,
   INSTANCE_TRANSFER_CAPABILITY,
+  IOS_PUSH_NOTIFICATIONS_CAPABILITY,
   MACHINE_RESOURCES_CAPABILITY,
   MCP_SERVERS_CAPABILITY,
   MCP_SIGN_IN_APP_CAPABILITY,
@@ -395,6 +397,7 @@ export const TEAM_CURRENT_CAPABILITIES = [
   CONTEXT_COMPACT_CAPABILITY,
   AGENT_INSTRUCTIONS_CAPABILITY,
   TEAM_UI_BLOCK_VAULT_CAPABILITY,
+  IOS_PUSH_NOTIFICATIONS_CAPABILITY,
 ] as const;
 
 export type TeamCurrentCapability = (typeof TEAM_CURRENT_CAPABILITIES)[number];
@@ -545,7 +548,8 @@ export const TEAM_BOOTSTRAP_CAPABILITIES = TEAM_CURRENT_CAPABILITIES.filter(
     capability !== AGENT_FAST_MODE_CAPABILITY &&
     capability !== CONTEXT_COMPACT_CAPABILITY &&
     capability !== AGENT_INSTRUCTIONS_CAPABILITY &&
-    capability !== TEAM_UI_BLOCK_VAULT_CAPABILITY,
+    capability !== TEAM_UI_BLOCK_VAULT_CAPABILITY &&
+    capability !== IOS_PUSH_NOTIFICATIONS_CAPABILITY,
 );
 /**
  * The capabilities that only a protocol 9 peer sends and gets. Protocols 7 and 8 read at most 128
@@ -576,6 +580,7 @@ export const TEAM_PROTOCOL_V9_ONLY_CAPABILITIES: ReadonlySet<string> = new Set<T
   AGENT_INSTRUCTIONS_CAPABILITY,
   TEAM_UI_BLOCK_VAULT_CAPABILITY,
   HOST_LOGO_CAPABILITY,
+  IOS_PUSH_NOTIFICATIONS_CAPABILITY,
 ]);
 // A v8 host reads at most 128 capabilities, so a client sends the protocol 9 ones only after it
 // negotiates protocol 9.
@@ -685,6 +690,7 @@ export function legacyTeamCapabilities(capabilities: readonly string[]): string[
       capability !== AGENT_FAST_MODE_CAPABILITY &&
       capability !== CONTEXT_COMPACT_CAPABILITY &&
       capability !== AGENT_INSTRUCTIONS_CAPABILITY &&
-      capability !== TEAM_UI_BLOCK_VAULT_CAPABILITY,
+      capability !== TEAM_UI_BLOCK_VAULT_CAPABILITY &&
+      capability !== IOS_PUSH_NOTIFICATIONS_CAPABILITY,
   );
 }

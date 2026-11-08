@@ -5,7 +5,7 @@ import { Button, Typography } from "heroui-native";
 import { useThemeColor } from "heroui-native/hooks";
 import X from "lucide-react-native/icons/x";
 import { useEffect, useState } from "react";
-import { Pressable, useWindowDimensions, View } from "react-native";
+import { Platform, Pressable, useWindowDimensions, View } from "react-native";
 import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
 import { scheduleOnRN } from "react-native-worklets";
@@ -252,7 +252,7 @@ function GeneratedImageReveal({
   onPress: () => void;
 }) {
   const reducedMotion = useReducedMotion();
-  const masked = false;
+  const masked = Platform.OS === "ios" && !reducedMotion && animate;
   const progress = useSharedValue(0);
   const { t } = useText();
   const [decoded, setDecoded] = useState(false);

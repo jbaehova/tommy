@@ -1,7 +1,7 @@
 import { Image } from "expo-image";
 import { Button, Typography } from "heroui-native";
 import { useRef } from "react";
-import { Modal, View } from "react-native";
+import { Modal, Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { haptics } from "@/shared/lib/haptics";
 
@@ -43,8 +43,13 @@ export function AttachmentPreviewSheet({
   const shown = preview ?? last.current;
   function run(action: AttachmentPreviewAction) {
     void haptics.selection();
-    onClose();
-    action.onPress();
+    if (Platform.OS === "ios") {
+      afterClose.current = action.onPress;
+      onClose();
+    } else {
+      onClose();
+      action.onPress();
+    }
   }
   return (
     <Modal

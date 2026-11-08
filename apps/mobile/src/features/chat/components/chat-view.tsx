@@ -52,6 +52,7 @@ import type { PendingApproval } from "@/features/workspace/model/pending-approva
 import { queryKeys } from "@/features/workspace/model/query-keys";
 import { showsOnline } from "@/features/workspace/model/server-status";
 import { haptics } from "@/shared/lib/haptics";
+import { isAndroid, isIOS } from "@/shared/lib/platform";
 import { useText } from "@/shared/lib/text";
 import { useAppForeground } from "@/shared/lib/use-app-foreground";
 import { useReducedTransparency } from "@/shared/lib/use-reduced-transparency";
@@ -177,7 +178,7 @@ const OPEN_TRANSITION_DEADLINE_MS = 700;
  */
 export function useRowsAfterOpenTransition(): boolean {
   const navigation = useNavigation<NativeStackNavigationProp<ParamListBase>>();
-  const [shown, setShown] = useState(false);
+  const [shown, setShown] = useState(!isAndroid);
   useEffect(() => {
     if (shown) return;
     const unsubscribe = navigation.addListener("transitionEnd", (event) => {
@@ -661,7 +662,8 @@ export function ChatView({
   const edgeBackGesture = useMemo(
     () =>
       Gesture.Pan()
-        .enabled(true)
+        // iOS goes back with the swipe of the native stack.
+        .enabled(!isIOS)
         .hitSlop({ left: 0, width: CHAT_BACK_EDGE_WIDTH })
         .activeOffsetX(12)
         .failOffsetX(-8)
@@ -941,7 +943,7 @@ export function ChatView({
             // the attachment menu on the plus it belongs to and floats it above
             // that strip instead. A swipe down still dismisses the keyboard
             // from the message list, only not from the composer itself.
-            enableSwipeToDismiss={!suggestionsOpen}
+            enableSwipeToDismiss={!(isAndroid && suggestionsOpen)}
           >
             <ChatHeader
               target={target}

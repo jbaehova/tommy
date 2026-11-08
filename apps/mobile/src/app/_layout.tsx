@@ -38,6 +38,7 @@ import { AppLoadingOverlayProvider, useAppLoadingOverlay } from "@/shared/compon
 import { navigationFonts } from "@/shared/lib/app-font";
 import { useReducedMotion } from "@/shared/lib/motion";
 import { nativeSplash } from "@/shared/lib/native-splash";
+import { isAndroid } from "@/shared/lib/platform";
 import { queryClient } from "@/shared/lib/query-client";
 import { useText } from "@/shared/lib/text";
 import { untilForeground } from "@/shared/lib/until-foreground";
@@ -155,6 +156,7 @@ export default function RootLayout() {
   // Android shows the window background behind the system bars. Without this it keeps the light splash color.
   // iOS shows the window background behind sheets, so it keeps its default.
   useEffect(() => {
+    if (!isAndroid) return;
     void SystemUI.setBackgroundColorAsync(canvas).catch(() => undefined);
   }, [canvas]);
   // A locked phone does not open the settings, and a failed read keeps a default. So a start in the
@@ -181,9 +183,9 @@ export default function RootLayout() {
           report edge-to-edge, and without these props the keyboard provider pads the whole app. */}
       <KeyboardProvider
         preload={false}
-        statusBarTranslucent={true}
-        navigationBarTranslucent={true}
-        preserveEdgeToEdge={true}
+        statusBarTranslucent={isAndroid}
+        navigationBarTranslucent={isAndroid}
+        preserveEdgeToEdge={isAndroid}
       >
         <QueryClientProvider client={queryClient}>
           <HeroUINativeProvider config={heroConfig}>

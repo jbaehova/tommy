@@ -1,4 +1,5 @@
 import { isRunningInExpoGo } from "expo";
+import { isAndroid } from "@/shared/lib/platform";
 
 /**
  * Expo Go on Android. `isRunningInExpoGo` looks for the native Expo Go module. The execution
@@ -6,5 +7,5 @@ import { isRunningInExpoGo } from "expo";
  * check also let `expo-notifications` load in Expo Go on Android, where it throws.
  */
 export function expoGoOnAndroid(): boolean {
-  return isRunningInExpoGo();
+  return isAndroid && isRunningInExpoGo();
 }

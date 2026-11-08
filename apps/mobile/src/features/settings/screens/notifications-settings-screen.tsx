@@ -12,6 +12,7 @@ import {
   usePushNotificationPreference,
 } from "@/features/settings/model/push-notifications";
 import { haptics } from "@/shared/lib/haptics";
+import { isAndroid } from "@/shared/lib/platform";
 import { useText } from "@/shared/lib/text";
 
 /**
@@ -49,8 +50,10 @@ export function NotificationsSettingsScreen() {
         footer={
           error ??
           (denied
-            ? t("mobile.settings.notifications.deniedAndroid")
-            : `${t("mobile.settings.notifications.footerAndroid")}\n\n${t("mobile.settings.notifications.previewFooterAndroid")}`)
+            ? t(isAndroid ? "mobile.settings.notifications.deniedAndroid" : "mobile.settings.notifications.denied")
+            : isAndroid
+              ? `${t("mobile.settings.notifications.footerAndroid")}\n\n${t("mobile.settings.notifications.previewFooterAndroid")}`
+              : `${t("mobile.settings.notifications.footer")}\n\n${t("mobile.settings.notifications.previewFooter")}`)
         }
       >
         <SettingsRow>
@@ -64,7 +67,13 @@ export function NotificationsSettingsScreen() {
         </SettingsRow>
         {denied ? (
           <SettingsRow disclosure={false} onPress={() => void Linking.openSettings()}>
-            <Typography.Paragraph>{t("mobile.settings.notifications.openSettingsAndroid")}</Typography.Paragraph>
+            <Typography.Paragraph>
+              {t(
+                isAndroid
+                  ? "mobile.settings.notifications.openSettingsAndroid"
+                  : "mobile.settings.notifications.openSettings",
+              )}
+            </Typography.Paragraph>
           </SettingsRow>
         ) : null}
         <SettingsRow>
@@ -77,10 +86,11 @@ export function NotificationsSettingsScreen() {
           />
         </SettingsRow>
       </SettingsSection>
-      {null}
       <SettingsSection
         title={t("mobile.settings.notifications.sound")}
-        footer={t("mobile.settings.notifications.soundFooterAndroid")}
+        footer={t(
+          isAndroid ? "mobile.settings.notifications.soundFooterAndroid" : "mobile.settings.notifications.soundFooter",
+        )}
       >
         {/* The hosts get the sound with the notification choices, also with notifications off. */}
         <SettingsRow>
@@ -104,7 +114,11 @@ export function NotificationsSettingsScreen() {
                 { value: "press", label: t("mobile.settings.notifications.sound.press") },
                 {
                   value: "default",
-                  label: t("mobile.settings.notifications.sound.defaultAndroid"),
+                  label: t(
+                    isAndroid
+                      ? "mobile.settings.notifications.sound.defaultAndroid"
+                      : "mobile.settings.notifications.sound.default",
+                  ),
                 },
               ]}
               enabled={soundAvailable && preference.playSound}
