@@ -389,7 +389,7 @@ export interface AgentServiceOptions {
   passwordVault?: PasswordVault | null;
   /** The cards and contact info of the Vault, or `null`. The browser fills cards from it. */
   vaultItems?: VaultItems | null;
-  /** The credit cards that the payment service account of 1Password reads, or `null`. */
+  /** The credit cards in the 1Password vault the user shared with Tommy, or `null`. */
   sharedCards?: SharedCards | null;
   /** Where the API keys that users enter through `request_api_key` are saved, or `null`. */
   agentApiKeys?: AgentApiKeys | null;

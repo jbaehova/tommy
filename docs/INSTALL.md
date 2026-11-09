@@ -90,13 +90,10 @@ the data in `/var/lib/tommy`, and starts `tommy.service`. Check it with `sudo to
 
 ### 1Password (optional)
 
-Keys go in `/var/lib/tommy/.config/tommy/agent.env`, one per line. Restart `tommy.service` after a
-change.
-
-- `OP_SERVICE_ACCOUNT_TOKEN`: logins that the browser fills, and the `op` command of agents.
-- `TOMMY_OP_PAYMENT_TOKEN`: the Credit Card items that agents can type at a checkout. Agents do not
-  get this token. Use a separate service account that reads only a vault with your cards, and make
-  sure that the first token cannot read that vault. With no value, agents get no 1Password card.
+Put `OP_SERVICE_ACCOUNT_TOKEN` in `/var/lib/tommy/.config/tommy/agent.env` and restart
+`tommy.service`. The browser fills the logins and the Credit Card items that this service account can
+read, and agents can use the `op` command with it. An agent with a shell can read those items, so
+share only the vaults that agents may read.
 
 ### HTTPS
 

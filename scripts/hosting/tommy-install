@@ -83,8 +83,7 @@ elif ! grep -qs '^TOMMY_PUBLIC_URL=https://' /etc/tommy/server.env; then
   echo "No public address is set, so pairing codes name no server. Run this again with the address." >&2
 fi
 install -m 0644 "$SOURCE/tommy.service" /etc/systemd/system/tommy.service
-# The keys that the agents use (OP_SERVICE_ACCOUNT_TOKEN and others), one per line. Each agent gets them,
-# except TOMMY_OP_PAYMENT_TOKEN: Tommy takes that one out of its environment when it starts.
+# The keys that the agents use (OP_SERVICE_ACCOUNT_TOKEN and others), one per line. Each agent gets them.
 install -d -o "$USER_NAME" -g "$USER_NAME" -m 0700 "/var/lib/$USER_NAME/.config" "/var/lib/$USER_NAME/.config/tommy"
 install -d -o "$USER_NAME" -g "$USER_NAME" -m 0755 "/var/lib/$USER_NAME/bin"
 

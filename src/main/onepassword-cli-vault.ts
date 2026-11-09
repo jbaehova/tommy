@@ -22,18 +22,6 @@ const { io: opCall, sync: opDecode } = causeHelpers(PasswordVaultError);
 const LIST_LIFETIME_MS = 60_000;
 const OP_TIMEOUT_MS = 20_000;
 const CARD_READ_CONCURRENCY = 4;
-const PAYMENT_TOKEN_KEY = "TOMMY_OP_PAYMENT_TOKEN";
-
-/**
- * The token of the service account that reads only the payment cards. It is taken out of the
- * environment, because each provider process inherits `process.env`: an agent that runs `op` uses
- * `OP_SERVICE_ACCOUNT_TOKEN` and cannot read the cards, so only `fill_card` and its approval can.
- */
-export function takePaymentCardsToken(): string | undefined {
-  const token = process.env[PAYMENT_TOKEN_KEY];
-  Reflect.deleteProperty(process.env, PAYMENT_TOKEN_KEY);
-  return token;
-}
 
 const listSchema = Schema.Array(
   Schema.Struct({

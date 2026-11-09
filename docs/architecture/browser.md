@@ -417,16 +417,13 @@ leaves out `vault`; `ui-block-vault-v1` (protocol 9) adds it back, and the mobil
 same card, which opens its Vault item form with the agent's values and answers the prompt with the
 form's field ids. Another remote client shows the ordinary form. Messaging threads refuse the tool.
 
-`tommy_browser.list_vault_items` also lists the Credit Card items that the payment service account
-of 1Password can read (`SharedCards`, ids that start with `1password:`). That account has its own
-token, `TOMMY_OP_PAYMENT_TOKEN`, and `OP_SERVICE_ACCOUNT_TOKEN` must not be able to read its vault:
-agents run `op` with the second token. Tommy takes the payment token out of `process.env` before a
-provider starts, so no agent inherits it. With no payment token, Tommy lists no 1Password card. The
-`op` CLI reads the number and the security code again for each fill, for the page only.
+`tommy_browser.list_vault_items` also lists the Credit Card items that `OP_SERVICE_ACCOUNT_TOKEN` can
+read (`SharedCards`, ids that start with `1password:`). `fill_card` reads the number and the security
+code again with the `op` CLI for each fill, for the page only.
 
-This does not stop an agent with Full access that searches for the token. It runs as the same system
-user as Tommy, so it can read the key file or the environment of the Tommy process. Only a separate
-system user for agents would stop that.
+The approval below does not protect these cards from an agent that has a shell. Agents inherit the
+same token, so such an agent can read a card with `op`. Keep cards out of the vaults of that service
+account if agents must not be able to read them.
 
 The first fill of a card on a site shows an approval with the amount that the agent read from the
 page, the card, the site and the payment frames. `fill_card` requires the amount. Only the owner can
