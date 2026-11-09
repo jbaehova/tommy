@@ -1,6 +1,6 @@
 ---
 name: smoke
-description: Start one or more local Tommy dev instances and smoke test the features that the current changes or a pull request add. Use when asked to smoke test, QA, or check a change or PR in the real app, including two-client team flows, the browser client, and the iOS simulator.
+description: Start one or more local Tommy dev instances and smoke test the features that the current changes or a pull request add. Use when asked to smoke test, QA, or check a change or PR in the real app, including two-client team flows and the browser client.
 ---
 
 # Smoke
@@ -59,7 +59,6 @@ Choose the smallest stack that covers the plan:
 | Desktop renderer or main process | `bun run dev` |
 | Two clients: teams, invitations, sharing, Team API | `bun run dev:test-client` |
 | Browser client at `/app` or public web | `bun run dev:api` (add `bun run dev` when a desktop host is also necessary) |
-| iOS app | `bun run dev:mobile` |
 
 Rules:
 
@@ -105,8 +104,6 @@ cannot show it, or when the user asks for PR evidence. Then use
   lifecycle checks, use CDP on the instance's `remoteDebuggingPort`.
 - For the browser client, use the preview or Chrome DevTools tools on the
   URL that the stack reports.
-- For the iOS app, use the device tools to open the simulator. Take a
-  simulator screenshot only when the result is visual.
 - For a restart check, stop only the stack you started with
   `bun run dev:stop`, then start it again with the same flags.
 
