@@ -1,0 +1,20 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <!-- The digital assistant of the phone. It shows over the lock screen, so it has no content.
+         A translucent window does not cover the lock screen, so this one is opaque. -->
+    <activity
+      android:name="run.tommy.quickactions.AssistantEntryActivity"
+      android:excludeFromRecents="true"
+      android:exported="true"
+      android:launchMode="singleInstance"
+      android:showWhenLocked="true"
+      android:taskAffinity=""
+      android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+      android:turnScreenOn="true">
+      <intent-filter>
+        <action android:name="android.intent.action.ASSIST" />
+        <category android:name="android.intent.category.DEFAULT" />
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

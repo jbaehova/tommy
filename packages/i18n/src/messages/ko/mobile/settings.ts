@@ -118,6 +118,10 @@ export const messages = {
   "mobile.settings.notifications.channel": "에이전트 알림 ({sound})",
   "mobile.settings.notifications.channelSilent": "에이전트 알림 (소리 없음)",
   "mobile.settings.conversations.hiddenChats": "숨긴 채팅",
+  "mobile.settings.assistant.title": "휴대폰 어시스턴트",
+  "mobile.settings.assistant.openPhoneSettings": "휴대폰 설정 열기",
+  "mobile.settings.assistant.footer":
+    "디지털 어시스턴트 앱을 Tommy로 고르세요. 갤럭시에서는 측면 버튼 > 길게 누르기도 디지털 어시스턴트로 설정하세요. 버튼을 누르면 아래에서 고른 에이전트의 채팅이 열립니다.",
   "mobile.settings.voice.title": "음성",
   "mobile.settings.voice.sample": "안녕하세요. 이렇게 답변을 읽어 드릴게요.",
   "mobile.settings.voice.voice": "목소리",

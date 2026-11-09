@@ -11,8 +11,8 @@ import expo.modules.kotlin.records.Field
 import expo.modules.kotlin.records.Record
 
 private const val QUICK_ACTION_EVENT = "onQuickAction"
-private const val SHORTCUT_ACTION = "run.tommy.mobile.QUICK_ACTION"
-private const val SHORTCUT_ID = "run.tommy.mobile.QUICK_ACTION_ID"
+internal const val SHORTCUT_ACTION = "run.tommy.mobile.QUICK_ACTION"
+internal const val SHORTCUT_ID = "run.tommy.mobile.QUICK_ACTION_ID"
 
 class QuickActionItem : Record {
   @Field val id: String = ""

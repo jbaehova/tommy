@@ -9,7 +9,8 @@ const RECENT_AGENT_LIMIT = 8;
 export type QuickActionTarget =
   | { type: "chat"; agentId: string }
   | { type: "routines"; serverId: string }
-  | { type: "search" };
+  | { type: "search" }
+  | { type: "assistant" };
 
 export interface QuickActionItem {
   id: string;
@@ -34,12 +35,15 @@ function quickActionId(target: QuickActionTarget): string {
       return `routines:${target.serverId}`;
     case "search":
       return "search";
+    case "assistant":
+      return "assistant";
   }
 }
 
 /** An Android shortcut that the user pinned stays after an update, so an unknown ID opens nothing. */
 export function readQuickActionId(id: string): QuickActionTarget | null {
   if (id === "search") return { type: "search" };
+  if (id === "assistant") return { type: "assistant" };
   const separator = id.indexOf(":");
   const value = id.slice(separator + 1);
   if (separator < 0 || !value) return null;

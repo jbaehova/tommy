@@ -2,11 +2,9 @@ import { attachmentMimeTypeForName } from "@tommy/contracts/attachment-files";
 import { router, useNavigation } from "expo-router";
 import { StackActions } from "expo-router/react-navigation";
 import { Typography } from "heroui-native";
-import Check from "lucide-react-native/icons/check";
 import X from "lucide-react-native/icons/x";
 import { useEffect, useRef, useState } from "react";
-import { useCSSVariable } from "uniwind";
-import { BloubAvatar } from "@/features/agents/components/bloub-avatar";
+import { AgentChoice } from "@/features/agents/components/agent-choice";
 import { useMobileSession } from "@/features/auth/context/mobile-session-context";
 import { AttachmentThumbnail } from "@/features/chat/components/attachment-preview";
 import { requestComposerFocus, requestComposerText } from "@/features/chat/model/composer-requests";
@@ -184,38 +182,5 @@ export function ShareScreen() {
         </>
       )}
     </SheetScrollView>
-  );
-}
-
-function AgentChoice({
-  agent,
-  checked,
-  onSelect,
-}: {
-  agent: MobileAgent;
-  checked: boolean;
-  onSelect: (agent: MobileAgent) => void;
-}) {
-  const accent = String(useCSSVariable("--tommy-accent"));
-  return (
-    <SettingsRow
-      checked={checked}
-      disclosure={false}
-      accessibilityLabel={agent.name}
-      leading={
-        <BloubAvatar
-          agentId={agent.id}
-          serverId={agent.serverId}
-          hue={agent.avatarHue}
-          seed={agent.avatarSeed}
-          size={36}
-          animateIdle={false}
-        />
-      }
-      trailing={checked ? <Check size={18} color={accent} strokeWidth={2} /> : null}
-      onPress={() => onSelect(agent)}
-    >
-      <Typography.Paragraph numberOfLines={1}>{agent.name}</Typography.Paragraph>
-    </SettingsRow>
   );
 }

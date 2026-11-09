@@ -8,11 +8,13 @@ import { AgentPinTransitionProvider } from "@/features/agents/components/agent-p
 import { ChatListPaneProvider } from "@/features/agents/components/chat-list-pane-context";
 import { ConnectedScreen } from "@/features/agents/screens/connected-screen";
 import { whenUnlocked } from "@/features/app-lock/model/app-lock";
+import { loadAssistantTarget } from "@/features/assistant/model/assistant-target";
 import { sessionWorkspaceKey, useMobileSession } from "@/features/auth/context/mobile-session-context";
 import { AudioWaveformHost } from "@/features/chat/components/audio-waveform-host";
 import { MermaidRendererHost } from "@/features/chat/components/mermaid-renderer-host";
 import { OutboxProvider } from "@/features/chat/context/outbox-context";
 import { QueuedMessagesProvider } from "@/features/chat/context/queued-messages-context";
+import { requestComposerFocus } from "@/features/chat/model/composer-requests";
 import { HomeOnboardingProvider, useHomeOnboarding } from "@/features/onboarding/context/home-onboarding-context";
 import type { NotificationTarget } from "@/features/push-notifications/push-notifications-native.types";
 import { useNotificationTaps } from "@/features/push-notifications/use-notification-taps";
@@ -92,11 +94,30 @@ function AuthenticatedStack() {
       }),
     [],
   );
+  const { session } = useMobileSession();
+  const apiUrl = session?.apiUrl;
+  const userId = session?.user.id;
+  /** The phone's assistant action: the chosen agent's chat opens to type in, or Settings asks for an agent. */
+  const openAssistant = useCallback(async () => {
+    const assistant = apiUrl && userId ? await loadAssistantTarget(apiUrl, userId) : null;
+    whenUnlocked(() => {
+      if (!assistant) {
+        requestAnimationFrame(() => router.push("/settings/assistant"));
+        return;
+      }
+      requestComposerFocus(assistant);
+      openFromOutside(assistant.agentId);
+    });
+  }, [apiUrl, openFromOutside, userId]);
   /** Opens the screen of a quick action of the app icon, on top of the main screen. */
   const openQuickAction = useCallback(
     (target: QuickActionTarget) => {
       if (target.type === "chat") {
         openFromOutside(target.agentId);
+        return;
+      }
+      if (target.type === "assistant") {
+        void openAssistant();
         return;
       }
       whenUnlocked(() => {
@@ -108,7 +129,7 @@ function AuthenticatedStack() {
         );
       });
     },
-    [openFromOutside],
+    [openAssistant, openFromOutside],
   );
   useEffect(() => setQuickActionNavigator(openQuickAction), [openQuickAction]);
   useEffect(() => setShareSheetOpener(() => whenUnlocked(() => router.push("/share"))), []);

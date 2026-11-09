@@ -117,6 +117,10 @@ export const messages = defineMessages("mobile.settings", {
   "mobile.settings.notifications.channel": "Agent notifications ({sound})",
   "mobile.settings.notifications.channelSilent": "Agent notifications (no sound)",
   "mobile.settings.conversations.hiddenChats": "Hidden chats",
+  "mobile.settings.assistant.title": "Phone assistant",
+  "mobile.settings.assistant.openPhoneSettings": "Open phone settings",
+  "mobile.settings.assistant.footer":
+    "Choose Tommy as the digital assistant app. On a Galaxy phone, also set Side button > Long press to Digital assistant. The press opens the chat of the agent you choose below.",
   "mobile.settings.voice.title": "Voice",
   "mobile.settings.voice.sample": "Hello. This is how I will read my replies to you.",
   "mobile.settings.voice.voice": "Voice",

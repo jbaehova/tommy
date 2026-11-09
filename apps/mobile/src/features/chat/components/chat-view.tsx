@@ -147,6 +147,7 @@ export interface ChatViewProps {
 }
 
 const CHAT_BACK_EDGE_WIDTH = 24;
+const KEYBOARD_WINDOW_MS = 200;
 const NO_DELIVERIES: ChatQueueController["deliveries"] = [];
 /** A host starts a turn within a second or two; this only ends a wait for a turn that never shows. */
 const AWAIT_TURN_MS = 10_000;
@@ -494,9 +495,13 @@ export function ChatView({
   const composerFocus = useComposerRequest((state) => state.focus);
   const [handoffFocusVersion, setHandoffFocusVersion] = useState(0);
   useEffect(() => {
-    if (!isFocused || !composerFocus || target.kind !== "agent") return;
-    if (takeComposerFocus(target.serverId, target.id)) setHandoffFocusVersion((version) => version + 1);
-  }, [isFocused, composerFocus, target.kind, target.serverId, target.id]);
+    if (!isFocused || !appActive || !composerFocus || target.kind !== "agent") return;
+    // Android shows the keyboard only for a window with focus, which comes just after the app is active.
+    const timer = setTimeout(() => {
+      if (takeComposerFocus(target.serverId, target.id)) setHandoffFocusVersion((version) => version + 1);
+    }, KEYBOARD_WINDOW_MS);
+    return () => clearTimeout(timer);
+  }, [isFocused, appActive, composerFocus, target.kind, target.serverId, target.id]);
   const lastUserId =
     messages.findLast((message) => message.kind === "message" && message.author === "user")?.id ?? null;
   // The host accepted a message to an idle agent, and nothing shows its turn yet. Turn events can

@@ -11,6 +11,7 @@ import Lock from "lucide-react-native/icons/lock";
 import Mic from "lucide-react-native/icons/mic";
 import Palette from "lucide-react-native/icons/palette";
 import Server from "lucide-react-native/icons/server";
+import Smartphone from "lucide-react-native/icons/smartphone";
 import Sparkles from "lucide-react-native/icons/sparkles";
 import Vibrate from "lucide-react-native/icons/vibrate";
 import Workflow from "lucide-react-native/icons/workflow";
@@ -53,6 +54,7 @@ export function SettingsScreen() {
         <NavRow icon={Sparkles} title={t("mobile.settings.animations.title")} href="/settings/animations" />
         <NavRow icon={Globe} title={t("mobile.settings.language.title")} href="/settings/language" />
         <NavRow icon={Mic} title={t("mobile.settings.voice.title")} href="/settings/voice" />
+        <NavRow icon={Smartphone} title={t("mobile.settings.assistant.title")} href="/settings/assistant" />
         <NavRow icon={Vibrate} title={t("mobile.settings.feedback.haptics")} href="/settings/haptics" />
         <NavRow icon={Bell} title={t("mobile.settings.notifications.title")} href="/settings/notifications" />
         <NavRow icon={Lock} title={t("mobile.appLock.title")} href="/settings/app-lock" />
