@@ -62,7 +62,9 @@ export function useChatQueue(
     enabled: online,
     // The chat reads the queue once when it opens, also when the cache holds a recent copy.
     refetchOnMount: "always",
-    retry: false,
+    // A chat that opens with the return to the app can read before the connection is back, and
+    // the server still counts as online then, so no later change reads the queue again.
+    retry: 3,
   });
   const [error, setError] = useState<string | null>(null);
   const [restored] = useState(() => {
