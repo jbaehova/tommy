@@ -22,7 +22,7 @@ interface VaultLoginForAgent extends VaultItemOrigin {
 }
 
 /** What an agent may see of a card. The number and the security code are never in it. */
-interface VaultCardForAgent extends VaultItemOrigin {
+export interface VaultCardForAgent extends VaultItemOrigin {
   id: string;
   label: string;
   nameOnCard: string;
@@ -33,6 +33,33 @@ interface VaultCardForAgent extends VaultItemOrigin {
   /** Whether fill_card can type a security code. The code itself is never in it. */
   hasSecurityCode: boolean;
   billingContactId: string | null;
+  /** Set on a card that stays in 1Password. It is not in the Vault, so an agent cannot change it. */
+  source?: "1password";
+}
+
+/** The id of each card of `SharedCards` starts with this. A Vault card id is a UUID. */
+export const SHARED_CARD_ID_PREFIX = "1password:";
+
+export function isSharedCardId(cardId: string): boolean {
+  return cardId.startsWith(SHARED_CARD_ID_PREFIX);
+}
+
+/** The credit cards in the user's 1Password. `fill_card` types them as it types Vault cards. */
+export interface SharedCards {
+  connected(): boolean;
+  /** The cards that could be read, and how many could not. It fails only when no card could be read. */
+  cards(): Effect.Effect<{ cards: readonly VaultCardForAgent[]; unreadable: number }, PasswordVaultError>;
+  /** What an agent may see of one card, or null when no such card is shared. */
+  cardSummary(cardId: string): Effect.Effect<VaultCardForAgent | null, PasswordVaultError>;
+  /** The values to type, or null when no such card is shared. They go to the page only, never to an agent. */
+  cardSecret(cardId: string): Effect.Effect<VaultCardSecret | null, PasswordVaultError>;
+}
+
+/** A card number as a page or a log may show it: in groups of four, and in the American Express groups. */
+export function cardNumberLogForms(number: string): string[] {
+  const spaced = [number.replace(/(\d{4})(?=\d)/gu, "$1 ")];
+  if (/^3[47]\d{13}$/u.test(number)) spaced.push(number.replace(/^(\d{4})(\d{6})(\d{5})$/u, "$1 $2 $3"));
+  return [number, ...spaced, ...spaced.map((form) => form.replaceAll(" ", "-"))];
 }
 
 /** Contact info is not secret: an agent sees every field and types them itself. */

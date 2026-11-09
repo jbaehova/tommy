@@ -243,7 +243,7 @@ import type { RoutineHoldWindow } from "./routine-store";
 import { type RoutineDueSource, RoutineTimer } from "./routine-timer";
 import type { SidebarLayoutStore } from "./sidebar-layout-store";
 import { shortenDiagnostic } from "./stderr-diagnostics";
-import type { VaultItems } from "./vault-items";
+import type { SharedCards, VaultItems } from "./vault-items";
 import type { WorkflowRunEnd } from "./workflows/workflows";
 import {
   listWorkspaceDirectory,
@@ -389,6 +389,8 @@ export interface AgentServiceOptions {
   passwordVault?: PasswordVault | null;
   /** The cards and contact info of the Vault, or `null`. The browser fills cards from it. */
   vaultItems?: VaultItems | null;
+  /** The credit cards that the payment service account of 1Password reads, or `null`. */
+  sharedCards?: SharedCards | null;
   /** Where the API keys that users enter through `request_api_key` are saved, or `null`. */
   agentApiKeys?: AgentApiKeys | null;
   /**
@@ -885,6 +887,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       emitRuntimeSnapshot: () => this.#emitRuntimeSnapshot(),
       ...(options.passwordVault === undefined ? {} : { passwordVault: options.passwordVault }),
       ...(options.vaultItems === undefined ? {} : { vaultItems: options.vaultItems }),
+      ...(options.sharedCards === undefined ? {} : { sharedCards: options.sharedCards }),
       agentName: (agentId) => store.list().find((candidate) => candidate.id === agentId)?.name,
       // The router is made later; a note comes only from a tool call, after both exist.
       noteVaultChange: (agentId, threadId, turnId, text) => this.#tools.postVaultNote(agentId, threadId, turnId, text),
@@ -997,6 +1000,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         available: options.vaultItems?.ready() ?? false,
         cards: options.vaultItems?.hasCards() ?? false,
         contacts: options.vaultItems?.hasContacts() ?? false,
+        sharedCards: options.sharedCards?.connected() ?? false,
       }),
       // Only a server has a memory reading.
       serverHost: hostMemory !== null,

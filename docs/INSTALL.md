@@ -88,6 +88,16 @@ sudo bash scripts/hosting/tommy-install dist/linux-unpacked https://<domain>
 the Electron libraries), creates the `tommy` system user, installs the app in `/opt/Tommy`, keeps
 the data in `/var/lib/tommy`, and starts `tommy.service`. Check it with `sudo tommy status`.
 
+### 1Password (optional)
+
+Keys go in `/var/lib/tommy/.config/tommy/agent.env`, one per line. Restart `tommy.service` after a
+change.
+
+- `OP_SERVICE_ACCOUNT_TOKEN`: logins that the browser fills, and the `op` command of agents.
+- `TOMMY_OP_PAYMENT_TOKEN`: the Credit Card items that agents can type at a checkout. Agents do not
+  get this token. Use a separate service account that reads only a vault with your cards, and make
+  sure that the first token cannot read that vault. With no value, agents get no 1Password card.
+
 ### HTTPS
 
 Nginx holds the certificate and forwards only the device paths to Tommy. Get the certificate first,

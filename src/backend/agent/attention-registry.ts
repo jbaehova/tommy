@@ -56,7 +56,15 @@ import {
   getString,
   type RequestId,
 } from "../protocol";
-import type { VaultAgentChange, VaultAgentResult, VaultEnteredItem, VaultItems } from "../vault-items";
+import {
+  isSharedCardId,
+  type SharedCards,
+  type VaultAgentChange,
+  type VaultAgentResult,
+  type VaultCardForAgent,
+  type VaultEnteredItem,
+  type VaultItems,
+} from "../vault-items";
 import { type ApprovalAutomationPolicy, NO_APPROVAL_AUTOMATION, shouldAutoApprove } from "./approval-automation";
 import type { ConversationRuntime } from "./conversation-runtime";
 import { ForbiddenAttentionAnswer, InactiveAttentionRequest } from "./inactive-attention-request";
@@ -175,6 +183,15 @@ const VAULT_FIELDS: Record<BrowserToolArguments<"save_vault_item">["kind"], read
 };
 
 /** The change that `save_vault_item` asks for, or the text that tells the agent what is wrong. */
+const CARD_LABEL_LIMIT = 32;
+const SHARED_CARD_READ_ONLY =
+  "This card stays in 1Password, and Tommy cannot change or delete it. Ask the user to change it in 1Password.";
+
+/** Text for one line of an approval. An agent writes the amount, so it cannot add lines of its own. */
+function oneLine(text: string): string {
+  return text.replace(/[\p{C}\s]+/gu, " ").trim();
+}
+
 function vaultChange(args: BrowserToolArguments<"save_vault_item">): VaultAgentChange | string {
   const allowed = VAULT_FIELDS[args.kind];
   const misplaced = Object.entries(args).find(
@@ -355,6 +372,8 @@ export interface AttentionRegistryOptions {
   passwordVault?: PasswordVault | null | undefined;
   /** The cards and contact info of the Vault, or null. `fill_card` types a card without the agent reading it. */
   vaultItems?: VaultItems | null | undefined;
+  /** The credit cards in 1Password, or null. `fill_card` types them as it types Vault cards. */
+  sharedCards?: SharedCards | null | undefined;
   /** The Link account of this computer, or null. Agents ask it for one-time cards that the user approves in Link. */
   /** The name of an agent now. An item that an agent adds to the Vault keeps it. */
   agentName?(agentId: string): string | undefined;
@@ -397,6 +416,13 @@ export class AttentionRegistry {
   readonly #emitRuntimeSnapshot: () => void;
   readonly #passwordVault: PasswordVault | null;
   readonly #vaultItems: VaultItems | null;
+  readonly #sharedCards: SharedCards | null;
+  /**
+   * The owner's approvals of 1Password card fills: the frame origins for each card and page. They stay
+   * in memory until Tommy restarts, because the Vault page, where a user removes a site, lists only
+   * Vault cards.
+   */
+  readonly #sharedCardFills = new Map<string, Set<string>>();
   readonly #agentName: (agentId: string) => string | undefined;
   readonly #noteVaultChange: (agentId: string, threadId: string, turnId: string, text: string) => void;
   readonly #apiKeys: AgentApiKeys | null;
@@ -416,6 +442,7 @@ export class AttentionRegistry {
     this.#emitRuntimeSnapshot = options.emitRuntimeSnapshot;
     this.#passwordVault = options.passwordVault ?? null;
     this.#vaultItems = options.vaultItems ?? null;
+    this.#sharedCards = options.sharedCards ?? null;
     this.#agentName = options.agentName ?? (() => undefined);
     this.#noteVaultChange = options.noteVaultChange ?? (() => undefined);
     this.#apiKeys = options.apiKeys ?? null;
@@ -1058,8 +1085,16 @@ export class AttentionRegistry {
       logger.warn("Unable to list the Vault items", { error: toLogValue(listed.failure.cause) });
       return browserTakeoverError("The Vault could not be read. Ask the user, or use request_takeover.");
     }
+    const shared = this.#sharedCards?.connected() ? yield* Effect.result(this.#sharedCards.cards()) : null;
+    const sharedFailed = shared !== null && Result.isFailure(shared);
+    if (sharedFailed) logger.warn("Unable to list the 1Password cards", { error: toLogValue(shared.failure.cause) });
+    const sharedList = shared !== null && Result.isSuccess(shared) ? shared.success : null;
+    if (sharedList && sharedList.unreadable > 0)
+      logger.warn("Unable to read some 1Password cards", { unreadable: sharedList.unreadable });
+    const sharedCards = sharedList?.cards ?? [];
+    const sharedMissing = sharedFailed || (sharedList?.unreadable ?? 0) > 0;
     const answer =
-      listed.success === null
+      listed.success === null && shared === null
         ? {
             available: false,
             logins: [],
@@ -1067,7 +1102,17 @@ export class AttentionRegistry {
             contacts: [],
             next: "No Vault is available. Ask the user, or use request_takeover.",
           }
-        : { available: true, ...listed.success };
+        : {
+            available: true,
+            logins: listed.success?.logins ?? [],
+            cards: [...(listed.success?.cards ?? []), ...sharedCards],
+            contacts: listed.success?.contacts ?? [],
+            ...(sharedMissing
+              ? {
+                  next: "1Password could not be read, so some of its cards are not listed. Try again, or ask the user.",
+                }
+              : {}),
+          };
     const result: DynamicToolResult = {
       success: true,
       contentItems: [{ type: "inputText", text: JSON.stringify(answer) }],
@@ -1086,22 +1131,56 @@ export class AttentionRegistry {
     params: DynamicToolCallParams,
   ): BrowserCardVault | undefined {
     const vault = this.#vaultItems;
+    const shared = this.#sharedCards?.connected() ? this.#sharedCards : null;
     const agentId = params.ownerAgentId;
-    if (!vault || !agentId) return undefined;
+    if ((!vault && !shared) || !agentId) return undefined;
+    const sharedFill = (cardId: string, page: string) => `${cardId}\n${page}`;
+    // The agent gets a fixed message: a vault failure stays in the log.
+    const readShared = <A>(read: Effect.Effect<A, PasswordVaultError>) =>
+      read.pipe(
+        Effect.tapError((error) =>
+          Effect.sync(() => logger.warn("Unable to read the 1Password card", { error: toLogValue(error.cause) })),
+        ),
+        Effect.mapError(() =>
+          browserFailure(new Error("1Password could not be read. Ask the user, or use request_takeover.")),
+        ),
+      );
     return {
-      secret: (cardId) => vault.cardSecret(cardId),
-      approved: (cardId, page, frames) => vault.cardFillApproved(cardId, page, frames),
-      approve: (cardId, page, frames) =>
+      secret: (cardId) => {
+        if (!isSharedCardId(cardId)) return Effect.succeed(vault?.cardSecret(cardId) ?? null);
+        return shared ? readShared(shared.cardSecret(cardId)) : Effect.succeed(null);
+      },
+      approved: (cardId, page, frames) => {
+        if (!isSharedCardId(cardId)) return vault?.cardFillApproved(cardId, page, frames) ?? false;
+        const approved = this.#sharedCardFills.get(sharedFill(cardId, page));
+        return approved !== undefined && frames.every((frame) => approved.has(frame));
+      },
+      approve: (cardId, page, frames, amount) =>
         Effect.gen({ self: this }, function* () {
-          const card = vault.listForAgent().cards.find(({ id }) => id === cardId);
-          if (!card) return false;
+          const isShared = isSharedCardId(cardId);
+          let card: VaultCardForAgent | null = null;
+          if (!isShared) card = vault?.listForAgent().cards.find(({ id }) => id === cardId) ?? null;
+          else if (shared) card = yield* readShared(shared.cardSummary(cardId));
+          if (!card) return yield* browserFailure(new Error("No saved card has this id. Call list_vault_items."));
           const others = frames.filter((frame) => frame !== page);
-          const reason = [
-            sourceText("status.agent.vaultCardFill", { card: card.label || `•••• ${card.last4}`, site: page }),
-            ...(others.length > 0
-              ? [sourceText("status.agent.vaultCardFillFrames", { origins: others.join(", ") })]
-              : []),
-          ].join(" ");
+          const values = {
+            amount: oneLine(amount) || "?",
+            card: `${oneLine(card.label).slice(0, CARD_LABEL_LIMIT)} •••• ${card.last4}`.trim(),
+            site: page,
+          };
+          const origins = others.join(", ");
+          // The snapshot of a phone keeps 240 characters. Over that, the phone has no Allow button.
+          let reason: string;
+          if (isShared)
+            reason =
+              others.length > 0
+                ? sourceText("status.agent.vaultCardFillOnePasswordFrames", { ...values, origins })
+                : sourceText("status.agent.vaultCardFillOnePassword", values);
+          else
+            reason =
+              others.length > 0
+                ? sourceText("status.agent.vaultCardFillVaultFrames", { ...values, origins })
+                : sourceText("status.agent.vaultCardFillVault", values);
           const decision = yield* this.awaitToolApproval(
             client,
             request,
@@ -1120,6 +1199,12 @@ export class AttentionRegistry {
             { ownerOnly: true },
           );
           if (decision !== "accept") return false;
+          if (isShared) {
+            const key = sharedFill(cardId, page);
+            this.#sharedCardFills.set(key, new Set([...(this.#sharedCardFills.get(key) ?? []), ...frames]));
+            return true;
+          }
+          if (!vault) return false;
           yield* vault.approveCardFill(cardId, page, frames).pipe(Effect.mapError(browserFailure));
           return true;
         }),
@@ -1138,6 +1223,7 @@ export class AttentionRegistry {
     const call = yield* attentionStep(() => parseBrowserToolCall("save_vault_item", params.arguments));
     if (call.tool !== "save_vault_item")
       return yield* new AttentionOperationFailed({ cause: new Error("Invalid Vault save request.") });
+    if (call.args.id && isSharedCardId(call.args.id)) return browserTakeoverError(SHARED_CARD_READ_ONLY);
     const vault = this.#vaultItems;
     const agentId = params.ownerAgentId;
     if (!vault || !agentId) return browserTakeoverError(VAULT_UNAVAILABLE);
@@ -1188,6 +1274,7 @@ export class AttentionRegistry {
     const call = yield* attentionStep(() => parseBrowserToolCall("delete_vault_item", params.arguments));
     if (call.tool !== "delete_vault_item")
       return yield* new AttentionOperationFailed({ cause: new Error("Invalid Vault delete request.") });
+    if (isSharedCardId(call.args.id)) return browserTakeoverError(SHARED_CARD_READ_ONLY);
     const vault = this.#vaultItems;
     const agentId = params.ownerAgentId;
     if (!vault || !agentId) return browserTakeoverError(VAULT_UNAVAILABLE);

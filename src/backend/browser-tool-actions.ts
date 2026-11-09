@@ -19,11 +19,19 @@ export interface BrowserDynamicToolHooks {
 /** The saved cards that `fill_card` types, and the owner's approval of each page that they go to. */
 export interface BrowserCardVault {
   /** The values to type, or null when no such card is saved. */
-  secret(cardId: string): VaultCardSecret | null;
+  secret(cardId: string): Effect.Effect<VaultCardSecret | null, BrowserOperationError>;
   /** Whether the owner let agents fill `cardId` on the HTTPS `page` into fields of each of `frames`. */
   approved(cardId: string, page: string, frames: readonly string[]): boolean;
-  /** Asks the owner and keeps the approval. False when the owner declined or nobody answered. */
-  approve(cardId: string, page: string, frames: readonly string[]): Effect.Effect<boolean, BrowserOperationError>;
+  /**
+   * Asks the owner and keeps the approval. `amount` is what the agent read from the page; the owner
+   * sees it next to the card. False when the owner declined or nobody answered.
+   */
+  approve(
+    cardId: string,
+    page: string,
+    frames: readonly string[],
+    amount: string,
+  ): Effect.Effect<boolean, BrowserOperationError>;
 }
 
 export type BrowserInputCall = Extract<

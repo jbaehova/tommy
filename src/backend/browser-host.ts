@@ -1917,14 +1917,14 @@ export class BrowserHost {
       Effect.gen({ self: this }, function* () {
         yield* browserSync(() => this.#requireToolTab(params, args.tabId));
         const vault = hooks.cardVault;
-        const card = vault?.secret(args.cardId) ?? null;
+        const card = vault ? yield* vault.secret(args.cardId) : null;
         if (!vault || !card)
           return yield* browserFailure(new Error("No saved card has this id. Call list_vault_items."));
         // The first fill on a page, or into a frame of a new origin, waits for the owner's approval.
         // The approval comes outside the tab queue, and the second pass checks every field again.
         const first = yield* this.#fillCard(args, card, vault);
         if (first.status === "filled") return first.result;
-        if (!(yield* vault.approve(args.cardId, first.page, first.frames)))
+        if (!(yield* vault.approve(args.cardId, first.page, first.frames, args.amount)))
           return yield* browserFailure(
             new Error("The owner did not approve this card fill. Ask the user, or use request_takeover."),
           );

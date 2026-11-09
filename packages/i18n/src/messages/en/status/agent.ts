@@ -22,9 +22,14 @@ export const messages = defineMessages("status.agent", {
   "status.agent.screenCaptureWindow": "Capture the window {name} and send the image to the agent's model.",
   "status.agent.screenCaptureRegion":
     "Capture the screen area at {x}, {y}, {width} × {height} points and send the image to the agent's model.",
-  "status.agent.vaultCardFill":
-    "Fill the saved card {card} on {site}. After you approve, agents can fill this card on this site with no approval. Remove the site in Server settings > Vault.",
-  "status.agent.vaultCardFillFrames": "The card fields are in frames from {origins}.",
+  "status.agent.vaultCardFillVault":
+    "Amount: {amount} (read by the agent)\nCard: {card}\nSite: {site}\nNext fills here need no approval. Remove the site in Server settings > Vault.",
+  "status.agent.vaultCardFillVaultFrames":
+    "Amount: {amount} (read by the agent)\nCard: {card}\nSite: {site}\nPayment frames: {origins}\nNext fills here need no approval. Remove the site in Server settings > Vault.",
+  "status.agent.vaultCardFillOnePassword":
+    "Amount: {amount} (read by the agent)\nCard: {card}\nSite: {site}\nNext fills here need no approval until Tommy restarts.",
+  "status.agent.vaultCardFillOnePasswordFrames":
+    "Amount: {amount} (read by the agent)\nCard: {card}\nSite: {site}\nPayment frames: {origins}\nNext fills here need no approval until Tommy restarts.",
   "status.agent.screenCaptureProgress": "Asking to capture the screen…",
   "status.agent.screenCaptureReviewing": "Reviewing the screen capture…",
   "status.agent.browserOpening": "Opening a web page…",

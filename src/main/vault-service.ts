@@ -23,13 +23,14 @@ import { type SourceMessages, sourceText } from "@tommy/i18n/source";
 import { registerSecretValues } from "@tommy/logging";
 import { Effect } from "effect";
 import { type PasswordVault, PasswordVaultError, websiteMatchesOrigin, websiteUrl } from "../backend/password-vault";
-import type {
-  VaultAgentChange,
-  VaultAgentResult,
-  VaultCardSecret,
-  VaultEnteredItem,
-  VaultItems,
-  VaultTypedLogin,
+import {
+  cardNumberLogForms,
+  type VaultAgentChange,
+  type VaultAgentResult,
+  type VaultCardSecret,
+  type VaultEnteredItem,
+  type VaultItems,
+  type VaultTypedLogin,
 } from "../backend/vault-items";
 import { parseLoginCsv } from "./vault-csv";
 import { decodeVaultSaveInput, vaultWebsite } from "./vault-inputs";
@@ -56,13 +57,7 @@ function registerSecrets(record: VaultRecord): void {
     record.logins.map((login) => login.password),
     { allowShort: true },
   );
-  registerSecretValues(
-    record.cards.flatMap(({ number }) => [
-      number,
-      number.replace(/(\d{4})(?=\d)/gu, "$1 "),
-      number.replace(/(\d{4})(?=\d)/gu, "$1-"),
-    ]),
-  );
+  registerSecretValues(record.cards.flatMap(({ number }) => cardNumberLogForms(number)));
   registerSecretValues(
     record.apiKeys.map(({ key }) => key),
     { allowShort: true },

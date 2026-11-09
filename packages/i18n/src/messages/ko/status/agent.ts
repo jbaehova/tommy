@@ -23,6 +23,14 @@ export const messages = {
   "status.agent.screenCaptureWindow": "창 {name}을(를) 캡처해서 이미지를 에이전트의 모델에 보내요.",
   "status.agent.screenCaptureRegion":
     "화면의 {x}, {y} 위치에서 {width} × {height} 포인트 영역을 캡처해서 이미지를 에이전트의 모델에 보내요.",
+  "status.agent.vaultCardFillVault":
+    "금액: {amount} (에이전트가 읽은 값)\n카드: {card}\n사이트: {site}\n이 사이트에서는 다음부터 승인 없이 입력해요. 서버 설정 > Vault에서 사이트를 지울 수 있어요.",
+  "status.agent.vaultCardFillVaultFrames":
+    "금액: {amount} (에이전트가 읽은 값)\n카드: {card}\n사이트: {site}\n결제 프레임: {origins}\n이 사이트에서는 다음부터 승인 없이 입력해요. 서버 설정 > Vault에서 사이트를 지울 수 있어요.",
+  "status.agent.vaultCardFillOnePassword":
+    "금액: {amount} (에이전트가 읽은 값)\n카드: {card}\n사이트: {site}\nTommy를 다시 시작할 때까지 이 사이트에서는 승인 없이 입력해요.",
+  "status.agent.vaultCardFillOnePasswordFrames":
+    "금액: {amount} (에이전트가 읽은 값)\n카드: {card}\n사이트: {site}\n결제 프레임: {origins}\nTommy를 다시 시작할 때까지 이 사이트에서는 승인 없이 입력해요.",
   "status.agent.screenCaptureProgress": "화면 캡처를 요청하는 중…",
   "status.agent.screenCaptureReviewing": "화면 캡처를 확인하는 중…",
   "status.agent.browserOpening": "웹 페이지를 여는 중…",

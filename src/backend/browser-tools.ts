@@ -275,7 +275,7 @@ const BROWSER_TOOL_DEFINITIONS = [
   browserTool({
     name: "list_vault_items",
     description:
-      "List what the user saved in the Tommy Vault, not 1Password. A login shows id, website and username; its password and notes are never returned, so sign in with list_logins and submit_secret. A card shows id, label, nameOnCard, brand, last4, expiry and hasSecurityCode; its number and security code are never returned, so fill card fields with fill_card. A contact shows every field: type them with fill_fields, type, or select_option. addedBy, when present, names the agent that added the item.",
+      'List what the user saved in the Tommy Vault, and the credit cards in 1Password (source "1password"). 1Password logins are not listed. A login shows id, website and username; its password and notes are never returned, so sign in with list_logins and submit_secret. A card shows id, label, nameOnCard, brand, last4, expiry and hasSecurityCode; its number and security code are never returned, so fill card fields with fill_card. A contact shows every field: type them with fill_fields, type, or select_option. addedBy, when present, names the agent that added the item.',
     shape: {},
   }),
   browserTool({
@@ -324,10 +324,16 @@ const BROWSER_TOOL_DEFINITIONS = [
   browserTool({
     name: "fill_card",
     description:
-      "Type a saved card from list_vault_items into card fields from one fresh snapshot: the number, and any of the security code, a single expiry field or month and year fields (inputs or native selects), and the name on the card. Fields can be on the HTTPS page or in an HTTPS payment frame. You never see the number or the security code: snapshots hide them. Does not submit. The first fill of a card on a site waits for the server owner's approval. Returns the filled field names and a fresh snapshot. Screenshots, evaluate and recording are unavailable until the page navigates.",
+      "Type a saved card from list_vault_items into card fields from one fresh snapshot: the number, and any of the security code, a single expiry field or month and year fields (inputs or native selects), and the name on the card. Fields can be on the HTTPS page or in an HTTPS payment frame. You never see the number or the security code: snapshots hide them. Does not submit. The first fill of a card on a site waits for the server owner's approval, which shows the card, the site and the amount. Returns the filled field names and a fresh snapshot. Screenshots, evaluate and recording are unavailable until the page navigates.",
     shape: {
       tabId,
       cardId: identifier,
+      amount: z
+        .string()
+        .trim()
+        .min(1)
+        .max(32)
+        .describe("The total to pay, with its currency, as the page shows it, such as EUR 120.00."),
       targets: z
         .strictObject({
           number: browserTargetSchema,

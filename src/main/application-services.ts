@@ -172,7 +172,7 @@ import {
 import { McpOAuthStore } from "./mcp-oauth-store";
 import { MemoryReviewPreferenceStore } from "./memory-review-preference-store";
 import { NotificationPreferenceStore } from "./notification-preference-store";
-import { OnePasswordCliVault } from "./onepassword-cli-vault";
+import { OnePasswordCliVault, takePaymentCardsToken } from "./onepassword-cli-vault";
 import { PromptCacheTtlPreferenceStore } from "./prompt-cache-ttl-preference-store";
 import { ProviderAccountsHost } from "./provider-accounts-host";
 import { createProviderCliAppVersionStore } from "./provider-cli-app-version-store";
@@ -983,6 +983,9 @@ export async function createApplicationServices({
   // Outside every workspace. Each saved key is masked in the logs before the first agent starts. The
   // Vault's keys are written only when an agent lists its keys; a file left from the last run that the
   // Vault no longer holds is removed here.
+  const onePassword = new OnePasswordCliVault(process.env.OP_SERVICE_ACCOUNT_TOKEN);
+  // Before any provider starts, so that no agent inherits this token.
+  const paymentCards = new OnePasswordCliVault(takePaymentCardsToken());
   const agentApiKeys = new AgentApiKeys(join(app.getPath("userData"), "agent-api-keys"), () => vault.items.apiKeys());
   await Effect.runPromise(agentApiKeys.registerSaved());
   await Effect.runPromise(agentApiKeys.syncVault().pipe(Effect.ignore));
@@ -1071,10 +1074,11 @@ export async function createApplicationServices({
     // from handing every provider a command it cannot start.
     computerUseMcpServer: () => agentDesktop.mcpServerConfig(),
     passwordVault: passwordVaultRouter([
-      { prefix: "", vault: new OnePasswordCliVault(process.env.OP_SERVICE_ACCOUNT_TOKEN) },
+      { prefix: "", vault: onePassword },
       { prefix: "tommy:", vault: vault.logins },
     ]),
     vaultItems: vault.items,
+    sharedCards: paymentCards,
     agentApiKeys,
     localSkillTools: () => localSkillTools(skills),
     routineFlowTools: () => routineFlowRuntime,
