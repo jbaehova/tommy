@@ -3,7 +3,6 @@
     "name": "Tommy",
     "slug": "tommy",
     "platforms": ["android"],
-    "version": "1.4.5",
     "orientation": "portrait",
     "icon": "./assets/icons/app-icon.png",
     "scheme": "tommy",

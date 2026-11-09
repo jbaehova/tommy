@@ -1,6 +1,8 @@
+const { execFileSync } = require("node:child_process");
 const { existsSync, mkdirSync, writeFileSync } = require("node:fs");
 const { homedir } = require("node:os");
 const { dirname, join } = require("node:path");
+const { version } = require("../../package.json");
 
 // Android notifications come through Firebase Cloud Messaging, which needs the Firebase file of the
 // app. The root .env holds its values, and this config writes the file into the ignored .expo folder.
@@ -44,6 +46,25 @@ function writeGoogleServicesFile(packageName) {
   writeFileSync(path, `${JSON.stringify(content, null, 2)}\n`, { mode: 0o600 });
 }
 
+/** The commit of this build, with `+` after it for uncommitted changes. Empty outside a git checkout. */
+function readBuildCommit() {
+  try {
+    return execFileSync("git", ["describe", "--always", "--dirty=+", "--abbrev=7", "--exclude=*"], {
+      cwd: __dirname,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
+/** The version code of a release, as `.github/workflows/release.yml` makes it. */
+function releaseVersionCode() {
+  const [major, minor, patch] = version.split(".").map(Number);
+  return major * 1000000 + minor * 1000 + patch;
+}
+
 /** @param {{ config: import('expo/config').ExpoConfig }} context */
 module.exports = ({ config: baseConfig }) => {
   // The phone only accepts an update that has the key of the installed app. `expo prebuild` makes a
@@ -53,13 +74,17 @@ module.exports = ({ config: baseConfig }) => {
   const signed = keystore
     ? { ...baseConfig, plugins: [...(baseConfig.plugins ?? []), ["./plugins/with-android-keystore", keystore]] }
     : baseConfig;
-  // A release build numbers its version code from the release version, so Android accepts it as
-  // an update of an older release.
-  const versionCode = Number(process.env.TOMMY_ANDROID_VERSION_CODE);
-  const config =
-    Number.isInteger(versionCode) && versionCode > 0
-      ? { ...signed, android: { ...signed.android, versionCode } }
-      : signed;
+  // Every build takes its version from the root package.json, so Android accepts it as an update of
+  // an older release. Builds between two releases have the same version, and the commit tells them apart.
+  const requestedCode = Number(process.env.TOMMY_ANDROID_VERSION_CODE);
+  const versionCode = Number.isInteger(requestedCode) && requestedCode > 0 ? requestedCode : releaseVersionCode();
+  const buildCommit = readBuildCommit();
+  const config = {
+    ...signed,
+    version,
+    android: { ...signed.android, versionCode },
+    extra: { ...signed.extra, ...(buildCommit ? { buildCommit } : {}) },
+  };
   const missing = FIREBASE_VARIABLES.filter((name) => !process.env[name]);
   if (missing.length === FIREBASE_VARIABLES.length) return config;
   if (missing.length > 0) throw new Error(`Set ${missing.join(", ")} in the root .env file.`);

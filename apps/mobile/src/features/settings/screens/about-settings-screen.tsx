@@ -11,9 +11,10 @@ const PRODUCT_NAME = "Tommy";
 export function AboutSettingsScreen() {
   const { t } = useText();
   const version = Constants.expoConfig?.version ?? t("mobile.settings.about.development");
-  // The build number of the installed app. EAS sets it at build time, so app.json does not have it.
-  const build = Application.nativeBuildVersion;
-  const versionLabel = build ? `${version} (${build})` : version;
+  // The version code of the installed app, and the commit that `app.config.js` read at build time.
+  const commit = Constants.expoConfig?.extra?.buildCommit;
+  const details = [Application.nativeBuildVersion, typeof commit === "string" ? commit : null].filter(Boolean);
+  const versionLabel = details.length > 0 ? `${version} (${details.join(", ")})` : version;
   return (
     <SettingsContent>
       <View className="items-center gap-4 px-4 pb-6 pt-8">
