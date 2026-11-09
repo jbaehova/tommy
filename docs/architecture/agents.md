@@ -279,7 +279,7 @@ client and the mobile app use the optional `sidebar-folders-v1` capability
 released actions, `parentId` on `create`, and `nest`. A peer with the capability gets
 `sidebar-folders-changed`; other peers get `sidebar-layout-changed`, and the released
 `/v1/sidebar-layout` routes leave out `parentId`. A peer without the capability shows each folder at
-the top level, and its changes keep the parents. The iPhone app shows nested folders as one list,
+the top level, and its changes keep the parents. The mobile app shows nested folders as one list,
 as the desktop does: "Parent / Name", a folder icon, and the unread count of a closed folder. A closed
 folder hides the folders in it. With the capability, its folder menu has "New folder inside" and
 "Move to" (`nest`). An instance transfer creates each folder at the top level, because its

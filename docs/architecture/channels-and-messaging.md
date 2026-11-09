@@ -34,13 +34,10 @@ click opens the channel. The phone gets no channel reply notification. For a pho
 takeover on a channel thread (`PushNotificationService` reads `HostService.channelForThread`), and a
 tap opens the channel. An older phone gets the agent name as the title, as before.
 
-An iPhone registers with every connected server that supports `push-notifications-ios-v1`
-(`POST /v1/push-notifications/ios-registration`), and an Android phone with every server that
-supports `push-notifications-android-v1` (`POST /v1/push-notifications/android-registration`): the
-push token of the app (the APNs token on iOS, with its Apple environment, the Firebase token on
-Android), the secret of that host, the language, the level, a mute end, the preview switch, the
-sound (`none` when Play sound is off), and `away`. A server advertises each capability only when it
-has the key of that platform (see [Sending](#sending)). The phone tells each host again after each
+An Android phone registers with every server that supports `push-notifications-android-v1`
+(`POST /v1/push-notifications/android-registration`): the Firebase token of the app, the secret of that host, the language, the level, a mute end, the preview switch, the
+sound (`none` when Play sound is off), and `away`. A server advertises the capability only when it
+has the Firebase key (see [Sending](#sending)). The phone tells each host again after each
 connection and when a choice changes, and removes the registration when nothing is left for that
 host or the user signs out. A level of "Nothing" and a mute with no end remove it too.
 `PushNotificationService` in `src/main` keeps the registrations in `tommy-push-notifications-v1.json`
@@ -65,29 +62,18 @@ any time after the member leaves the computer.
 ### Sending
 
 `push-notification-seal.ts` seals the notification with keys of their own, made from the host
-secret, so Apple and Google see the token, the time and sealed bytes only. The server sends it
+secret, so Google sees the token, the time and sealed bytes only. The server sends it
 itself; there is no relay.
 
-- iPhone: `ApnsSender` (`src/main/apns-sender.ts`) reads the APNs key of the app owner from
-  `apns-key.json` in the home folder of the server user, signs a provider token, and sends an alert
-  over HTTP/2 to the production or the sandbox APNs, as the registration says. The alert has "Tommy"
-  as the only text, `mutable-content`, the sound, and the sealed bytes.
-- Android: `FcmSender` (`src/main/fcm-sender.ts`) reads the Firebase service account key from
+`FcmSender` (`src/main/fcm-sender.ts`) reads the Firebase service account key from
   `fcm-service-account.json` in the same folder and sends a high-priority data message with `sealed`
   and, unless the notification is silent, `sound`.
 
-Without a key, the server does not advertise the capability of that platform, and its phones get no
-notifications. An answer that the token no longer reaches the app (APNs `410`, `BadDeviceToken` or
-`Unregistered`; Firebase `UNREGISTERED` or `SENDER_ID_MISMATCH`) removes the registration.
+Without a key, the server does not advertise the capability, and its phones get no
+notifications. An answer that the token no longer reaches the app (Firebase `UNREGISTERED` or
+`SENDER_ID_MISMATCH`) removes the registration.
 
 ### Opening
-
-On iPhone, the Notification Service Extension of the app (`apps/mobile/plugins/with-notification-service.js`,
-`NotificationService.swift`) opens the seal with the keys that the app writes into the App Group
-file `push-notifications.json`, and shows the agent name and the text. It refuses content that names
-another server than the one whose keys open it. A notification that it cannot open keeps the app
-name only. With a picture of the agent in the App Group (`notification-avatars.ts`), the notification
-is a communication notification with the agent as the sender. A tap opens the chat of the agent.
 
 On Android, `TommyMessagingService.kt` (`apps/mobile/modules/android-notifications`) gets the message, also
 while the app does not run. It opens the seal with the keys that the app writes into
@@ -369,7 +355,7 @@ a browser step, else of the lead, else of the first member. In a channel with mo
 the agent in the browser header is a glass button with a menu that switches to the browser of any
 member. The Deleted channels sheet restores a channel (`restore`) for the people who
 can delete one. The phone has no local notifications of channel replies: a host sends a notification
-only while the phone is away (see iPhone notifications). A tap on a notification whose thread is a
+only while the phone is away (see Phone notifications). A tap on a notification whose thread is a
 channel thread opens the channel, when the phone has the channel list of that server.
 
 Mobile channel settings use one native sheet with a nested stack for memories and routines. The

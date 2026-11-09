@@ -46,7 +46,6 @@ export const messages = defineMessages("mobile.chat", {
   "mobile.chat.preview.htmlCode": "HTML code",
   "mobile.chat.preview.mermaidCode": "Mermaid code",
   "mobile.chat.preview.markdownTitle": "Markdown",
-  "mobile.chat.preview.selectHint": "Touch and hold to select part of the code.",
   "mobile.chat.preview.markdownCode": "Markdown source",
   "mobile.chat.preview.lines": { one: "{count} line", other: "{count} lines" },
   "mobile.chat.preview.openHint": "Opens the preview",

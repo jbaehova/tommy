@@ -41,7 +41,7 @@ export function VideoViewer(props: VideoViewerProps) {
       onRequestClose={props.onDismissed}
     >
       {/* The player covers the window, and the chat can be one column of it: the insets are the
-          window's, so the controls keep clear of the rail of iPhone Duo on either side. */}
+          window's, so the controls keep clear of the side insets on either side. */}
       <SafeAreaProvider>
         <ScopedTheme theme="dark">
           <VideoViewerContent {...props} />

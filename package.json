@@ -88,8 +88,6 @@
     "mobile": "bun run --cwd apps/mobile start",
     "mobile:android": "bun run --cwd apps/mobile android",
     "mobile:android:apk": "bun run --cwd apps/mobile android:apk",
-    "mobile:ios": "bun run --cwd apps/mobile ios",
-    "mobile:ios:prebuild": "bun run --cwd apps/mobile ios:prebuild",
     "mobile:lint": "bun run --cwd apps/mobile lint",
     "build": "electron-vite build",
     "typecheck:node": "bun scripts/type-checker.ts --noEmit -p tsconfig.node.json",
@@ -195,8 +193,7 @@
     "react-native-uitextview@2.7.1": "patches/react-native-uitextview@2.7.1.patch",
     "@react-native-masked-view/masked-view@0.3.2": "patches/@react-native-masked-view%2Fmasked-view@0.3.2.patch",
     "react-native-reserved-regions@0.2.0": "patches/react-native-reserved-regions@0.2.0.patch",
-    "cuelume@0.2.8": "patches/cuelume@0.2.8.patch",
-    "react-native-screens@4.30.0": "patches/react-native-screens@4.30.0.patch"
+    "cuelume@0.2.8": "patches/cuelume@0.2.8.patch"
   },
   "trustedDependencies": [
     "electron-winstaller",

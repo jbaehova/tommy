@@ -18,9 +18,8 @@ import { scheduleOnRN } from "react-native-worklets";
 import { type SplitPaneMode, setSplitPanePreference, useSplitPanePreference } from "@/shared/lib/split-pane-preference";
 
 /**
- * The narrowest window that shows the pane beside the detail. iPad in portrait and landscape and the
- * open iPhone Duo are wider. A phone, the folded iPhone Duo, and each half of Split View (469 pt on
- * iPhone Duo, up to about 680 pt on iPad) keep one column.
+ * The narrowest window that shows the pane beside the detail. An open foldable is wider. A phone, a folded
+ * phone and each half of split screen keep one column.
  */
 const SPLIT_MIN_WIDTH = 700;
 const PANE_MIN_WIDTH = 320;
@@ -79,7 +78,7 @@ function listWidthLimit(width: number): number {
 }
 
 /**
- * The split for a window. A vertical fold, as on the open iPhone Duo or an Android foldable, ends the
+ * The split for a window. A vertical fold, as on an open foldable, ends the
  * list, so neither column lies across it. Without a fold, the list takes a part of the window, or the
  * width that the user dragged it to. The rail leaves the detail across the fold.
  */
@@ -244,7 +243,7 @@ function SplitColumns({ enabled, pane, resizeLabel, children, fold }: SplitColum
       ) : null}
       <View key="detail" style={styles.column}>
         <ColumnWidthContext value={splitValue?.detailWidth ?? null}>
-          {/* Each column has its own safe area: the rail of iPhone Duo and the side insets of
+          {/* Each column has its own safe area: the side insets of
               landscape touch only the column at that edge. */}
           <SafeAreaProvider style={styles.column}>{children}</SafeAreaProvider>
         </ColumnWidthContext>

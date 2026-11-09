@@ -128,7 +128,7 @@ Otherwise, continue:
 5. Show that the symptom is gone with the same proof as in Step 3. When
    the bug shows in the real app, you can run the `smoke` skill.
 6. Add release notes in `changelog.d/<branch>.md`, or
-   `apps/mobile/changelog.d/<branch>.md` for the iPhone app.
+   `apps/mobile/changelog.d/<branch>.md` for the mobile app.
 7. Commit on the branch. Put `Fixes #<n>` in the commit body.
 
 Do not ship. Do not open a PR, push, or close the issue unless the user

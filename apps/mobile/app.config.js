@@ -16,9 +16,6 @@ const FIREBASE_VARIABLES = [
   "FIREBASE_STORAGE_BUCKET",
 ];
 
-/** The bundle ID of a build that sets none, as the Android package. */
-const DEFAULT_IOS_BUNDLE_ID = "app.tommy.mobile";
-
 if (existsSync(ROOT_ENV_FILE)) process.loadEnvFile(ROOT_ENV_FILE);
 
 /** @param {string} packageName */
@@ -47,60 +44,8 @@ function writeGoogleServicesFile(packageName) {
   writeFileSync(path, `${JSON.stringify(content, null, 2)}\n`, { mode: 0o600 });
 }
 
-/**
- * The iPhone app: its bundle ID, the App Group that the app shares with its extensions, the share
- * extension, and the Notification Service Extension that opens sealed notifications. Apple gives each
- * bundle ID to one team only, so a build for a phone sets its own `TOMMY_IOS_BUNDLE_ID` and the team
- * that signs it, `TOMMY_APPLE_TEAM_ID`, in the root .env. A simulator build needs neither.
- *
- * @param {import('expo/config').ExpoConfig} config
- */
-function withIos(config) {
-  const bundleIdentifier = process.env.TOMMY_IOS_BUNDLE_ID || DEFAULT_IOS_BUNDLE_ID;
-  const appleTeamId = process.env.TOMMY_APPLE_TEAM_ID || undefined;
-  const groupIdentifier = `group.${bundleIdentifier}`;
-  const plugins = (config.plugins ?? []).map((plugin) =>
-    Array.isArray(plugin) && plugin[0] === "expo-sharing"
-      ? [
-          "expo-sharing",
-          {
-            ...plugin[1],
-            ios: {
-              enabled: true,
-              appGroupId: groupIdentifier,
-              extensionBundleIdentifier: `${bundleIdentifier}.ShareExtension`,
-              activationRule: {
-                supportsText: true,
-                supportsWebUrlWithMaxCount: 1,
-                supportsImageWithMaxCount: 10,
-                supportsMovieWithMaxCount: 10,
-                supportsFileWithMaxCount: 10,
-              },
-            },
-          },
-        ]
-      : plugin,
-  );
-  plugins.push([
-    "./plugins/with-notification-service",
-    {
-      targetName: "TommyNotificationService",
-      bundleIdentifier: `${bundleIdentifier}.NotificationService`,
-      groupIdentifier,
-    },
-  ]);
-  return {
-    ...config,
-    ios: { ...config.ios, bundleIdentifier, ...(appleTeamId ? { appleTeamId } : {}) },
-    plugins,
-    // `app-group.ts` reads it.
-    extra: { ...config.extra, iosAppGroup: groupIdentifier },
-  };
-}
-
 /** @param {{ config: import('expo/config').ExpoConfig }} context */
-module.exports = ({ config: base }) => {
-  const baseConfig = withIos(base);
+module.exports = ({ config: baseConfig }) => {
   // The phone only accepts an update that has the key of the installed app. `expo prebuild` makes a
   // new key each time, so the root .env names the file to keep, outside the repository. A leading
   // `~/` is the home folder, so one .env works on each computer of the same user.

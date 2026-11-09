@@ -44,11 +44,6 @@ declare class SpeechModule extends NativeModule<SpeechEvents> {
   finishCapture?(): void;
   /** Closes the microphone and drops the speech that was not sent. No event follows. */
   cancelCapture?(): void;
-  /**
-   * iOS: lets haptics play while the microphone records. The phone recognizer opens its own audio
-   * session, which iOS starts with haptics silenced. Android has no such limit and no function.
-   */
-  allowHapticsWhileRecording?(): void;
 }
 
 /**

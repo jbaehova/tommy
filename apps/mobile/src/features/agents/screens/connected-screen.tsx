@@ -830,12 +830,12 @@ export function ConnectedScreen({ variant = "screen" }: { variant?: "screen" | "
                 skipEnteringExitingAnimations
                 removeClippedSubviews={false}
                 className="flex-1 bg-background"
-                // The side insets (the iPhone Duo rail, the landscape cutout) go outside the list. With
+                // The side insets (the landscape cutout) go outside the list. With
                 // `always`, iOS would also inset the content by them.
                 style={{ marginLeft: insets.left, marginRight: insets.right }}
                 alwaysBounceVertical={false}
                 contentContainerClassName={items.length > 0 ? undefined : "grow"}
-                // Without a content inset from iOS (Android, the pane, the vertical bar of iPhone Duo), the
+                // Without a content inset, the
                 // list starts below the bar. The end of the list scrolls clear of the search field.
                 contentContainerStyle={{
                   paddingTop: scroll.ownsInset ? headerHeight : 0,

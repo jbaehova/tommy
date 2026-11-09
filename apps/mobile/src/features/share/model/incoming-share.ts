@@ -10,7 +10,6 @@ import {
   type ResolvedSharePayload,
   type SharePayload,
 } from "expo-sharing";
-import { isAndroid } from "@/shared/lib/platform";
 
 /** A file that another app shared. It is a copy in this app's cache, which the receiver deletes. */
 interface SharedFile {
@@ -87,8 +86,6 @@ function fileName(uri: string): string {
 async function sourceFiles(payloads: SharePayload[]): Promise<{ uri: string; name: string }[]> {
   const files = payloads.filter((payload) => !isTextPayload(payload));
   if (files.length === 0) return [];
-  // The iOS extension copied each file into the App Group already, and names its path.
-  if (!isAndroid) return files.map((payload) => ({ uri: payload.value, name: fileName(payload.value) }));
 
   // A content URI has no file name. Resolving gives the name and a copy in the cache. Android sends
   // files or text in one share, never both, so this resolves no link.

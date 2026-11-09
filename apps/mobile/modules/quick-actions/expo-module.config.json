@@ -1,9 +1,5 @@
 {
-  "platforms": ["apple", "android"],
-  "apple": {
-    "modules": ["QuickActionsModule"],
-    "appDelegateSubscribers": ["QuickActionsAppDelegateSubscriber"]
-  },
+  "platforms": ["android"],
   "android": {
     "modules": ["run.tommy.quickactions.QuickActionsModule"]
   }

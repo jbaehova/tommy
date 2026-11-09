@@ -586,7 +586,7 @@ export function OnboardingFlow({
           ]}
         />
       </FadeLayer>
-      {/* The steps keep clear of the side insets (the iPhone Duo rail, the landscape cutout). The tints
+      {/* The steps keep clear of the side insets (the landscape cutout). The tints
           above stay edge to edge. */}
       <KeyboardAvoidingView
         behavior="padding"

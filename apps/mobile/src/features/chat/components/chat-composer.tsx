@@ -54,7 +54,6 @@ import {
 } from "@/shared/lib/composer-metrics";
 import { haptics } from "@/shared/lib/haptics";
 import { useMotionPreference, useReducedMotion } from "@/shared/lib/motion";
-import { isAndroid } from "@/shared/lib/platform";
 import { selectionColorProps } from "@/shared/lib/selection-color";
 import { useText } from "@/shared/lib/text";
 import { editMentionDraft, insertMention, mentionDraft, mentionQuery } from "../model/chat-mentions";
@@ -382,7 +381,7 @@ export const ChatComposer = memo(function ChatComposer({
   }, [skillPickerVersion, onChangeDraft]);
   const { fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  // The bar keeps clear of the side insets: the rail of iPhone Duo and the edges in landscape.
+  // The bar keeps clear of the side insets: the edges in landscape.
   const barWidth = useColumnWidth() - insets.left - insets.right;
   const lineHeight = 22 * fontScale;
   // Without the plus, the text starts at the card's own inset.
@@ -656,8 +655,8 @@ export const ChatComposer = memo(function ChatComposer({
   const suggestionCount = suggestions.length + skillSuggestions.length;
   // Android takes the focus from the field when its keyboard hides, which a drag in this list does, and
   // when the plus menu that asks for the skills closes. There the list stays while an `@` query is in
-  // the text, and closes with a choice or the end of the query. iOS keeps the field focused for both.
-  const suggestionsVisible = Boolean((focused || isAndroid) && query && suggestionCount > 0 && !disabled);
+  // the text, and closes with a choice or the end of the query.
+  const suggestionsVisible = Boolean(query && suggestionCount > 0 && !disabled);
   useEffect(() => {
     onSuggestionsVisibleChange?.(suggestionsVisible);
   }, [onSuggestionsVisibleChange, suggestionsVisible]);

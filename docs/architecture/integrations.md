@@ -474,4 +474,4 @@ Use `bun run dev:automation` for snapshots and screenshots. Do not drive another
 | An agent link for a member who is not an admin | The relay routes are admin only. The link opens as it is, and its callback cannot reach the host. |
 | An agent link in a command, tool output or commentary | The host relays only a link that the text of an agent message holds. |
 | A CLI that opens its own browser and honors no `BROWSER` | The host never gets the page address. Grok, Cursor and Cline use a code kind. |
-| The iPhone app | It does not take relayed sign-ins. It keeps its current behavior. |
+| The mobile app | It does not take relayed sign-ins. It keeps its current behavior. |

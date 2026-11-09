@@ -39,7 +39,6 @@ import { INSTANCE_TRANSFER_CAPABILITY } from "@tommy/contracts/team-protocol/ins
 import { PROVIDER_ACCOUNTS_CAPABILITY } from "@tommy/contracts/team-protocol/provider-accounts-v1";
 import { PROVIDERS_ADMIN_CAPABILITY } from "@tommy/contracts/team-protocol/providers-v1";
 import { ANDROID_PUSH_NOTIFICATIONS_CAPABILITY } from "@tommy/contracts/team-protocol/push-notifications-android-v1";
-import { IOS_PUSH_NOTIFICATIONS_CAPABILITY } from "@tommy/contracts/team-protocol/push-notifications-ios-v1";
 import { ROUTINE_RECOVERY_CAPABILITY } from "@tommy/contracts/team-protocol/routine-recovery-v1";
 import { ROUTINE_RESULTS_CAPABILITY } from "@tommy/contracts/team-protocol/routine-results-v1";
 import { SERVER_AUDIT_CAPABILITY } from "@tommy/contracts/team-protocol/server-audit-v1";
@@ -193,7 +192,6 @@ import type {
   MobileWorkspaceState,
 } from "@/features/workspace/model/workspace-types";
 import * as LockedKeychain from "@/shared/lib/locked-keychain";
-import { isAndroid } from "@/shared/lib/platform";
 import { currentText } from "@/shared/lib/text";
 import { useAppForeground } from "@/shared/lib/use-app-foreground";
 
@@ -562,12 +560,7 @@ export function MobileWorkspaceProvider({ children }: PropsWithChildren) {
     [request],
   );
   const supportsPushNotifications = useCallback(
-    (serverId: string) =>
-      hasCapability(
-        serverCapabilities.current,
-        serverId,
-        isAndroid ? ANDROID_PUSH_NOTIFICATIONS_CAPABILITY : IOS_PUSH_NOTIFICATIONS_CAPABILITY,
-      ),
+    (serverId: string) => hasCapability(serverCapabilities.current, serverId, ANDROID_PUSH_NOTIFICATIONS_CAPABILITY),
     [],
   );
   usePushNotifications({

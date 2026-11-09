@@ -3,7 +3,6 @@ import { Typography } from "heroui-native";
 import { useState } from "react";
 import { useUniwind } from "uniwind";
 import { SettingsRow } from "@/features/settings/components/settings-content";
-import { isAndroid } from "@/shared/lib/platform";
 import { useText } from "@/shared/lib/text";
 
 export function RoutineTimePicker({
@@ -29,7 +28,7 @@ export function RoutineTimePicker({
     <DateTimePicker
       value={value}
       mode="time"
-      display={isAndroid ? "default" : "compact"}
+      display={"default"}
       disabled={disabled}
       themeVariant={theme === "dark" ? "dark" : "light"}
       onDismiss={() => setOpen(false)}
@@ -45,15 +44,12 @@ export function RoutineTimePicker({
       <SettingsRow
         disabled={disabled}
         disclosure={false}
-        // iOS shows the compact picker in the row, and it opens its own popover.
-        onPress={isAndroid ? () => setOpen(true) : undefined}
-        trailing={
-          isAndroid ? <Typography.Paragraph className="text-grouped-secondary">{time}</Typography.Paragraph> : picker
-        }
+        onPress={() => setOpen(true)}
+        trailing={<Typography.Paragraph className="text-grouped-secondary">{time}</Typography.Paragraph>}
       >
         <Typography.Paragraph>{title}</Typography.Paragraph>
       </SettingsRow>
-      {isAndroid && open ? picker : null}
+      {open ? picker : null}
     </>
   );
 }

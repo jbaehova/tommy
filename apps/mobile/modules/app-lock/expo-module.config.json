@@ -1,8 +1,5 @@
 {
-  "platforms": ["apple", "android"],
-  "apple": {
-    "modules": ["AppLockModule"]
-  },
+  "platforms": ["android"],
   "android": {
     "modules": ["run.tommy.applock.AppLockModule"]
   }

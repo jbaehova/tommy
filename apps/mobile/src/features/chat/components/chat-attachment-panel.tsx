@@ -169,7 +169,7 @@ export function ChatAttachmentPanel({
 }) {
   const { height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  // The camera centres between the side insets: the rail of iPhone Duo and the edges in landscape.
+  // The camera centres between the side insets: the edges in landscape.
   const safeWidth = useColumnWidth() - insets.left - insets.right;
   const { t } = useText();
   const [mode, setMode] = useState<"options" | "camera">("options");

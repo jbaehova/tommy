@@ -1,8 +1,7 @@
 import { Typography } from "heroui-native";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { ScrollView, TextInput, type TextStyle, View } from "react-native";
+import { ScrollView, type TextStyle, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { isIOS } from "@/shared/lib/platform";
 import { useText } from "@/shared/lib/text";
 import { type CodeToken, highlightCode } from "../model/code-highlight";
 import { useCodeTokenColors } from "./chat-code-block";
@@ -10,7 +9,7 @@ import { useCodeTokenColors } from "./chat-code-block";
 const FONT_SIZE = 13;
 const LINE_HEIGHT = 20;
 /** The monospace font of `Typography.Code` on each platform. */
-const CODE_FONT = isIOS ? "Menlo" : "monospace";
+const CODE_FONT = "monospace";
 /** The width of one digit of the code font, in points, so the gutter fits the last line number. */
 const DIGIT_WIDTH = 8;
 const GUTTER_GAP = 14;
@@ -43,7 +42,7 @@ export function CodeDocument({
   note?: string | null;
 }) {
   const { foreground, muted, colors } = useCodeTokenColors();
-  // The code keeps clear of the side insets: the rail of iPhone Duo and the edges in landscape.
+  // The code keeps clear of the side insets: the edges in landscape.
   const insets = useSafeAreaInsets();
   const sides = { paddingLeft: insets.left + SIDE_PADDING, paddingRight: insets.right + SIDE_PADDING };
   const [tokens, setTokens] = useState<CodeToken[] | null>(null);
@@ -123,23 +122,7 @@ export function CodeDocument({
 
 function SelectableCode({ label, style, runs }: { label: string; style: TextStyle; runs: ReactNode }) {
   const { t } = useText();
-  // iOS selects a part of a text only in a text field. Android selects a part of selectable text.
-  if (isIOS)
-    return (
-      <TextInput
-        accessibilityLabel={label}
-        accessibilityHint={t("mobile.chat.preview.selectHint")}
-        multiline
-        editable={false}
-        showSoftInputOnFocus={false}
-        scrollEnabled={false}
-        autoCorrect={false}
-        spellCheck={false}
-        style={{ ...style, padding: 0, margin: 0 }}
-      >
-        {runs}
-      </TextInput>
-    );
+
   return (
     <Typography.Code selectable className="bg-transparent p-0" style={style}>
       {runs}

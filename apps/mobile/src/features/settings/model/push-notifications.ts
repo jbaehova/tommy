@@ -19,7 +19,7 @@ const DEFAULT_SERVER_NOTIFICATIONS: ServerNotificationSetting = { level: "all", 
 interface StoredPreference {
   enabled: boolean;
   preview: boolean;
-  /** Whether notifications and the Live Activity play `sound`. Off keeps the choice for later. */
+  /** Whether notifications play `sound`. Off keeps the choice for later. */
   playSound: boolean;
   sound: NotificationSound;
   servers: Record<string, ServerNotificationSetting>;
@@ -87,7 +87,7 @@ export function mutedUntil(setting: ServerNotificationSetting, now: number): num
   return setting.mute.until > now ? setting.mute.until : null;
 }
 
-/** The sound that the hosts play for notifications and the Live Activity. */
+/** The sound that the hosts play for notifications. */
 export function registeredSound(preference: Pick<StoredPreference, "playSound" | "sound">): PushNotificationSound {
   return preference.playSound ? preference.sound : "none";
 }

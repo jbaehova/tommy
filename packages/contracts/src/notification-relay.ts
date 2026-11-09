@@ -24,26 +24,6 @@ export interface AndroidNotificationRelayPush {
 }
 
 /**
- * One iPhone notification that a host sends to the Apple Push Notification service. The host sends
- * the sealed bytes and the sound only, and the Notification Service Extension of the app opens the
- * seal before iOS shows the notification. Apple sees the app name only.
- */
-export interface IosNotificationRelayPush {
-  /** The APNs device token of the app (`IOS_PUSH_TOKEN_PATTERN` of `push-notifications-ios-v1`). */
-  token: string;
-  /** The APNs environment of the token. */
-  environment: "production" | "development";
-  /** The session of the phone on this host. */
-  sessionId: string;
-  /** The sealed notification, base64url. */
-  sealed: string;
-  /** The sound that iOS plays, or `null` for none. */
-  sound: NotificationSound | null;
-  /** When the host made the notification, in seconds. */
-  timestamp: number;
-}
-
-/**
  * A sealed notification above this size would not fit the 4 KB Apple payload with its envelope.
  * Firebase Cloud Messaging data messages have the same 4 KB limit.
  */

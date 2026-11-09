@@ -26,7 +26,6 @@ import { haptics } from "@/shared/lib/haptics";
 import { BAR_BUTTON_SIZE, NATIVE_BAR_BUTTON_TOP, useBarTop } from "@/shared/lib/native-bar";
 import { useText } from "@/shared/lib/text";
 import { typeScale } from "@/shared/lib/type-scale";
-import { useVerticalBarShown } from "@/shared/lib/vertical-bar";
 import type { ChatTarget } from "../model/chat-target";
 
 interface ChatHeaderProps {
@@ -79,7 +78,6 @@ export function ChatHeader({
   const width = useColumnWidth();
   const insets = useSafeAreaInsets();
   const splitDetailRoot = useSplitDetailRoot();
-  const verticalBar = useVerticalBarShown();
   const barTop = useBarTop();
   const splitShown = useSplitLayout() !== null;
   const warning = useThemeColor("warning");
@@ -157,7 +155,7 @@ export function ChatHeader({
 
   // The row's side padding, and on the drawn header the gap after the pill and a 48 pt button with its
   // 8 pt gap for Back and for the trailing button. The vertical bar has these buttons in the native bar.
-  const titleReserve = verticalBar ? 32 : 40 + (splitDetailRoot ? 0 : 56) + (actionsMenu === null ? 0 : 56);
+  const titleReserve = 40 + (splitDetailRoot ? 0 : 56) + (actionsMenu === null ? 0 : 56);
   // In the native bar, the pill is as tall as the bar, as the bar buttons beside it are.
   const pillHeight = BAR_BUTTON_SIZE;
   const titlePill = (
@@ -293,7 +291,7 @@ export function ChatHeader({
         pointerEvents="box-none"
         accessibilityElementsHidden={accessibilityHidden}
         importantForAccessibility={accessibilityHidden ? "no-hide-descendants" : "auto"}
-        // The side insets keep the buttons clear of the iPhone Duo rail and of the landscape cutout.
+        // The side insets keep the buttons clear of the landscape cutout.
         // Beside the chat list pane, the buttons line up with the native bar buttons of the screens
         // around it. A phone keeps them 8 pt under the status bar.
         style={{

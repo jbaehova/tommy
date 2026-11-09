@@ -198,7 +198,7 @@ export interface MobileAgent {
   foreignProvider?: ForeignProviderId | undefined;
   model?: AgentModelId;
   reasoningEffort?: AgentReasoningEffort;
-  /** One switch for every member: off stops the host's notifications and Live Activity for the agent. */
+  /** One switch for every member: off stops the host's notifications for the agent. */
   notifications?: boolean;
   /** The agent workspace folder on the host. */
   workspacePath?: string;
@@ -326,8 +326,7 @@ export interface MobileWorkspaceContextValue {
   /** An owner or admin of an online host that serves `host-admin-v1`. The host checks the role again. */
   canEditServerIdentity: (serverId: string) => boolean;
   /**
-   * An online host that sends notifications to this phone: `push-notifications-ios-v1` for an iPhone,
-   * `push-notifications-android-v1` for an Android phone.
+   * An online host that sends notifications to this phone: `push-notifications-android-v1`.
    */
   canSendNotifications: (serverId: string) => boolean;
   /**

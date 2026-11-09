@@ -3,8 +3,7 @@ import type { PushNotificationsNative } from "./push-notifications-native.types"
 
 /**
  * Expo Go on Android has no push notifications, and `expo-notifications` throws when it loads there.
- * So `android-push-notifications.ts` loads only in a build of the app. An iPhone loads
- * `push-notifications-native.ios.ts` in place of this file.
+ * So `android-push-notifications.android.ts` loads only in a build of the app.
  */
 function load(): PushNotificationsNative | null {
   if (expoGoOnAndroid()) return null;

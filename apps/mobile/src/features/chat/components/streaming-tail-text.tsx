@@ -19,7 +19,6 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
-import { isAndroid } from "@/shared/lib/platform";
 import { createStreamRevealPool, streamRevealWindow } from "../model/stream-reveal-pool";
 import { CHAT_TEXT_STYLES, type ChatTextType } from "./chat-text-styles";
 
@@ -31,7 +30,7 @@ const REVEAL_TIMING = {
 };
 // A nested text has no native view on Android, so each frame of a word's fade lays out and draws
 // its whole paragraph again, and the paragraph flickers. There each word shows at once.
-const WORD_FADE = !isAndroid;
+const WORD_FADE = false;
 
 export function StreamRevealProvider({ children }: PropsWithChildren) {
   const [pool] = useState(() => createStreamRevealPool());

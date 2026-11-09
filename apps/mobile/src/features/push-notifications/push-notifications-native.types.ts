@@ -16,8 +16,7 @@ export interface PushNotificationsNative {
    */
   permission(asked?: (answer: NotificationPermission) => void): Promise<NotificationPermission>;
   /**
-   * The push token of the app, or `null` when the phone gives none: the APNs token as lowercase hex on
-   * iOS, the Firebase Cloud Messaging token on Android.
+   * The push token of the app, or `null` when the phone gives none: the Firebase Cloud Messaging token.
    */
   deviceToken(): Promise<string | null>;
   /** The phone can give the app a new token. Returns the function that stops listening. */

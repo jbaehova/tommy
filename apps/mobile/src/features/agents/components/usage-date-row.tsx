@@ -3,7 +3,6 @@ import { Typography } from "heroui-native";
 import { useState } from "react";
 import { useUniwind } from "uniwind";
 import { SettingsRow } from "@/features/settings/components/settings-content";
-import { isAndroid } from "@/shared/lib/platform";
 import { useText } from "@/shared/lib/text";
 import { localDate, localDay } from "./usage-date";
 
@@ -28,7 +27,7 @@ export function UsageDateRow({
       value={localDate(date)}
       maximumDate={localDate(max)}
       mode="date"
-      display={isAndroid ? "default" : "compact"}
+      display={"default"}
       themeVariant={theme === "dark" ? "dark" : "light"}
       onDismiss={() => setOpen(false)}
       onChange={(event, next) => {
@@ -41,20 +40,16 @@ export function UsageDateRow({
     <>
       <SettingsRow
         disclosure={false}
-        onPress={isAndroid ? () => setOpen(true) : undefined}
+        onPress={() => setOpen(true)}
         trailing={
-          isAndroid ? (
-            <Typography.Paragraph className="text-grouped-secondary">
-              {format.date(localDate(date), { year: "numeric", month: "short", day: "numeric" })}
-            </Typography.Paragraph>
-          ) : (
-            picker
-          )
+          <Typography.Paragraph className="text-grouped-secondary">
+            {format.date(localDate(date), { year: "numeric", month: "short", day: "numeric" })}
+          </Typography.Paragraph>
         }
       >
         <Typography.Paragraph>{label}</Typography.Paragraph>
       </SettingsRow>
-      {isAndroid && open ? picker : null}
+      {open ? picker : null}
     </>
   );
 }

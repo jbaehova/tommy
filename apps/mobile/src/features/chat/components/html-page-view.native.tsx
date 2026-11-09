@@ -1,7 +1,7 @@
 import { chatVisualAppTheme, chatVisualDocument } from "@tommy/contracts/chat-visual";
 import * as Linking from "expo-linking";
 import { useMemo, useRef } from "react";
-import { Platform, View } from "react-native";
+import { View } from "react-native";
 import { WebView } from "react-native-webview";
 import { useUniwind } from "uniwind";
 import type { HtmlPageProps } from "./html-page";
@@ -17,7 +17,7 @@ const TAP_WINDOW_MS = 1_000;
  */
 const FORM_POLICY = `<meta http-equiv="Content-Security-Policy" content="form-action 'none'">`;
 const PAGE_ADDRESS = "about:blank";
-const ANDROID = Platform.OS === "android";
+const ANDROID = true;
 
 function openWebLink(url: string): void {
   if (/^https?:/iu.test(url)) void Linking.openURL(url);

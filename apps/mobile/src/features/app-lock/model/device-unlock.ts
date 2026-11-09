@@ -1,24 +1,16 @@
 import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as LocalAuthentication from "expo-local-authentication";
-import { isIOS } from "@/shared/lib/platform";
 
 /** `cancel`: the user closed the prompt. `unavailable`: the phone has no passcode or biometrics. */
 export type DeviceUnlockResult = "success" | "cancel" | "unavailable" | "failed";
 
 /** The name of the unlock that the phone offers: Face ID, Touch ID, or the Android unlock. */
-export type DeviceUnlockKind = "faceId" | "touchId" | "phone";
+export type DeviceUnlockKind = "phone";
 
-export async function deviceUnlockKind(): Promise<DeviceUnlockKind | null> {
+export async function deviceUnlockKind(): Promise<"phone" | null> {
   try {
     const level = await LocalAuthentication.getEnrolledLevelAsync();
     if (level === LocalAuthentication.SecurityLevel.NONE) return null;
-    if (!isIOS) return "phone";
-    // Expo Go has no Face ID usage text of its own, so iOS offers only the passcode there.
-    if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) return "phone";
-    const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
-    const enrolled = await LocalAuthentication.isEnrolledAsync();
-    if (enrolled && types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) return "faceId";
-    if (enrolled && types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) return "touchId";
     return "phone";
   } catch {
     return null;

@@ -112,7 +112,6 @@ import {
   reloadingAgentMemoryLimit,
 } from "./agent-memory-limit-preference-store";
 import { AgentNotificationLevelStore, OWNER_NOTIFICATION_KEY } from "./agent-notification-level-store";
-import { ApnsSender } from "./apns-sender";
 import { AppBehaviorService } from "./app-behavior-service";
 import { AppearanceService } from "./appearance-service";
 import { ApprovalAutomation, readApprovalAutomation } from "./approval-automation-store";
@@ -302,8 +301,6 @@ const MCP_OAUTH_PROXY_FILE = "tommy-mcp-oauth-proxy-v1.json";
 const VAULT_FILE = "tommy-vault-v1.json";
 /** The Firebase key of this server. It is in the home folder of the service, and no backup or export reads it. */
 const FCM_SERVICE_ACCOUNT_FILE = "fcm-service-account.json";
-/** The APNs key of this server, beside the Firebase key. No backup or export reads it. */
-const APNS_KEY_FILE = "apns-key.json";
 const CLIENT_SCRATCH_FOLDER = "client-scratch";
 
 const TEARDOWN_ORDER = {
@@ -1467,7 +1464,6 @@ export async function createApplicationServices({
     : null;
   if (directDevices) await runCauseEffect(directDevices.load());
   const fcm = serverModeEnvironment ? await FcmSender.load(join(homedir(), FCM_SERVICE_ACCOUNT_FILE)) : null;
-  const apns = serverModeEnvironment ? await ApnsSender.load(join(homedir(), APNS_KEY_FILE)) : null;
   const host = new HostService({
     voice: hostVoice,
     ...(directDevices
@@ -1590,18 +1586,13 @@ export async function createApplicationServices({
       ensureToolRuntimesReady: () => providerRuntimes.ensureToolRuntimesReady(),
       toolRuntimes: () => providerRuntimes.mcpToolRuntimes(),
     },
-    // From this server to Firebase for Android, and to Apple for iPhone.
-    pushNotificationPlatforms: new Set([...(fcm ? (["android"] as const) : []), ...(apns ? (["ios"] as const) : [])]),
-    sendPushNotification: (_hostId: string, request: NotificationRelayRequest) => {
-      const failed = (cause: unknown) => new RemoteWorkflowError({ cause });
-      if (request.platform === "ios")
-        return apns
-          ? apns.send(request.push).pipe(Effect.mapError(failed))
-          : Effect.fail(failed(new Error("This server has no APNs key.")));
-      return fcm
-        ? fcm.send(request.push).pipe(Effect.mapError(failed))
-        : Effect.fail(failed(new Error("This server has no Firebase key.")));
-    },
+    // From this server to Firebase.
+    ...(fcm
+      ? {
+          sendPushNotification: (_hostId: string, request: NotificationRelayRequest) =>
+            fcm.send(request.push).pipe(Effect.mapError((cause) => new RemoteWorkflowError({ cause }))),
+        }
+      : {}),
     pushNotificationStore,
     // The owner is at this computer only with recent input, also when the window was left in focus.
     // Then the focused window shows the event, or the desktop notifies. When mute or the level of

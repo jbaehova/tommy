@@ -1160,7 +1160,7 @@ function routineCalendarSource(
 
 /**
  * The agent photo as a `file://` URI, or as a data URL when the phone cannot save it. A photo that
- * this phone has saved needs no request. The Live Activity reads it too, outside the workspace value.
+ * this phone has saved needs no request.
  */
 async function requestAgentAvatar(
   request: WorkspaceRequest,

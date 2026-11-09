@@ -154,8 +154,8 @@ function ServerLevels({
 
   const serverLevel = effectiveServerLevel(synced, serverNotificationSetting(preference, server.id));
   const agentLevels = synced ? agentNotificationLevelMap(synced) : null;
-  // The level and the mute of this phone apply while notifications or the Live Activity are on, as
-  // before. Android has no Live Activity.
+  // The level and the mute of this phone apply while notifications are on, as
+  // before.
   const phoneEnabled = preference.ready && !preference.saving && preference.enabled;
   // The levels that the host keeps apply on the other devices too, so they do not depend on this phone.
   const hostEnabled = keepsLevels && online && synced !== undefined && pending === null;

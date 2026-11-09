@@ -15,7 +15,6 @@ import type { RemoteTeamDevice } from "@tommy/team-client/remote-peer";
 import { Schema } from "effect";
 import * as Crypto from "expo-crypto";
 import * as Device from "expo-device";
-import { isIOS } from "@/shared/lib/platform";
 import { currentText } from "@/shared/lib/text";
 import * as LockedKeychain from "../../../shared/lib/locked-keychain";
 
@@ -72,10 +71,7 @@ export async function pairMobileDevice(address: string, code: string): Promise<M
     body: JSON.stringify({
       code: normalizedCode,
       publicKey: identity.publicKeyPem,
-      name: (Device.deviceName ?? Device.modelName ?? (isIOS ? "iPhone" : "Android")).slice(
-        0,
-        MAXIMUM_DEVICE_NAME_LENGTH,
-      ),
+      name: (Device.deviceName ?? Device.modelName ?? "Android").slice(0, MAXIMUM_DEVICE_NAME_LENGTH),
     }),
   }).catch(() => {
     throw new Error(t("mobile.auth.pair.unreachable"));

@@ -191,7 +191,7 @@ export function QrScanner({
 }) {
   const embedded = inSheet || immersive;
   const { t, errorMessage } = useText();
-  // A full screen keeps its content clear of the side insets (the iPhone Duo rail). In a sheet, the
+  // A full screen keeps its content clear of the side insets (the landscape cutout). In a sheet, the
   // padding stays as it was.
   const insets = useSafeAreaInsets();
   const sideLeft = inSheet ? 0 : insets.left;

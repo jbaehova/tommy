@@ -11,7 +11,6 @@ import { type MobileAgent, useMobileWorkspaceActions } from "@/features/workspac
 import { queryKeys } from "@/features/workspace/model/query-keys";
 import { AndroidHeaderButton } from "@/shared/components/android-header-button";
 import { haptics } from "@/shared/lib/haptics";
-import { isIOS } from "@/shared/lib/platform";
 import { currentText, type MobileText, useText } from "@/shared/lib/text";
 
 /** The longest instruction summary, so a long text does not fill the page. */
@@ -79,8 +78,7 @@ export function AgentPublish({ agent, available }: { agent: MobileAgent; availab
   }
 
   // The share sheet is the user's own action: closing it is not a failure.
-  const openShareSheet = (link: string) =>
-    Share.share(isIOS ? { url: link } : { message: link }).catch(() => undefined);
+  const openShareSheet = (link: string) => Share.share({ message: link }).catch(() => undefined);
 
   /**
    * Publishes the agent, or updates its template to the current version. After the first publish

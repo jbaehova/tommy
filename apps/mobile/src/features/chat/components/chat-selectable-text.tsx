@@ -1,19 +1,11 @@
 import { useEffect, useRef } from "react";
 import { type ColorValue, TextInput, type TextInputInstance, useWindowDimensions } from "react-native";
-import { isIOS } from "@/shared/lib/platform";
 import { useText } from "@/shared/lib/text";
 import { CHAT_TEXT_STYLES } from "./chat-text-styles";
 
 /** The body text of a message. */
 const FONT_SIZE = CHAT_TEXT_STYLES.body.fontSize;
 const LINE_HEIGHT = CHAT_TEXT_STYLES.body.lineHeight;
-/** The natural line height of Pretendard, as a multiple of its size: (1950 + 494) / 2048. */
-const FONT_LINE_RATIO = 1.19;
-/**
- * iOS `Text` centres each line in its line height, but a text field puts the extra space above the
- * letters. The field moves up by half of that space, so its words cover the words of the message.
- */
-const IOS_BASELINE_SHIFT = (LINE_HEIGHT - FONT_SIZE * FONT_LINE_RATIO) / 2;
 
 /**
  * The text of a message while the reader selects part of it in the bubble.
@@ -40,40 +32,22 @@ export function ChatSelectableText({
   const { fontScale } = useWindowDimensions();
   const input = useRef<TextInputInstance>(null);
   useEffect(() => {
-    if (isIOS) return;
     input.current?.focus();
     input.current?.setSelection(0, text.length);
   }, [text]);
-  // On iOS the range set from JS does not show, so the native Select All on focus selects the text:
-  // at the first layout, and again when the field first reports the size of its text, because the
-  // text is not laid out yet at the first layout of a message that selects the first time.
-  const selected = useRef({ layout: false, size: false });
-  const selectAll = (step: "layout" | "size") => {
-    if (!isIOS || selected.current[step]) return;
-    selected.current[step] = true;
-    // Select All runs on focus only, so a field that already has focus takes it again.
-    if (input.current?.isFocused()) input.current.blur();
-    input.current?.focus();
-  };
   return (
     <TextInput
       ref={input}
-      selectTextOnFocus={isIOS}
-      onLayout={() => selectAll("layout")}
       accessibilityLabel={t("mobile.chat.message.text")}
       value={text}
       multiline
       scrollEnabled={false}
       // Android disables a field that cannot be edited, and a disabled field selects nothing. There
-      // the field stays editable with no keyboard, and `value` puts back any change. iOS selects in
-      // a field that cannot be edited.
-      editable={!isIOS}
+      // the field stays editable with no keyboard, and `value` puts back any change.
+      editable={true}
       showSoftInputOnFocus={false}
       caretHidden
-      onContentSizeChange={({ nativeEvent }) => {
-        onHeight(nativeEvent.contentSize.height);
-        if (nativeEvent.contentSize.height > 0) selectAll("size");
-      }}
+      onContentSizeChange={({ nativeEvent }) => onHeight(nativeEvent.contentSize.height)}
       onSelectionChange={({ nativeEvent }) =>
         onSelectionChange(text.slice(nativeEvent.selection.start, nativeEvent.selection.end))
       }
@@ -82,7 +56,7 @@ export function ChatSelectableText({
         color,
         fontSize: FONT_SIZE,
         lineHeight: LINE_HEIGHT,
-        transform: isIOS ? [{ translateY: -IOS_BASELINE_SHIFT * fontScale }] : undefined,
+        transform: undefined,
       }}
     />
   );

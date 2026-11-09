@@ -5,24 +5,15 @@ import {
   type AndroidPushNotificationRegistration,
   PUSH_NOTIFICATION_SOUNDS,
 } from "@tommy/contracts/team-protocol/push-notifications-android-v1";
-import {
-  IOS_PUSH_NOTIFICATIONS_CODECS,
-  IOS_PUSH_NOTIFICATIONS_ROUTES,
-  type IosPushNotificationRegistration,
-} from "@tommy/contracts/team-protocol/push-notifications-ios-v1";
 import { Effect, Result, Semaphore } from "effect";
 import { isMissingFileError } from "../backend/file-errors";
 import { type PreferenceFileFailure, readPreferenceFile, writePreferenceFile } from "./preference-file";
 
-/**
- * What a phone registered: an Android phone through `push-notifications-android-v1`, an iPhone
- * through `push-notifications-ios-v1`.
- */
-export type PushTarget =
-  | { platform: "android"; value: AndroidPushNotificationRegistration }
-  | { platform: "ios"; value: IosPushNotificationRegistration };
-
-export type PushPlatform = PushTarget["platform"];
+/** What an Android phone registered through `push-notifications-android-v1`. */
+export interface PushTarget {
+  platform: "android";
+  value: AndroidPushNotificationRegistration;
+}
 
 /** One phone that gets notifications, with what the host needs to know what its member can see. */
 export type StoredPushRegistration = {
@@ -38,7 +29,6 @@ const REGISTRATION_LIMIT = 500;
 const decodeAndroidRegistration = ANDROID_PUSH_NOTIFICATIONS_CODECS.get(
   ANDROID_PUSH_NOTIFICATIONS_ROUTES.register,
 )?.request;
-const decodeIosRegistration = IOS_PUSH_NOTIFICATIONS_CODECS.get(IOS_PUSH_NOTIFICATIONS_ROUTES.register)?.request;
 
 /**
  * The phones of this host that get notifications. A phone registers when it connects, but a phone in
@@ -91,10 +81,7 @@ export class PushNotificationStore {
 }
 
 function startAway(registration: StoredPushRegistration): StoredPushRegistration {
-  // Each branch keeps the registration type of its platform.
-  return registration.platform === "ios"
-    ? { ...registration, value: { ...registration.value, away: true } }
-    : { ...registration, value: { ...registration.value, away: true } };
+  return { ...registration, value: { ...registration.value, away: true } };
 }
 
 /**
@@ -114,10 +101,6 @@ function decodeFile(parsed: unknown): StoredPushRegistration[] {
       return [];
     const { sessionId, memberId, protocol, capabilities } = entry;
     try {
-      if (entry.platform === "ios") {
-        const value = readIosPushRegistration(decodeIosRegistration?.(entry.value));
-        return value ? [{ sessionId, memberId, protocol, capabilities, platform: "ios", value }] : [];
-      }
       if (entry.platform !== "android") return [];
       const value = readAndroidPushRegistration(decodeAndroidRegistration?.(entry.value));
       return value ? [{ sessionId, memberId, protocol, capabilities, platform: "android", value }] : [];
@@ -129,11 +112,6 @@ function decodeFile(parsed: unknown): StoredPushRegistration[] {
 
 /** Reads a registration that the frozen `push-notifications-android-v1` codec has accepted. */
 export function readAndroidPushRegistration(value: unknown): AndroidPushNotificationRegistration | null {
-  return readRegistrationFields(value);
-}
-
-/** The fields that both platforms register. */
-function readRegistrationFields(value: unknown): AndroidPushNotificationRegistration | null {
   if (!isDynamicRecord(value)) return null;
   const { serverId, token, secret, locale, away, level, mutedUntil, preview, sound } = value;
   if (!isString(serverId) || !isString(token) || !isString(secret) || !isString(locale)) return null;
@@ -143,13 +121,4 @@ function readRegistrationFields(value: unknown): AndroidPushNotificationRegistra
   if (typeof away !== "boolean" || typeof preview !== "boolean") return null;
   if (mutedUntil !== null && typeof mutedUntil !== "number") return null;
   return { serverId, token, secret, locale, away, level, mutedUntil, preview, sound: choice };
-}
-
-/** Reads a registration that the frozen `push-notifications-ios-v1` codec has accepted. */
-export function readIosPushRegistration(value: unknown): IosPushNotificationRegistration | null {
-  if (!isDynamicRecord(value)) return null;
-  const { environment } = value;
-  if (environment !== "production" && environment !== "development") return null;
-  const common = readRegistrationFields(value);
-  return common ? { ...common, environment } : null;
 }

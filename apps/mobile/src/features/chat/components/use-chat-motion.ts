@@ -14,7 +14,6 @@ import {
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { useReducedMotion } from "@/shared/lib/motion";
-import { isAndroid } from "@/shared/lib/platform";
 import { chatContentIsVisible } from "../model/chat-layout";
 
 /** The space under each row of the list. */
@@ -232,7 +231,7 @@ export function useChatMotion(
   // the chat takes the end itself: this ends the wait, and the list calls `onReady`. iOS places the
   // list without a native scroll, so it keeps the wait.
   useEffect(() => {
-    if (!isAndroid || shown.current || !hasRows || placedWithRows === true || !ready || holdOpening) return;
+    if (shown.current || !hasRows || placedWithRows === true || !ready || holdOpening) return;
     const started = Date.now();
     let measuredFrames = 0;
     let frame = requestAnimationFrame(function place() {

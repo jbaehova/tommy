@@ -77,7 +77,7 @@ function appVersion(): string {
   return Application.nativeBuildVersion ? `${version} (${Application.nativeBuildVersion})` : version;
 }
 
-/** Such as `iOS 27.0, iPhone 16 Plus (iPhone17,4)`. The identifier names the exact hardware. */
+/** Such as `Android 16, Pixel 9`. The identifier names the exact hardware. */
 function systemName(): string {
   const { modelName, modelId } = Device;
   const model =

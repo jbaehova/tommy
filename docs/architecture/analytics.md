@@ -152,7 +152,7 @@ Tool and media fees are outside the estimate. Stored estimates retain their pric
 Desktop opens Usage from the server context menu. It keeps the previous workspace mounted and
 inert until Back, so conversation drafts and settings survive navigation. Agent settings opens
 the same report with an agent filter. Host changes clear the filter and stale responses are rejected.
-The iPhone app opens Usage from the server menu in a sheet. It reads the same route through
+The mobile app opens Usage from the server menu in a sheet. It reads the same route through
 `readHostAnalytics` in `@tommy/team-client` and shows the per-agent rows; a row or the header
 filter narrows the report to one agent. The agent Usage page reads the same route with the agent
 filter, so its chart has the provider split too; a host without `host-analytics` gets the

@@ -2,10 +2,6 @@ import {
   ANDROID_PUSH_NOTIFICATIONS_ROUTES,
   type AndroidPushNotificationRegistration,
 } from "@tommy/contracts/team-protocol/push-notifications-android-v1";
-import {
-  IOS_PUSH_NOTIFICATIONS_ROUTES,
-  type IosPushNotificationRegistration,
-} from "@tommy/contracts/team-protocol/push-notifications-ios-v1";
 import type { TeamProtocolV2Json } from "@tommy/contracts/team-protocol/v2";
 import { encodeNotificationBytes } from "@tommy/team-client/notification-seal";
 import { pushNotificationKeys } from "@tommy/team-client/push-notification-seal";
@@ -23,8 +19,6 @@ import {
   usePushNotificationPreference,
 } from "@/features/settings/model/push-notifications";
 import type { MobileServer } from "@/features/workspace/model/workspace-types";
-import { isAndroid } from "@/shared/lib/platform";
-import { usePushEnvironment } from "@/shared/lib/push-environment";
 import { currentLocale } from "@/shared/lib/text";
 import { pushNotificationsNative as native } from "./push-notifications-native";
 
@@ -45,15 +39,13 @@ interface PushNotificationsInput {
 
 /** A request that failed is sent again after this time, or at the next change or connection. */
 const RETRY_MS = 30_000;
-/** An iPhone registers through `push-notifications-ios-v1`, an Android phone through `push-notifications-android-v1`. */
-const ROUTES = isAndroid ? ANDROID_PUSH_NOTIFICATIONS_ROUTES : IOS_PUSH_NOTIFICATIONS_ROUTES;
+/** An Android phone registers through `push-notifications-android-v1`. */
+const ROUTES = ANDROID_PUSH_NOTIFICATIONS_ROUTES;
 
 /**
  * Gives each connected server that supports the notifications of this platform the push token of the
  * app, the events that the user chose, and whether the app is on screen. The server level is the
- * level that the user chose for all of their devices, or this phone's level when they chose none. An
- * iPhone also says which Apple environment its token belongs to. A host keeps the registration also
- * when it restarts, so the phone tells each
+ * level that the user chose for all of their devices, or this phone's level when they chose none. A host keeps the registration also when it restarts, so the phone tells each
  * host again after each connection, and removes it when the user turns both off for that host or
  * signs out.
  */
@@ -92,8 +84,6 @@ export function usePushNotifications({
   const [attempt, setAttempt] = useState(0);
   const retry = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enabled = preference.ready && preference.enabled;
-  // An iPhone registers only when it knows which Apple environment its token is for.
-  const environment = usePushEnvironment();
 
   useEffect(() => {
     if (!native) return;
@@ -167,7 +157,7 @@ export function usePushNotifications({
   }, [secret, servers, serversReady]);
 
   useEffect(() => {
-    if (!native || !preference.ready || !secret || !environment) return;
+    if (!native || !preference.ready || !secret) return;
     // Wait for iOS and the token, so a phone that has notifications does not remove them at launch.
     if (preference.enabled && preference.permission === null) return;
     const deliverable = preference.enabled && preference.permission === "granted";
@@ -182,7 +172,7 @@ export function usePushNotifications({
       if (!supportsPush(server.id)) continue;
       const setting = effectiveServerNotificationSetting(preference, synced[server.id], server.id);
       const muted = mutedUntil(setting, now);
-      let registration: AndroidPushNotificationRegistration | IosPushNotificationRegistration | null = null;
+      let registration: AndroidPushNotificationRegistration | null = null;
       if (deliverable && setting.level !== "nothing" && muted !== Number.POSITIVE_INFINITY) {
         const common = {
           serverId: server.id,
@@ -194,7 +184,7 @@ export function usePushNotifications({
           preview: preference.preview,
           sound: registeredSound(preference),
         };
-        registration = !token ? null : isAndroid ? { ...common, token } : { ...common, token, environment };
+        registration = token ? { ...common, token } : null;
       }
       // A retry after a failed request sends the state again.
       const key = `${attempt}:${JSON.stringify(registration)}`;
@@ -218,7 +208,7 @@ export function usePushNotifications({
         }
       });
     }
-  }, [servers, foreground, token, secret, environment, preference, synced, supportsPush, enqueue, attempt]);
+  }, [servers, foreground, token, secret, preference, synced, supportsPush, enqueue, attempt]);
 
   useEffect(() => {
     const sent = registered.current;

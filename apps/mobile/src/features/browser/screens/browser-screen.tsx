@@ -589,7 +589,7 @@ function BrowserView({
             <View
               pointerEvents="box-none"
               className="absolute inset-0 flex-row items-center justify-between"
-              // Clear of the side insets: the rail of iPhone Duo and the edges in landscape.
+              // Clear of the side insets: the edges in landscape.
               style={{ paddingLeft: insets.left + 16, paddingRight: insets.right + 16 }}
             >
               <ChatGlassIconButton

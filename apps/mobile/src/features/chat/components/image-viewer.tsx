@@ -9,7 +9,7 @@ import Download from "lucide-react-native/icons/download";
 import Share from "lucide-react-native/icons/share";
 import X from "lucide-react-native/icons/x";
 import { useCallback, useEffect, useState } from "react";
-import { AccessibilityInfo, Modal, Platform, StyleSheet, useWindowDimensions, View } from "react-native";
+import { AccessibilityInfo, Modal, StyleSheet, useWindowDimensions, View } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, {
   type AnimatedRef,
@@ -544,7 +544,7 @@ export function ImageViewer({
   const fadeStyle = useAnimatedStyle(() => ({ opacity: backdrop.get() }));
 
   // Android draws no live blur here and Reduce Transparency asks for none, so both dim instead.
-  const blur = Platform.OS === "ios" && reduceTransparency === false;
+  const blur = false;
   const mounted = pages
     .map((page, slot) => ({ page, slot }))
     .filter(({ slot }) => Math.abs(slot - shown) <= PAGE_WINDOW);
@@ -616,7 +616,7 @@ export function ImageViewer({
           </View>
         </GestureDetector>
         {/* The viewer covers the window, and the chat can be one column of it. This view reads the
-            window's insets, so the buttons keep clear of the rail of iPhone Duo on either side. */}
+            window's insets, so the buttons keep clear of the side insets on either side. */}
         <SafeAreaView edges={["top", "left", "right"]} style={StyleSheet.absoluteFill} pointerEvents="box-none">
           <View pointerEvents="box-none" className="flex-row items-center justify-between px-4 pt-2">
             {/* Close at the leading edge, where the platform puts the way out of a full-screen view,

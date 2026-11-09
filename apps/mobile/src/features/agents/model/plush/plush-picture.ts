@@ -9,7 +9,7 @@ import { plushGeometry, plushRestFrame } from "./plush-frames";
 
 /**
  * The style of the drawn pictures. Change it when the drawing changes, so that saved pictures are
- * drawn again: the file names and the Live Activity pictures carry it.
+ * drawn again: the file names carry it.
  */
 export const PLUSH_STYLE = "plush-1";
 /**

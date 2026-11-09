@@ -1,8 +1,5 @@
 {
-  "platforms": ["apple", "android"],
-  "apple": {
-    "modules": ["ComposerPasteModule"]
-  },
+  "platforms": ["android"],
   "android": {
     "modules": ["run.tommy.composerpaste.ComposerPasteModule"]
   }

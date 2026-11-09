@@ -10,7 +10,6 @@ import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSw
 import { useSharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { haptics } from "@/shared/lib/haptics";
-import { isAndroid } from "@/shared/lib/platform";
 
 export const PIN_REVEAL_DISTANCE = 88;
 export const PIN_COMMIT_DISTANCE = 144;
@@ -172,7 +171,7 @@ export function useAgentPinSwipe(
   const scrollGuard = usePanGesture(guardConfig);
   const guardedGesture = useSimultaneousGestures(gesture, scrollGuard);
   const swipeRequires = useMemo(
-    () => [...(isAndroid ? [scrollGuard] : []), ...(dragGesture ? [dragGesture] : [])],
+    () => [...[scrollGuard], ...(dragGesture ? [dragGesture] : [])],
     [scrollGuard, dragGesture],
   );
 
@@ -180,7 +179,7 @@ export function useAgentPinSwipe(
     close,
     gesture,
     /** The gesture of the row's detector: on Android with the scroll guard. */
-    detectorGesture: isAndroid ? guardedGesture : gesture,
+    detectorGesture: guardedGesture,
     /** What the swipe waits for: the drawer, the drag of the row, and on Android the scroll guard. */
     swipeRequires,
     onClose,

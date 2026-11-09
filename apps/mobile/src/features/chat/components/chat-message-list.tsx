@@ -62,7 +62,6 @@ import { ChatQuestionPrompt } from "@/features/chat/components/chat-question-pro
 import { ChatTurnStepsRow } from "@/features/chat/components/chat-turn-steps-row";
 import { useActivityPresence } from "@/features/chat/components/use-activity-presence";
 import { CHAT_ROW_GAP, type ChatMotion } from "@/features/chat/components/use-chat-motion";
-import { useFoldScrollAnchor } from "@/features/chat/components/use-fold-scroll-anchor";
 import { useMessageArrivals } from "@/features/chat/components/use-message-arrivals";
 import type { QuestionPromptController } from "@/features/chat/components/use-question-prompt";
 import {
@@ -84,7 +83,6 @@ import type { PendingApproval } from "@/features/workspace/model/pending-approva
 import { useColumnWidth } from "@/shared/components/adaptive-split";
 import { haptics } from "@/shared/lib/haptics";
 import { useMotionPreference, useReducedMotion } from "@/shared/lib/motion";
-import { isAndroid } from "@/shared/lib/platform";
 import { useText } from "@/shared/lib/text";
 import { mentionDraft } from "../model/chat-mentions";
 import type { ChatTarget } from "../model/chat-target";
@@ -185,7 +183,7 @@ function ChatBubble({
   // An animated size needs a layout event in JS for each new size. Android sends them late enough
   // that the background trails the text, so there, as with the animation off, the background fills
   // the bubble in the same layout pass as the text.
-  const sized = agent && animateSize && !isAndroid;
+  const sized = agent && animateSize && false;
   const size = useSharedValue({ width: 0, height: 0, measured: false });
   const shown = useSharedValue(collapsed ? 0 : 1);
   useEffect(() => {
@@ -1092,7 +1090,6 @@ export const ChatMessageList = memo(function ChatMessageList({
   const tailIndex = rows.findLastIndex((message) => message.kind === "message" && message.author === "user");
   const focusIndex = focusMessageId ? chatRowIndex(rows, focusMessageId) : -1;
   const canLoadOlder = online && hasOlder && !olderLoading;
-  useFoldScrollAnchor(motion.listRef);
   // The chat opens at the row of a message from search after the list has its rows in place.
   const placedFocus = useRef<string | null>(null);
   const focusId = historyState === "ready" && rowsShown && focusIndex >= 0 ? (rows[focusIndex]?.id ?? null) : null;
@@ -1192,7 +1189,7 @@ export const ChatMessageList = memo(function ChatMessageList({
   const canReact = Boolean(onReact);
   const canSelectText = Boolean(onSelectText);
   const canSelectQuestion = Boolean(onSelectQuestion);
-  // The rows keep clear of the side insets: the rail of iPhone Duo and the edges in landscape.
+  // The rows keep clear of the side insets: the edges in landscape.
   const listWidth = columnWidth - insets.left - insets.right - LIST_PADDING * 2;
   const shared = useMemo<MessageRowShared>(
     () => ({

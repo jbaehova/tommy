@@ -47,7 +47,6 @@ export const messages = {
   "mobile.chat.preview.htmlCode": "HTML 코드",
   "mobile.chat.preview.mermaidCode": "Mermaid 코드",
   "mobile.chat.preview.markdownTitle": "Markdown",
-  "mobile.chat.preview.selectHint": "길게 눌러 코드 일부를 선택하세요.",
   "mobile.chat.preview.markdownCode": "Markdown 원본",
   "mobile.chat.preview.lines": { other: "{count}줄" },
   "mobile.chat.preview.openHint": "미리보기를 열어요",

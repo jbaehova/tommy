@@ -4,8 +4,6 @@ export const messages = defineMessages("mobile.appLock", {
   "mobile.appLock.title": "App lock",
   "mobile.appLock.method.pin": "PIN code",
   "mobile.appLock.method.phone": "Phone unlock",
-  "mobile.appLock.method.faceId": "Face ID",
-  "mobile.appLock.method.touchId": "Touch ID",
   "mobile.appLock.methods.title": "Unlock with",
   "mobile.appLock.methods.footer":
     "Turn on a PIN, {method}, or both. Tommy then locks when you leave it and asks for one of them when you come back.",

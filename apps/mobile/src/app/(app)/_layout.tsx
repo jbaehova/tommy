@@ -26,7 +26,6 @@ import {
 } from "@/features/workspace/context/mobile-workspace-context";
 import { AdaptiveSplit, useSplitLayout } from "@/shared/components/adaptive-split";
 import { useReducedMotion } from "@/shared/lib/motion";
-import { isAndroid } from "@/shared/lib/platform";
 import { useText } from "@/shared/lib/text";
 import { Dock } from "@/shared/ui/dock";
 import { appHeaderOptions } from "@/shared/ui/top-bar";
@@ -38,17 +37,15 @@ const NOTIFICATION_CHANNEL_WAIT_MS = 8_000;
  * Android: autoFocus focuses the name field of a form sheet while the sheet opens, and Android does
  * not show the keyboard then. Focusing the field again after the opening shows it.
  */
-const refocusNameField = isAndroid
-  ? {
-      transitionEnd: (event: { data: { closing: boolean } }) => {
-        if (event.data.closing) return;
-        const input = TextInput.State.currentlyFocusedInput();
-        if (!input) return;
-        input.blur();
-        input.focus();
-      },
-    }
-  : undefined;
+const refocusNameField = {
+  transitionEnd: (event: { data: { closing: boolean } }) => {
+    if (event.data.closing) return;
+    const input = TextInput.State.currentlyFocusedInput();
+    if (!input) return;
+    input.blur();
+    input.focus();
+  },
+};
 
 export const unstable_settings = {
   anchor: "connected",
@@ -81,7 +78,7 @@ function AuthenticatedStack() {
   const { agentId: openAgentId } = useGlobalSearchParams<{ agentId?: string }>();
   const openChat = useRef<string | null>(null);
   openChat.current = segments.at(-2) === "chat" && typeof openAgentId === "string" ? openAgentId : null;
-  /** Opens a chat, or the chat list for `null`, from a Live Activity or a notification. */
+  /** Opens a chat, or the chat list for `null`, from a notification. */
   const openFromOutside = useCallback(
     (agentId: string | null) =>
       // A locked app opens the chat after the user unlocks it.
@@ -430,7 +427,7 @@ function AuthenticatedStack() {
 }
 
 /**
- * On a wide window, such as iPad or the open iPhone Duo, the chat list stays in a pane beside the stack,
+ * On a wide window, such as an open foldable, the chat list stays in a pane beside the stack,
  * and the chats open beside it. The first-run flow keeps the whole window.
  */
 function AuthenticatedSplit({ children }: PropsWithChildren) {

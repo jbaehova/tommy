@@ -32,7 +32,7 @@ import { type AgentNotificationLevelStore, OWNER_NOTIFICATION_KEY } from "./agen
 import { BrowserViewGateway } from "./browser-view-gateway";
 import type { DirectDevice, DirectDeviceStore } from "./direct-device-store";
 import { DirectHostGateway } from "./direct-host-gateway";
-import type { PushNotificationStore, PushPlatform } from "./push-notification-store";
+import type { PushNotificationStore } from "./push-notification-store";
 import {
   type NotificationRelayRequest,
   PushNotificationSendFailure,
@@ -103,9 +103,7 @@ interface HostServiceOptions {
     /** The address that devices use, such as `https://tommy.example.com`. */
     publicUrl: string | null;
   };
-  /** The phones that `sendPushNotification` reaches: Android with a Firebase key, iPhone with an APNs key. */
-  pushNotificationPlatforms?: ReadonlySet<PushPlatform>;
-  /** Sends one sealed notification to Google or Apple. `gone` means the phone gets no more. */
+  /** Sends one sealed notification to Firebase. `gone` means the phone gets no more. */
   sendPushNotification?: (
     hostId: string,
     request: NotificationRelayRequest,
@@ -153,13 +151,11 @@ export class HostService extends EventEmitter<HostEvents> {
     });
     const sendPushNotification = options.sendPushNotification;
     const pushNotificationStore = options.pushNotificationStore;
-    const pushNotificationPlatforms = options.pushNotificationPlatforms ?? new Set();
     this.#pushNotifications =
-      sendPushNotification && pushNotificationStore && pushNotificationPlatforms.size > 0
+      sendPushNotification && pushNotificationStore
         ? new PushNotificationService({
             agents: options.agents,
             store: pushNotificationStore,
-            platforms: pushNotificationPlatforms,
             send: (request) => {
               const hostId = options.store.getIdentity()?.serverId;
               if (!hostId)

@@ -42,7 +42,7 @@ export function useConversationReads({
   agents: RefObject<MobileAgent[]>;
 }) {
   const readWrites = useRef(new Map<string, Promise<void>>());
-  /** Applies host read state. The Live Activity also shows the message counts. */
+  /** Applies host read state. */
   const applyConversationReads = useCallback(
     (reads: Record<string, { unreadCount: number }>) => {
       liveState.update("unreadAgentIds", (current) => mergeRemoteUnreadIds(current, reads));

@@ -5,7 +5,7 @@ import { type ServerNotificationSetting, serverNotificationSetting } from "./pus
 /**
  * The levels that the user chose on each server for all of their devices, as the host keeps them
  * (`agent-notification-levels-v1`). This is the one copy on the phone: Settings, the agent screen,
- * the push registration and the Live Activity read it. A server that is not in the map did not
+ * the push registration reads it. A server that is not in the map did not
  * answer yet, or does not serve the capability.
  */
 export const useSyncedNotificationLevels = create<{

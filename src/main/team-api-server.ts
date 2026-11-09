@@ -64,7 +64,6 @@ import {
   HOST_TIMEZONE_CAPABILITY,
   HOST_UPDATE_CAPABILITY,
   INSTANCE_TRANSFER_CAPABILITY,
-  IOS_PUSH_NOTIFICATIONS_CAPABILITY,
   isTeamCurrentCapability,
   legacyTeamCapabilities,
   MCP_ACCOUNTS_CAPABILITY,
@@ -1828,9 +1827,7 @@ export class TeamApiServer {
           if (capability === ROUTINE_FLOWS_CAPABILITY) return this.#options.routineFlows !== undefined;
           if (capability === WORKFLOWS_CAPABILITY) return this.#options.workflows !== undefined;
           if (capability === ANDROID_PUSH_NOTIFICATIONS_CAPABILITY)
-            return this.#options.pushNotifications?.sends("android") === true;
-          if (capability === IOS_PUSH_NOTIFICATIONS_CAPABILITY)
-            return this.#options.pushNotifications?.sends("ios") === true;
+            return this.#options.pushNotifications !== undefined;
           if (capability === FOCUS_USE_CAPABILITY) return this.#options.focusUse === true;
           if (capability === DESKTOP_FOCUS_CAPABILITY) return this.#options.pushNotifications !== undefined;
           if (capability === AGENT_NOTIFICATION_LEVELS_CAPABILITY)

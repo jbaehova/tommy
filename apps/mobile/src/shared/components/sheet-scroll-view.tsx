@@ -53,8 +53,8 @@ export function SheetScrollView({
   const headerShown = useContext(HeaderShownContext);
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
-  // A sheet as wide as the window (a phone in landscape, the iPhone Duo rail) keeps its content clear
-  // of the side insets. A sheet that is a card in the middle (iPad) is clear of them already.
+  // A sheet as wide as the window (a phone in landscape) keeps its content clear
+  // of the side insets.
   const [sheetWidth, setSheetWidth] = useState<number | null>(null);
   const sideInsets = sheetWidth === null || sheetWidth >= windowWidth - 1;
   // Android: the transparent header lies over the content, so the content starts below it. Expo Router

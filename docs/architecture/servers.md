@@ -337,7 +337,7 @@ event, and in the `pendingPrompts` of the `runtime-snapshot` event. The host add
 single choice, and its one answer is valid for the question. A host without the capability never
 sends the flag, so a client keeps it whenever it is present, and a value that is not a boolean fails
 closed. The WebRTC host peer encodes the local response and the events again with the same option.
-The iPhone app advertises it through the shared team client, but it still shows the question as a
+The mobile app advertises it through the shared team client, but it still shows the question as a
 single choice.
 
 ### Reasoning efforts
@@ -368,7 +368,7 @@ capability never sends the fields, so a client keeps them whenever they are pres
 the runtime snapshot decoder refuses fails closed. A new socket gets a new snapshot, so the meter
 comes back after a reconnect. The WebRTC host peer encodes the events again with the same option.
 Compacting the context of a joined server's agent stays local only: the Team API has no route for it.
-The iPhone app advertises the capability through the shared team client, but it shows no meter.
+The mobile app advertises the capability through the shared team client, but it shows no meter.
 
 ### Queue window
 
@@ -534,7 +534,7 @@ host advertises a capability only when its `TeamApiAdmin` member exists.
 | `webhook-tests-v1` | Send one signed test event to a webhook routine | `events` |
 | `vault-v1` | The host's Vault: list, add, change and delete logins, cards and contact info; show one saved password, card number or security code; reset a Vault that the host cannot read. No CSV import. A change sends `vault-changed` with no data, so a client reads the list again | `vault` |
 | `vault-v2` | All of `vault-v1`, under `/v1/admin/vault/v2/`, and API keys as a fourth item kind: list each key's variable name and notes, add, change and delete keys, and show one saved key. The host leaves API keys out of every `vault-v1` answer, and `vault-v1` cannot delete or show one, so an older client keeps a valid list. It uses the `vault-changed` event of `vault-v1` | `vault` |
-| `vault-import-v1` | A CSV password export that an owner or admin sends as text, at most 256 KiB, below the JSON body limit. The host adds its logins as from its own file dialog and answers only the counts. The iPhone app uses it; the phone never calls the `vault-v1` reveal or reset | none: only the mobile app sends it |
+| `vault-import-v1` | A CSV password export that an owner or admin sends as text, at most 256 KiB, below the JSON body limit. The host adds its logins as from its own file dialog and answers only the counts. The mobile app uses it; the phone never calls the `vault-v1` reveal or reset | none: only the mobile app sends it |
 
 These IPC groups take a required server id and route with `scopedHandler`. A key travels only towards
 the host; no response carries one, except the `vault-v1` and `vault-v2` reveal: it answers the one secret that the
@@ -706,7 +706,7 @@ agent has one of four levels for a member:
 
 | Level | The member can |
 | --- | --- |
-| `none` | Not see the agent. The host treats it as hidden for that member: its list, events, push and Live Activity leave it out, and its routes answer 404. |
+| `none` | Not see the agent. The host treats it as hidden for that member: its list, events and push leave it out, and its routes answer 404. |
 | `view` | Read the agent's conversations and files. Each write answers 403 `error.team.agentViewOnly`. |
 | `chat` | Also send, react, interrupt, edit the queue, ask a side question, reset the context, use tasks, and answer the agent's prompts, approvals and browser requests. |
 | `manage` | Also change the agent's settings, routines, memories, skills and publication (403 `error.team.agentManageDenied` below it). Delete stays admin only. |
@@ -797,9 +797,9 @@ reconciliation. The server context menu controls mute for local and remote serve
 
 `renderer-forwarders.ts` continues to deliver live events for muted servers, but suppresses
 system notifications. Remote notification content uses the source server's agent list. Both
-server mute and per-agent notification settings apply. Unread state is unchanged. The iPhone app
+server mute and per-agent notification settings apply. Unread state is unchanged. The mobile app
 has its own level and mute for each server, which the host applies to the notifications it sends to
-that phone (see [iPhone notifications](channels-and-messaging.md#iphone-notifications)). Mute
+that phone (see [Phone notifications](channels-and-messaging.md#phone-notifications)). Mute
 settings are not synchronized between devices.
 
 ## Billing
