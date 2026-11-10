@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, posix, resolve } from "node:path";
 import type { AgentSummary } from "@tommy/contracts/ipc";
 import { sourceText } from "@tommy/i18n/source";
 import { Deferred, Effect } from "effect";
@@ -217,7 +217,7 @@ try {
   checked("An unrelated damaged publication receipt cannot block a new revision restore.");
 
   // Synthetic identities must differ from the allowed placeholders to exercise their refusal.
-  const syntheticHome = join("/Users", "example-person", "project", "file");
+  const syntheticHome = posix.join("/Users", "example-person", "project", "file");
   for (const { instructions, message } of [
     { instructions: "Use EXAMPLE_PRIVATE_TOKEN_123.", message: sourceText("error.skill.learningSecret") },
     { instructions: "Contact private@example.org.", message: sourceText("error.skill.learningPersonal") },
