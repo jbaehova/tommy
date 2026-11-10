@@ -678,7 +678,8 @@ const Conversation = createSimpleContext({
           ...(merge === "replace" ? {} : conversation.missingReferences),
           ...missingReplyOriginals(page),
         };
-        conversation.page = page.pageInfo;
+        // A page joined at the end keeps the older cursor of the window it joined.
+        if (merge !== "latest") conversation.page = page.pageInfo;
         if (windowMode) conversation.windowMode = windowMode;
         conversation.revision = page.revision;
         conversation.loaded = true;
@@ -781,7 +782,29 @@ const Conversation = createSimpleContext({
         throw new Error(currentText().t("chat.messageUnavailable"));
       }
       applyConversationPage(page, "replace", "around");
+      void joinLatestAgentMessages(agentId, request).catch(() => undefined);
       return page;
+    }
+
+    /**
+     * A window around a recent message often reaches the newest one. The chat then joins the latest
+     * page and reads as the latest window: it takes new messages, and the jump to the latest message
+     * hides at the bottom. Before, the window stayed "around", so the jump showed at the bottom too.
+     */
+    async function joinLatestAgentMessages(agentId: string, request: number): Promise<void> {
+      const lastId = conversations[agentId]?.messages.at(-1)?.id;
+      if (!lastId) return;
+      const page = await conversationPort().agent.readConversationPage({
+        agentId,
+        anchor: { type: "latest" },
+        limit: 50,
+      });
+      if (!scopeIsCurrent() || conversationPageRequests.get(agentId) !== request) return;
+      const conversation = conversations[agentId];
+      if (conversation?.windowMode !== "around" || conversation.messages.at(-1)?.id !== lastId) return;
+      // A page that does not hold the last loaded message leaves a gap, so the window stays.
+      if (!page.messages.some((message) => message.id === lastId)) return;
+      applyConversationPage(page, "latest", "latest");
     }
 
     function markReplyCompleted(agentId: string) {
