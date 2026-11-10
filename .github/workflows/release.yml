@@ -185,6 +185,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: release
@@ -193,6 +194,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          release_notes="$RUNNER_TEMP/release-notes.md"
+          awk -v heading="## [${{ needs.version.outputs.version }}]" '
+            $0 == heading { active = 1; found = 1; next }
+            active && /^## / { exit }
+            active { print }
+            END { if (!found) exit 1 }
+          ' CHANGELOG.md > "$release_notes"
+          [[ -s "$release_notes" ]] || { echo "Release notes are missing." >&2; exit 1; }
           gh release create "$GITHUB_REF_NAME" release/* \
             --repo "$GITHUB_REPOSITORY" --title "Tommy ${{ needs.version.outputs.version }}" \
-            --generate-notes --verify-tag
+            --notes-file "$release_notes" --verify-tag
