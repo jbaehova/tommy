@@ -39,6 +39,7 @@ import {
 } from "@/features/chat/model/chat-messages";
 import { finishedTurnSummaries, type TurnStepsSummary } from "@/features/chat/model/turn-thinking";
 import { replyVoiceReady } from "@/features/voice/model/reply-voice";
+import { useSupertonicModel } from "@/features/voice/model/supertonic-model";
 import { ConnectionStatus } from "@/features/workspace/components/connection-status";
 import { useTurnStepLines } from "@/features/workspace/components/use-agent-activity";
 import { useBrowserRequests } from "@/features/workspace/components/use-live-workspace";
@@ -562,6 +563,7 @@ export function ChatView({
   const liquidGlassAvailable = isLiquidGlassAvailable() && !reducedTransparency;
   // A quiet return to the app counts as online: the chat keeps its look, and its requests wait.
   const serverOnline = showsOnline(server);
+  const replyVoiceDownloaded = useSupertonicModel((state) => state.phase === "ready");
   // Speech goes to the voice mode's own transcript, and only Send makes it a
   // message. Leaving the chat or losing the server stops listening and keeps it.
   const voice = useVoiceMode({
@@ -595,14 +597,16 @@ export function ChatView({
   const showBrowserRequests = serverOnline && foregroundVisit && isFocused && !readOnly;
   // The mic of the composer: a live conversation in an agent chat, as on desktop. A channel has no
   // one conversation to follow, so its mic dictates a message for review.
-  // With no voice ready, the mic opens Settings > Voice, where the user downloads Supertonic 3.
-  const composerVoice: ComposerVoice =
-    live.available || live.open
-      ? {
-          ...liveVoice(live, voiceAgent?.name ?? target.name, t),
-          start: () => (replyVoiceReady() ? live.start() : router.push("/settings/voice")),
-        }
-      : dictationVoice(voice, t);
+  // With no reply voice downloaded, an agent chat dictates too. Before, the mic then always opened
+  // Settings > Voice, so dictation never started. Only a phone with no recognizer goes there now, to
+  // download Supertonic 3.
+  const liveMic = live.open || (live.available && (replyVoiceDownloaded || !voice.available));
+  const composerVoice: ComposerVoice = liveMic
+    ? {
+        ...liveVoice(live, voiceAgent?.name ?? target.name, t),
+        start: () => (replyVoiceReady() ? live.start() : router.push("/settings/voice")),
+      }
+    : dictationVoice(voice, t);
   const voiceOpen = voice.stage !== "closed" || live.open;
   // Dictation covers the chat with its overlay. A live conversation keeps the chat in view and turns
   // the composer into a call bar.
