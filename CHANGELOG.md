@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.60.1]
+
+### Upgrade notes
+
+- **Android: install this release's APK to use GPT live voice.** The new native WebRTC module
+  needs an updated app. A JavaScript-only update cannot add it. Mobile builds target Android.
+- **Claude: enable Fast again only after you confirm its cost.** When upgrading from 0.59.0 or
+  earlier, Tommy turns off an inherited Fast flag once. Agents and conversations stay in place.
+- **Linux key-file fallback: keep `secret-storage.key` with the Tommy data directory.** This
+  optional mode writes secrets that older builds cannot read. Losing the key makes those secrets
+  unreadable. Keep the default keyring mode unless the installation needs the fallback.
+- **For webhook and connector features, configure the host first.** Set the optional values in
+  `docs/INSTALL.md` and `.env.example`. Empty values leave these features off.
+
+### Changes
+
+- Fix the Android release build by using the installed package's canonical deletion icon path.
+  The icon and its behavior stay the same.
+- Include all workspace, agent and mobile improvements from 0.60.0.
+
 ## [0.60.0]
 
 ### Upgrade notes
