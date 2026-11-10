@@ -21,6 +21,7 @@ import {
   reasoningText,
   type ThreadItem,
 } from "../protocol";
+import { isImageTooSmallDiagnostic } from "./provider-diagnostics";
 import { BUILTIN_TOOL_CATALOG } from "./tool-catalog";
 
 export function isNonActionableCodexWarning(message: string): boolean {
@@ -110,6 +111,8 @@ function isMissingClaudeSession(provider: AgentProvider, message: string): boole
 export function refusedSessionFailure(provider: AgentProvider, message: string): string | null {
   if (isForeignReasoningError(message))
     return sourceText("error.provider.foreignReasoning", { provider: providerLabel(provider) });
+  if (isImageTooSmallDiagnostic(message))
+    return sourceText("error.provider.imageTooSmall", { provider: providerLabel(provider) });
   if (isMissingClaudeSession(provider, message)) return sourceText("error.provider.claudeSessionMissing");
   return null;
 }

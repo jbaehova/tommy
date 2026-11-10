@@ -17,6 +17,7 @@ import {
 import { haptics } from "@/shared/lib/haptics";
 import { currentText, useText } from "@/shared/lib/text";
 import { DictationLanguageSection } from "../components/dictation-language-section";
+import { RealtimeVoiceSettings } from "../components/realtime-voice-settings";
 import { useVoicePreview } from "../components/use-voice-preview";
 import type { ModelDownload, ModelState } from "../model/model-download";
 import { parakeetModel, parakeetSupported, useParakeetModel } from "../model/parakeet-model";
@@ -264,6 +265,7 @@ export function VoiceSettingsScreen() {
   if (!speechNative)
     return (
       <SettingsContent>
+        <RealtimeVoiceSettings onError={showError} />
         <SettingsNote>{t("mobile.settings.voice.unavailable")}</SettingsNote>
       </SettingsContent>
     );
@@ -272,12 +274,14 @@ export function VoiceSettingsScreen() {
   if (!canRecognize)
     return (
       <SettingsContent>
+        <RealtimeVoiceSettings onError={showError} />
         {speaking}
         <DictationLanguageSection />
       </SettingsContent>
     );
   return (
     <SettingsContent>
+      <RealtimeVoiceSettings onError={showError} />
       <UsageSegments
         options={[
           { value: "listening", label: t("mobile.settings.voice.tab.listening") },

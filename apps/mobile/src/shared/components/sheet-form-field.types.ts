@@ -4,6 +4,8 @@ import type { TextInputProps } from "react-native";
 export interface SheetFormFieldProps {
   autoCapitalize?: TextInputProps["autoCapitalize"];
   autoCorrect?: boolean;
+  autoComplete?: TextInputProps["autoComplete"];
+  importantForAutofill?: TextInputProps["importantForAutofill"];
   autoFocus?: boolean;
   editable?: boolean;
   hint?: string;

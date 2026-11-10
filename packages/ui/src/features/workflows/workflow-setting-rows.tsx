@@ -5,12 +5,14 @@
  */
 
 import type { JSX } from "@solidjs/web";
+import type { MessagingPlatform } from "@tommy/contracts/ipc";
 import { Bot, ChevronDown, DropdownMenu, Hash, Input } from "@tommy/ui";
 import { For, Show, untrack } from "solid-js";
 import { useText } from "../../text";
+import { DiscordMark, SlackMark, TelegramMark } from "../settings/brand-marks";
 import { type PickerGroup, PickerHeading, PickerMenu, PickerRow } from "./WorkflowPicker";
 import { useBoard, type WfnFieldValue } from "./workflow-board";
-import { type Choice, placeKey, useField, usePlace } from "./workflow-node-parts";
+import { asString, type Choice, placeKey, useField, usePlace } from "./workflow-node-parts";
 
 /** The settings of a card, on the field colour. */
 export function SettingRows(props: { head: JSX.Element; children?: JSX.Element }) {
@@ -141,8 +143,13 @@ export function SettingListRow(props: {
             <span class="wfn-row-value">
               <For each={props.values}>
                 {(value) => (
-                  <span class="wfn-tag" data-tone={props.tone?.(value) ? "" : undefined} style={toneStyle(value)}>
-                    {tag(value)}
+                  <span
+                    class="wfn-tag"
+                    data-tone={props.tone?.(value) ? "" : undefined}
+                    style={toneStyle(value)}
+                    title={tag(value)}
+                  >
+                    <span class="wfn-tag-text">{tag(value)}</span>
                   </span>
                 )}
               </For>
@@ -273,6 +280,81 @@ export function PlaceRow(props: {
       name={t("workflow.node.place.channel")}
       value={placeKey(place.connectionId(), place.placeId())}
       choices={choices()}
+      placeholder={t("workflow.node.place.choose")}
+      disabled={props.disabled}
+      onChange={choose}
+    />
+  );
+}
+
+const PLATFORM_MARKS: Record<MessagingPlatform, (props: { class?: string }) => JSX.Element> = {
+  slack: SlackMark,
+  discord: DiscordMark,
+  telegram: TelegramMark,
+};
+
+/** The key of a Tommy channel in the channel list. A place key has two parts, so the two never match. */
+const channelKey = (channelId: string) => JSON.stringify([channelId]);
+
+/**
+ * The channel of an output: the Tommy channels first, then the places of each messaging connection under
+ * its name. A Tommy channel stores the `chat-channel` target, a place the `channel` target.
+ */
+export function OutputChannelRow(props: {
+  id: string;
+  /** The output posts into a Tommy channel. */
+  tommy: boolean;
+  connectionId?: string | undefined;
+  placeId?: string | undefined;
+  disabled: boolean;
+}) {
+  const board = useBoard();
+  const { t } = useText();
+  const place = usePlace(
+    () => props.id,
+    untrack(() => ({ connectionId: props.connectionId, placeId: props.placeId })),
+  );
+  const [channelId] = useField<string>(() => props.id, "channelId", "", asString);
+  const channels = (): Choice<string>[] =>
+    (board.catalogs().channels ?? []).map((channel) => ({
+      value: channelKey(channel.id),
+      label: channel.name,
+      icon: () => <Hash aria-hidden="true" />,
+    }));
+  const connections = () => {
+    const groups = new Map<string, { label: string; choices: Choice<string>[] }>();
+    for (const entry of board.catalogs().places) {
+      const Mark = entry.platform ? PLATFORM_MARKS[entry.platform] : Hash;
+      const group = groups.get(entry.connectionId) ?? { label: entry.connection ?? entry.label, choices: [] };
+      group.choices.push({
+        value: placeKey(entry.connectionId, entry.placeId),
+        label: entry.name ?? entry.label,
+        icon: () => <Mark class="wfn-github-mark" />,
+      });
+      groups.set(entry.connectionId, group);
+    }
+    return [...groups.values()];
+  };
+  const groups = () => [
+    ...(channels().length > 0 ? [{ label: t("workflow.output.channel.tommy"), choices: channels() }] : []),
+    ...connections(),
+  ];
+  const choose = (key: string) => {
+    const channel = board.catalogs().channels?.find((candidate) => channelKey(candidate.id) === key);
+    if (channel) return board.setFields(props.id, { target: "chat-channel", channelId: channel.id });
+    const entry = board
+      .catalogs()
+      .places.find((candidate) => placeKey(candidate.connectionId, candidate.placeId) === key);
+    if (entry)
+      board.setFields(props.id, { target: "channel", connectionId: entry.connectionId, placeId: entry.placeId });
+  };
+  return (
+    <SettingRow
+      name={t("workflow.node.place.channel")}
+      value={props.tommy ? channelKey(channelId()) : placeKey(place.connectionId(), place.placeId())}
+      choices={groups().flatMap((group) => group.choices)}
+      groups={groups()}
+      search={t("workflow.output.channel.search")}
       placeholder={t("workflow.node.place.choose")}
       disabled={props.disabled}
       onChange={choose}

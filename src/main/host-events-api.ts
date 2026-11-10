@@ -12,6 +12,10 @@ import type {
   WebhookSecret,
   WebhookTestResult,
 } from "@tommy/contracts/ipc-events";
+import type {
+  SetRoutineSenderSecretInput,
+  SetWorkflowSenderSecretInput,
+} from "@tommy/contracts/ipc-webhook-sender-secret";
 import { matchingSourceKeys } from "@tommy/i18n/source";
 import { type Effect, Schema } from "effect";
 
@@ -37,6 +41,8 @@ export function hostEventsFailureMessage(failure: HostEventsFailure): string | n
 
 /** Webhook routines and their received deliveries. Every operation except the status is scoped to one routine owner. */
 export interface HostEventsApi {
+  setRoutineSenderSecret(input: SetRoutineSenderSecretInput): Effect.Effect<void, HostEventsFailure>;
+  setWorkflowSenderSecret(input: SetWorkflowSenderSecretInput): Effect.Effect<void, HostEventsFailure>;
   getStatus(): Effect.Effect<EventStatus, HostEventsFailure>;
   listRoutines(input: ListEventRoutinesInput): Effect.Effect<EventRoutine[], HostEventsFailure>;
   saveRoutine(input: SaveEventRoutineInput): Effect.Effect<SaveEventRoutineResult, HostEventsFailure>;

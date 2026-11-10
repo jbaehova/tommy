@@ -1,5 +1,5 @@
 import type { JSX } from "@solidjs/web";
-import { IconButton, Pencil, RotateCcw, TriangleAlert, X } from "@tommy/ui";
+import { ErrorReference, IconButton, Pencil, RotateCcw, TriangleAlert, X } from "@tommy/ui";
 import { useText } from "@tommy/ui/text";
 import { Show } from "solid-js";
 
@@ -7,6 +7,7 @@ export interface PendingSendStatusProps {
   state: "waiting" | "sending" | "failed";
   /** Why the send failed, when the host or the connection said. */
   error?: string | null;
+  errorReference?: string | null;
   /** The composer shows the update notice; keep recovery actions without a second error. */
   updateRequired?: boolean;
   /** The host drops a repeated send of this message, so Retry cannot store it twice. */
@@ -34,6 +35,7 @@ export function PendingSendStatus(props: PendingSendStatusProps): JSX.Element {
           <TriangleAlert aria-hidden="true" />
           {props.retrySafe ? t("chat.send.failed") : t("chat.send.unconfirmed")}
           <Show when={props.error}>{(error) => <span class="pending-send-error">{error()}</span>}</Show>
+          <ErrorReference reference={props.errorReference} />
         </Show>
       </span>
       <Show when={failed()}>

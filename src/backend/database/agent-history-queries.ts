@@ -1,4 +1,4 @@
-import { CONTEXT_RESET_ITEM_TYPE } from "@tommy/contracts/ipc";
+import { CONTEXT_RESET_ITEM_TYPE, type ConversationTurnTrace, isConversationTurnTrace } from "@tommy/contracts/ipc";
 import { ORDER_KEY_COLUMNS, ORDER_KEY_DESC, ORDERED_THREAD_MESSAGES } from "./conversation-queries";
 import type { DatabaseCore } from "./database-core";
 import {
@@ -21,6 +21,22 @@ export class AgentHistoryQueries {
   readonly #core: DatabaseCore;
   constructor(core: DatabaseCore) {
     this.#core = core;
+  }
+
+  turnTrace(threadId: string, turnId: string): ConversationTurnTrace | null {
+    const row = databaseRow(
+      this.#core.connection
+        .prepare(`
+      SELECT json_extract(message_json, '$.trace') AS trace
+      FROM projection_thread_messages WHERE thread_id = ? AND turn_id = ?
+      AND json_type(message_json, '$.trace') = 'object' LIMIT 1
+    `)
+        .get(threadId, turnId),
+    );
+    const stored = row ? optionalStringColumn(row, "trace") : null;
+    if (!stored) return null;
+    const trace = JSON.parse(stored);
+    return isConversationTurnTrace(trace) ? trace : null;
   }
 
   read(agentId: string, threadId: string, selection: AgentHistorySelection) {

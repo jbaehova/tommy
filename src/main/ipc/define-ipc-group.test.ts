@@ -1,8 +1,17 @@
 // @vitest-environment node
 
-import type { VoiceModelStatus, VoiceSettings, VoiceStream, VoiceTranscriptionResult } from "@tommy/contracts/ipc";
+import {
+  decodeVoiceLiveCancel,
+  decodeVoiceLiveStart,
+  decodeVoiceLiveStop,
+  type VoiceModelStatus,
+  type VoiceSettings,
+  type VoiceStream,
+  type VoiceTranscriptionResult,
+} from "@tommy/contracts/ipc";
 import type { IpcMainInvokeEvent } from "electron";
 import { describe, expect, it, vi } from "vitest";
+import { agentRequest } from "./agent-inputs";
 import { eventPayloadHandler, handler, payloadHandler, registerIpcGroup } from "./define-ipc-group";
 import { parseVoiceApiKey, parseVoiceStream, parseVoiceStreamAudio } from "./voice-inputs";
 
@@ -39,6 +48,9 @@ function registerVoice(
   withEvent = false,
 ): void {
   registerIpcGroup("voice", {
+    startLive: payloadHandler(agentRequest(decodeVoiceLiveStart), () => ({ sessionId: "voice-session", sdp: "v=0" })),
+    stopLive: payloadHandler(agentRequest(decodeVoiceLiveStop), () => undefined),
+    cancelLive: payloadHandler(agentRequest(decodeVoiceLiveCancel), () => undefined),
     getModelStatus: handler(() => READY),
     prepareModel: handler(() => READY),
     getSettings: handler(() => SETTINGS),

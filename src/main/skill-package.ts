@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { SKILL_DESCRIPTION_MAX_LENGTH, type SkillPackagePreview } from "@tommy/contracts/ipc";
@@ -9,6 +10,9 @@ import { parse as parseYaml } from "yaml";
 import { causeHelpers } from "../backend/effect-boundary";
 
 const MAX_BYTES = 10 * 1024 * 1024;
+
+export { MAX_BYTES as SKILL_MAX_BYTES };
+
 const MAX_FILES = 200;
 export const archiveDirectory = Effect.fn("SkillPackage.archiveDirectory")(function* (root: string) {
   const files: Record<string, Uint8Array> = {};
@@ -122,7 +126,10 @@ function slugify(name: string): string {
     .replace(/[^a-z0-9]+/gu, "-")
     .replace(/^-|-$/gu, "")
     .slice(0, 64);
-  if (!value) throw new Error(sourceText("error.skill.slugInvalid"));
+  if (!value) {
+    if (!/[\p{L}\p{N}]/u.test(name)) throw new Error(sourceText("error.skill.slugInvalid"));
+    return `skill-${createHash("sha256").update(name.toLowerCase().normalize("NFKC")).digest("hex").slice(0, 20)}`;
+  }
   return value;
 }
 

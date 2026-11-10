@@ -135,4 +135,10 @@ export const messages = defineMessages("sidebar", {
   "sidebar.machine.alertTo": "The alert goes to {name}",
   "sidebar.machine.details": "View details",
   "sidebar.machine.dismiss": "Hide until the next alert",
+  "sidebar.unread.title": "Unread",
+  "sidebar.unread.label": { one: "Unread, {count} chat", other: "Unread, {count} chats" },
+  "sidebar.order.manual": "Manual",
+  "sidebar.order.unreadGroup": "Unread in a group",
+  "sidebar.order.unreadFirst": "Unread first in folders",
+  "sidebar.order.title": "Sort chats",
 });

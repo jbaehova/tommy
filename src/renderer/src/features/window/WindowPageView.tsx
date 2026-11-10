@@ -1,6 +1,6 @@
 import { useText } from "@tommy/ui/text";
 import { Loading, Match, Show, Switch } from "solid-js";
-import { AgentUsagePanel, WorkflowsPage } from "../../lazy-views";
+import { AgentUsagePanel, LibraryPanel, WorkflowsPage } from "../../lazy-views";
 import { SchedulePanel } from "../schedule/SchedulePanel";
 import { useServers } from "../servers/servers-context";
 import { useUsage } from "../usage/usage-context";
@@ -45,6 +45,11 @@ export function WindowPageView() {
             </Loading>
           }
         >
+          <Match when={usage.state.view === "library"}>
+            <Loading>
+              <LibraryPanel serverId={serverId()} />
+            </Loading>
+          </Match>
           <Match when={usage.state.view === "schedule"}>
             <SchedulePanel serverId={serverId()} hostName={hostName(serverId())} onBack={usage.closeUsage} />
           </Match>

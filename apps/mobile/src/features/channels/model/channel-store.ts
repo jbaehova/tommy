@@ -322,9 +322,26 @@ export class MobileChannelStore {
       );
     });
   }
+  /** Apply only the host's exact deleted IDs. A late notification must keep new messages. */
+  deleteMessages(serverId: string, channelId: string, messageIds: ReadonlySet<string>): void {
+    const entry = this.entry(serverId);
+    entry.writes += 1;
+    const current = entry.state.pages.get(channelId);
+    if (current) {
+      const pages = new Map(entry.state.pages);
+      pages.set(channelId, {
+        ...current,
+        messages: current.messages.filter((entry) => !messageIds.has(entry.id) && !messageIds.has(entry.message.id)),
+      });
+      this.publish(entry, { pages });
+    }
+    entry.readChannels.add(channelId);
+    void this.refresh(serverId, channelId);
+  }
   async older(serverId: string, channelId: string) {
     const entry = this.entry(serverId);
     const current = entry.state.pages.get(channelId);
+    const writes = entry.writes;
     if (current?.olderCursor == null) return;
     const page = await this.request(
       "POST",
@@ -334,7 +351,7 @@ export class MobileChannelStore {
       serverId,
     );
     const latest = entry.state.pages.get(channelId);
-    if (!entry.valid || !latest || latest.olderCursor !== current.olderCursor) return;
+    if (!entry.valid || writes !== entry.writes || !latest || latest.olderCursor !== current.olderCursor) return;
     const messages = new Map(page.messages.map((message) => [message.id, message]));
     for (const message of latest.messages) messages.set(message.id, message);
     const pages = new Map(entry.state.pages);

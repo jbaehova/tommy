@@ -37,10 +37,12 @@ Keep the same Android keystore for every release: Android refuses an update that
 
 1. Run the [release-upgrade-safety](../.agents/skills/release-upgrade-safety/SKILL.md) audit on the
    change set since the last tag.
-2. Set the new version in `package.json` (`version`) and commit it to `main`.
-3. Optional: run the workflow by hand (Actions › Release › Run workflow) on `main`. It builds, signs
+2. Add `## [<version>]` to `CHANGELOG.md`. Put required upgrade actions in bold. CI publishes
+   that section as the release notes and stops if it is missing.
+3. Set the new version in `package.json` (`version`) and commit it to `main`.
+4. Optional: run the workflow by hand (Actions › Release › Run workflow) on `main`. It builds, signs
    and notarizes everything and keeps the files as workflow artifacts, without a release.
-4. Tag the commit and push the tag:
+5. Tag the commit and push the tag:
 
    ```bash
    git tag v<version>

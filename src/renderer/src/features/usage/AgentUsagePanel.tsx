@@ -32,6 +32,7 @@ import {
 import { useText } from "@tommy/ui/text";
 import { errorReference } from "@tommy/user-errors";
 import { createEffect, createStore, onSettled, Show } from "solid-js";
+import { UsageMachineResources } from "./UsageMachineResources";
 import { type UsagePort, usagePort } from "./usage-port";
 
 interface AgentUsagePanelProps {
@@ -254,6 +255,7 @@ export function AgentUsagePanel(props: AgentUsagePanelProps) {
         </div>
       </header>
       <div ref={reportBody} class="agent-usage-body">
+        <UsageMachineResources serverId={props.serverId} port={port()} />
         <Show when={state.phase === "loading"}>
           <div class="agent-usage-loading" role="status">
             <span>{t("usage.panel.loading")}</span>

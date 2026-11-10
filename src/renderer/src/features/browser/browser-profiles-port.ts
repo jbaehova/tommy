@@ -1,3 +1,4 @@
+import type { BrowserProfileProxyInput, BrowserProfileProxySummary } from "@tommy/contracts/browser-profile-proxy";
 import {
   type AgentBrowserProfile,
   type BrowserProfileList,
@@ -13,7 +14,13 @@ import {
  * The browser profiles of one server, and the profile of each of its agents. Desktop reaches them
  * through main for this computer and for a joined server; the web client asks the host directly.
  */
+export interface BrowserProfileProxyCalls {
+  get(profileId: string): Promise<BrowserProfileProxySummary>;
+  set(input: BrowserProfileProxyInput): Promise<BrowserProfileProxySummary>;
+}
+
 export interface BrowserProfileCalls {
+  proxy?: BrowserProfileProxyCalls | undefined;
   list(): Promise<BrowserProfileList>;
   create(name: string): Promise<BrowserProfileSummary>;
   update(input: UpdateBrowserProfileInput): Promise<BrowserProfileSummary>;
@@ -36,6 +43,10 @@ export function desktopBrowserProfileCalls(serverId?: string): BrowserProfileCal
   const eventServerId = serverId ?? LOCAL_SERVER_ID;
   return {
     list: () => agent().listBrowserProfiles(serverId),
+    proxy: {
+      get: (profileId) => agent().getBrowserProfileProxy(profileId, serverId),
+      set: (input) => agent().setBrowserProfileProxy(input, serverId),
+    },
     create: (name) => agent().createBrowserProfile(name, serverId),
     update: (input) => agent().updateBrowserProfile(input, serverId),
     clear: (input) => agent().clearBrowserData(input, serverId),

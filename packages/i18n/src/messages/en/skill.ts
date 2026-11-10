@@ -68,4 +68,11 @@ export const messages = defineMessages("skill", {
   "skill.preview.examplePrompt": "Help me use this skill.",
   "skill.preview.try": "Try skill",
   "skill.preview.linkFailed": "Could not open the link.",
+  "skill.local.revision": "Revision {revision}",
+  "skill.local.revisions": "Skill revisions",
+  "skill.local.restore": "Restore revision",
+  "skill.local.restoreTitle": "Restore this skill revision?",
+  "skill.local.restoreDescription":
+    "Copy revision {revision} into a new revision. All earlier revisions stay available.",
+  "skill.local.restoreFailed": "Could not restore the skill revision. Try again.",
 });

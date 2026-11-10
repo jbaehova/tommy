@@ -19,6 +19,13 @@ import { markdownPreviewText } from "@tommy/contracts/markdown-preview-text";
 import { isDynamicRecord, isString } from "@tommy/contracts/runtime-values";
 import { sourceText } from "@tommy/i18n/source";
 import { changesModelContent } from "./channel-history";
+import {
+  deletedChannelAssignment,
+  deletedChannelMessage,
+  deletedChannelTask,
+  isDeletedChannelMessage,
+  scrubChannelEvents,
+} from "./channel-message-deletion";
 import { deleteAggregateHistory, deleteThreadAttachments } from "./database/database-core";
 import {
   databaseRow,
@@ -69,6 +76,14 @@ export interface ChannelHistorySummary {
   version: number;
   throughSequence: number;
   text: string;
+}
+
+export interface ChannelHistoryDeletion {
+  deleted: boolean;
+  throughSequence: number;
+  /** Only the old deliveries captured by this delete, so a cleanup retry keeps later work. */
+  deliveries?: Array<{ agentId: string; deliveryId: string }>;
+  externalSessionIds?: string[];
 }
 
 interface ChannelChange {
@@ -146,11 +161,13 @@ export class ChannelStore {
           `SELECT c.channel_json AS channel_json,
             (SELECT m.message_json FROM projection_channel_messages AS m
               WHERE m.channel_id = c.channel_id
+                AND COALESCE(json_extract(m.message_json, '$.deleted'), 0) != 1
                 AND COALESCE(json_extract(m.message_json, '$.message.itemType'), '') != 'plan'
                 AND COALESCE(json_extract(m.message_json, '$.message.itemType'), '') != 'subagents'
               ORDER BY m.sequence DESC, m.message_id DESC LIMIT 1) AS latest_json,
             (SELECT COUNT(*) FROM projection_channel_messages AS m
               WHERE m.channel_id = c.channel_id
+                AND COALESCE(json_extract(m.message_json, '$.deleted'), 0) != 1
                 AND m.sequence > COALESCE(
                   (SELECT r.through_sequence FROM projection_channel_reads AS r
                     WHERE r.channel_id = c.channel_id AND r.member_id = ?), 0)
@@ -235,7 +252,7 @@ export class ChannelStore {
     const rows = databaseRows(
       this.database.connection
         .prepare(
-          "SELECT message_json FROM projection_channel_messages WHERE channel_id = ? AND sequence < ? ORDER BY sequence DESC, message_id DESC LIMIT ?",
+          "SELECT message_json FROM projection_channel_messages WHERE channel_id = ? AND sequence < ? AND COALESCE(json_extract(message_json, '$.deleted'), 0) != 1 ORDER BY sequence DESC, message_id DESC LIMIT ?",
         )
         .all(channelId, before, limit ?? -1),
     );
@@ -250,7 +267,9 @@ export class ChannelStore {
   message(channelId: string, messageId: string): ChannelMessage | null {
     const row = databaseRow(
       this.database.connection
-        .prepare("SELECT message_json FROM projection_channel_messages WHERE channel_id = ? AND message_id = ?")
+        .prepare(
+          "SELECT message_json FROM projection_channel_messages WHERE channel_id = ? AND message_id = ? AND COALESCE(json_extract(message_json, '$.deleted'), 0) != 1",
+        )
         .get(channelId, messageId),
     );
     if (!row) return null;
@@ -381,9 +400,19 @@ export class ChannelStore {
       tasks: this.tasks(channelId),
       messages,
       olderCursor,
-      throughSequence: this.messages(channelId, undefined, 1)[0]?.sequence ?? 0,
+      throughSequence: this.lastSequence(channelId),
       ...(olderCursor === null ? {} : this.olderExtent(channelId, olderCursor)),
     };
+  }
+
+  /** Hidden tombstones still occupy sequence positions, so accepted read cursors stay valid. */
+  lastSequence(channelId: string): number {
+    const row = databaseRow(
+      this.database.connection
+        .prepare("SELECT COALESCE(MAX(sequence), 0) AS sequence FROM projection_channel_messages WHERE channel_id = ?")
+        .get(channelId),
+    );
+    return row ? requiredNumberColumn(row, "sequence") : 0;
   }
 
   /**
@@ -396,8 +425,8 @@ export class ChannelStore {
         .prepare(
           `SELECT COUNT(*) AS older_count,
              (SELECT json_extract(message_json, '$.message.createdAt') FROM projection_channel_messages
-              WHERE channel_id = ? ORDER BY sequence LIMIT 1) AS oldest_at
-           FROM projection_channel_messages WHERE channel_id = ? AND sequence < ?`,
+              WHERE channel_id = ? AND COALESCE(json_extract(message_json, '$.deleted'), 0) != 1 ORDER BY sequence LIMIT 1) AS oldest_at
+           FROM projection_channel_messages WHERE channel_id = ? AND sequence < ? AND COALESCE(json_extract(message_json, '$.deleted'), 0) != 1`,
         )
         .get(channelId, channelId, before),
     );
@@ -411,7 +440,11 @@ export class ChannelStore {
     if (previous !== undefined) return decodeChannel(previous);
     if (!change.tasks.every(isChannelTask)) throw new Error("Invalid channel task.");
     const channel = { ...change.channel, revision: change.channel.revision + 1 };
-    const payload = { ...change, channel };
+    const payload = {
+      ...change,
+      channel,
+      messages: change.messages.filter((message) => !this.messageDeleted(channel.id, message.id)),
+    };
     return this.database.dispatch(
       commandId,
       [{ aggregateType: "channel", aggregateId: channel.id, eventType: "channel.changed", payload }],
@@ -422,6 +455,116 @@ export class ChannelStore {
     );
   }
 
+  messageDeleted(channelId: string, messageId: string): boolean {
+    const row = databaseRow(
+      this.database.connection
+        .prepare(
+          "SELECT json_extract(message_json, '$.deleted') AS deleted FROM projection_channel_messages WHERE channel_id = ? AND message_id = ?",
+        )
+        .get(channelId, messageId),
+    );
+    return row?.deleted === 1;
+  }
+
+  /** Tombstones keep sequence positions and block a late capture, result or old event. */
+  deleteMessage(channel: Channel, entry: ChannelMessage, requestId: string): Channel {
+    const updated = { ...channel, revision: channel.revision + 1 };
+    const change: ChannelChange = {
+      channel: updated,
+      messages: [deletedChannelMessage(entry)],
+      tasks: [],
+      assignments: [],
+    };
+    return this.database.dispatch(
+      `channels:message-delete:${channel.id}:${entry.id}:${requestId}`,
+      [{ aggregateType: "channel", aggregateId: channel.id, eventType: "channel.changed", payload: change }],
+      (db) => {
+        this.project(db, change);
+        scrubChannelEvents(db, channel.id, entry.id);
+        return updated;
+      },
+    );
+  }
+
+  /** Removes history and stopped request text atomically. Setup and record identities stay. */
+  deleteHistory(channel: Channel, requestId: string): ChannelHistoryDeletion {
+    const maximum = databaseRow(
+      this.database.connection
+        .prepare("SELECT COALESCE(MAX(sequence), 0) AS sequence FROM projection_channel_messages WHERE channel_id = ?")
+        .get(channel.id),
+    );
+    const throughSequence = maximum ? requiredNumberColumn(maximum, "sequence") : 0;
+    const updated = { ...channel, revision: channel.revision + 1 };
+    const assignments = this.assignments(channel.id);
+    const change: ChannelChange = {
+      channel: updated,
+      messages: [],
+      tasks: this.tasks(channel.id).map((task) => ({ ...deletedChannelTask(task), revision: task.revision + 1 })),
+      assignments: assignments.map(deletedChannelAssignment),
+    };
+    const deliveries = assignments.flatMap((assignment) =>
+      assignment.deliveryId ? [{ agentId: assignment.agentId, deliveryId: assignment.deliveryId }] : [],
+    );
+    const summary = { version: this.summary(channel.id).version + 1, throughSequence, text: "" };
+    return this.database.dispatch(
+      `channels:history-delete:${channel.id}:${requestId}`,
+      [
+        { aggregateType: "channel", aggregateId: channel.id, eventType: "channel.changed", payload: change },
+        { aggregateType: "channel", aggregateId: channel.id, eventType: "channel.summarized", payload: summary },
+      ],
+      (db) => {
+        this.project(db, change);
+        const page = db.prepare(
+          "SELECT sequence, message_json FROM projection_channel_messages WHERE channel_id = ? AND sequence > ? AND sequence <= ? ORDER BY sequence LIMIT 128",
+        );
+        const write = db.prepare(
+          "UPDATE projection_channel_messages SET message_json = ? WHERE channel_id = ? AND sequence = ?",
+        );
+        let after = 0;
+        let deleted = false;
+        for (;;) {
+          const rows = databaseRows(page.all(channel.id, after, throughSequence));
+          if (rows.length === 0) break;
+          for (const row of rows) {
+            after = requiredNumberColumn(row, "sequence");
+            const entry = JSON.parse(requiredStringColumn(row, "message_json"));
+            if (!isChannelMessage(entry) || isDeletedChannelMessage(entry)) continue;
+            write.run(JSON.stringify(deletedChannelMessage(entry)), channel.id, after);
+            deleted = true;
+          }
+        }
+        scrubChannelEvents(db, channel.id, null);
+        db.prepare(
+          "INSERT INTO projection_channel_summaries VALUES (?, ?, ?, ?) ON CONFLICT(channel_id) DO UPDATE SET version = excluded.version, through_sequence = excluded.through_sequence, text = excluded.text",
+        ).run(channel.id, summary.version, throughSequence, "");
+        const externalSessionIds = new Set<string>();
+        for (const context of this.contexts(channel.id)) {
+          const contextRequestId = `channel:${channel.id}:${requestId}`;
+          this.database.deleteThreadHistory({
+            agentId: context.agentId,
+            threadId: context.threadId,
+            requestId: contextRequestId,
+          });
+          const history = this.database.threadHistoryDeletionReceipt(context.threadId, contextRequestId);
+          if (!history) throw new Error("Missing channel thread history deletion receipt.");
+          for (const sessionId of history.externalSessionIds) externalSessionIds.add(sessionId);
+        }
+        this.#completedMessageChanges.set(channel.id, this.completedMessageChanges(channel.id) + 1);
+        return { deleted, throughSequence, deliveries, externalSessionIds: [...externalSessionIds] };
+      },
+    );
+  }
+
+  deletedMessageIdsThrough(channelId: string, throughSequence: number): string[] {
+    return databaseRows(
+      this.database.connection
+        .prepare(
+          "SELECT message_id FROM projection_channel_messages WHERE channel_id = ? AND sequence <= ? AND json_extract(message_json, '$.deleted') = 1",
+        )
+        .all(channelId, throughSequence),
+    ).map((row) => requiredStringColumn(row, "message_id"));
+  }
+
   private project(db: DatabaseSync, change: ChannelChange): void {
     db.prepare(
       "INSERT INTO projection_channels VALUES (?, ?) ON CONFLICT(channel_id) DO UPDATE SET channel_json = excluded.channel_json",
@@ -430,10 +573,11 @@ export class ChannelStore {
       const existing = databaseRow(
         db
           .prepare(
-            "SELECT sequence, message_json, json_extract(message_json, '$.message.status') AS status FROM projection_channel_messages WHERE channel_id = ? AND message_id = ?",
+            "SELECT sequence, message_json, json_extract(message_json, '$.message.status') AS status, json_extract(message_json, '$.deleted') AS deleted FROM projection_channel_messages WHERE channel_id = ? AND message_id = ?",
           )
           .get(change.channel.id, message.id),
       );
+      if (existing?.deleted === 1 && !isDeletedChannelMessage(message)) continue;
       const last = databaseRow(
         db
           .prepare(
@@ -529,10 +673,14 @@ export class ChannelStore {
     );
   }
 
-  executionThreads(): Array<{ id: string; threadId: string }> {
+  executionThreads(): Array<{ id: string; threadId: string; channelId: string }> {
     return databaseRows(
-      this.database.connection.prepare("SELECT agent_id, thread_id FROM projection_channel_contexts").all(),
-    ).map((row) => ({ id: requiredStringColumn(row, "agent_id"), threadId: requiredStringColumn(row, "thread_id") }));
+      this.database.connection.prepare("SELECT channel_id, agent_id, thread_id FROM projection_channel_contexts").all(),
+    ).map((row) => ({
+      id: requiredStringColumn(row, "agent_id"),
+      threadId: requiredStringColumn(row, "thread_id"),
+      channelId: requiredStringColumn(row, "channel_id"),
+    }));
   }
 
   contextThreads(channelId: string): string[] {
@@ -541,6 +689,17 @@ export class ChannelStore {
         .prepare("SELECT thread_id FROM projection_channel_contexts WHERE channel_id = ? ORDER BY agent_id")
         .all(channelId),
     ).map((row) => requiredStringColumn(row, "thread_id"));
+  }
+
+  contexts(channelId: string): Array<{ agentId: string; threadId: string }> {
+    return databaseRows(
+      this.database.connection
+        .prepare("SELECT agent_id, thread_id FROM projection_channel_contexts WHERE channel_id = ? ORDER BY agent_id")
+        .all(channelId),
+    ).map((row) => ({
+      agentId: requiredStringColumn(row, "agent_id"),
+      threadId: requiredStringColumn(row, "thread_id"),
+    }));
   }
 
   /** The execution threads of one agent, one for each channel it works in. */

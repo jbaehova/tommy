@@ -86,7 +86,8 @@ sudo bash scripts/hosting/tommy-install dist/linux-unpacked https://<domain>
 
 `tommy-install` installs the system packages that Tommy needs (a virtual display, a keyring and
 the Electron libraries), creates the `tommy` system user, installs the app in `/opt/Tommy`, keeps
-the data in `/var/lib/tommy`, and starts `tommy.service`. Check it with `sudo tommy status`.
+the data in `/var/lib/tommy`, and starts `tommy.service`. It installs Noto CJK fonts so browser
+pages can show Chinese, Japanese and Korean text. Check it with `sudo tommy status`.
 
 ### 1Password (optional)
 
@@ -205,6 +206,12 @@ bun run mobile:android:apk
 The APK is `apps/mobile/android/app/build/outputs/apk/release/app-release.apk`. Install it with
 `adb install -r <apk>` or copy it to the phone.
 
+## Development UI checks
+
+For CDP checks without opening windows or taking focus from another app, run
+`TOMMY_DEV_BACKGROUND=1 bun run dev`, then use `bun run dev:automation` with that instance.
+This setting applies only to development. Packaged apps ignore it.
+
 ## Finish
 
 Tell the user:
@@ -218,3 +225,97 @@ Tell the user:
   apps.
 
 If something fails, read [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
+## Optional host features
+
+All settings below are empty by default. Set them in the Tommy host process. On a Linux service,
+edit `/etc/tommy/server.env`, keep it owned by root with mode `0600`, and restart the service with
+`sudo systemctl restart tommy`. Keep connector tokens out of the agent environment and git.
+The installer preserves these settings when you run it again.
+
+### Signed workflow webhooks and connectors
+
+Set `TOMMY_WEBHOOK_PUBLIC_URL=https://tommy.example.com` to the HTTPS origin of the host. Use your
+own address. The supplied Nginx file forwards `/hooks/` to the existing loopback listener. Update
+an older Nginx installation with that location. Do not expose the Team API `/v1/` paths. Preserve
+request bytes and signature headers. The host accepts no public webhook while the origin is empty.
+
+Set `TOMMY_WORKFLOW_CONNECTORS_JSON` to one JSON object. Each section is optional:
+
+```json
+{
+  "github": {
+    "token": "example-github-token",
+    "webhookSecret": "example-github-secret",
+    "repositories": ["example/project"]
+  },
+  "slack": [{
+    "id": "slack-example", "name": "Example workspace",
+    "token": "example-slack-token", "signingSecret": "example-signing-secret",
+    "workspaceId": "TEXAMPLE", "serviceUserId": "UEXAMPLE",
+    "channels": [{"id": "CEXAMPLE", "name": "general"}]
+  }],
+  "telegram": [{
+    "id": "telegram-example", "name": "Example chat",
+    "token": "example-telegram-token", "webhookSecret": "example_telegram_secret",
+    "serviceUserId": "12345", "username": "tommy_example", "chatId": "-1001234567890"
+  }]
+}
+```
+
+For systemd, put the JSON on one line with single quotes around the complete value. For example:
+
+```ini
+TOMMY_WORKFLOW_CONNECTORS_JSON='{"github":{"token":"example-github-token","webhookSecret":"example-github-secret","repositories":["example/project"]}}'
+```
+
+Actual tokens stay in `server.env`. The client app receives only connection names and permitted
+destinations. The host removes this value from its process environment after reading it. An agent
+with full shell access as the host user can still read that user's files and the service's initial
+OS environment. The subprocess filter is not an isolation boundary against that full shell access.
+
+- GitHub: configure a JSON repository webhook at `/hooks/github`, with the same secret. Subscribe
+  to issues, issue comments, pull requests, reviews, review comments and check suites. Give the
+  token only the repository permissions that the workflow needs. File output needs contents write.
+  An optional `appSlug` enables App identity checks. Expiring App tokens need external renewal.
+- Slack: use `/hooks/slack/<connection-id>` as the Events API URL. Subscribe to `app_mention`.
+  Outbound messages need `chat:write`; reactions need `reactions:write`. Join the configured channels.
+- Telegram: register `/hooks/telegram/<connection-id>` with `setWebhook`, the configured
+  `secret_token`, and `allowed_updates=["message"]`. A connection permits one chat. A service account
+  has one webhook URL, so use a separate service account for each configured chat. Tommy does not
+  replace provider webhook settings automatically.
+
+For a generic routine or workflow webhook, use the URL from its trigger. Keep the existing Tommy
+signature, or configure its sender key and use Standard Webhooks headers. Rotation and revocation
+invalidate the old key. The receiver checks signatures, timestamp bounds and durable delivery IDs.
+No cloud relay is involved. A configured origin does not prove that external DNS and TLS work.
+
+### Optional Linux secret storage fallback
+
+The persistent OS keyring remains the default. If your installation must accept new secrets when
+that keyring fails, set `TOMMY_SECRET_STORAGE_FALLBACK=key-file`. The host then protects new secrets
+with a private AES key at `secret-storage.key` in its data directory. Keep that file private and
+preserve it with the encrypted stores. Disabling the setting does not prevent reads of existing
+file-encrypted secrets. It cannot decrypt secrets made with a lost OS keyring. An unreadable store
+is kept unchanged until an explicit reset or replacement.
+
+If the optional two-step file cannot be read, normal Vault items remain available. Tommy keeps
+that file unchanged and refuses new setup-key writes. Restore the matching encrypted file and key
+before changing those keys. Resetting the whole Vault still removes its items and needs an explicit
+user action. A corrupt keyring ciphertext never changes the encryption backend for later writes.
+
+### Realtime voice and other optional features
+
+Realtime voice uses a signed-in Codex account with the required feature. Audio goes to the provider.
+Availability, usage limits and additional costs depend on that account. Start a call explicitly;
+Stop ends it and releases the microphone. Existing dictation and read-aloud settings stay separate.
+Android needs a new CI-built APK for the WebRTC native module. No speech model download is required.
+
+Pi can use the optional host web-search tool when Codex is already enabled and signed in.
+The search uses that Codex account and its usage allowance. It does not change the agent provider,
+thread or identity. Other providers keep their own search tools.
+
+Skill learning starts with Ask first. It can be automatic or off. Saving creates an immutable local
+skill revision. The skill detail view can restore an older revision as a new revision. A routine
+runs in the main chat by default; its settings can select a separate thread. Each run still starts
+a fresh provider session. A workflow can post a note to a Tommy channel without starting agent work.

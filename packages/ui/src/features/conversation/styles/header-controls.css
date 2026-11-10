@@ -909,3 +909,7 @@
   transform: scale(0.92);
   transition-duration: var(--tommy-duration-fast);
 }
+
+.conversation-live-voice-popover {
+  width: min(calc(var(--tommy-space-8) * 12), calc(100vw - var(--tommy-space-6) * 2));
+}

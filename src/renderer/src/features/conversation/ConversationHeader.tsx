@@ -8,6 +8,7 @@ import {
   providerDisplayName,
 } from "@tommy/contracts/ipc";
 import { AGENT_FAST_MODE_CAPABILITY } from "@tommy/contracts/team-protocol/agent-fast-mode-v1";
+import { AGENT_SPEED_CAPABILITY } from "@tommy/contracts/team-protocol/agent-speed-v1";
 import { reasoningLabel } from "@tommy/ui/components/ProviderModelPicker";
 import { providerAccountName } from "@tommy/ui/components/provider-accounts";
 import { ConversationHeader as SharedConversationHeader } from "@tommy/ui/features/conversation/ConversationHeader";
@@ -15,6 +16,8 @@ import { ThreadHeader } from "@tommy/ui/features/conversation/threads/ThreadHead
 import { MAIN_THREAD_ID } from "@tommy/ui/features/conversation/threads/thread-types";
 import { Show } from "solid-js";
 import { serverSupportsCapability } from "../servers/server-capabilities";
+import { ConversationHistoryActions } from "./ConversationHistoryActions";
+import { ConversationLiveVoice } from "./ConversationLiveVoice";
 import { useConversationViewScope } from "./conversation-scope";
 
 const loadAgentSettingsPanel = () => import("./AgentSettingsPanel");
@@ -37,6 +40,8 @@ export function ConversationHeader() {
     agentActivity,
     browserControlAgent,
     changeFastMode,
+    changeSpeed,
+    ultrafast,
     channel,
     fastMode,
     props,
@@ -104,6 +109,12 @@ export function ConversationHeader() {
   return (
     <SharedConversationHeader
       agent={props.agent}
+      actions={
+        <>
+          <ConversationLiveVoice />
+          <ConversationHistoryActions />
+        </>
+      }
       title={channel ? <channel.HeaderTitle onOpenSettings={() => setActiveRightPanel("settings")} /> : undefined}
       onSettingsIntent={() => void loadAgentSettingsPanel()}
       onOpenSettings={() => setActiveRightPanel("settings")}
@@ -129,8 +140,13 @@ export function ConversationHeader() {
         providerAccountId: props.agent ? agentNextProviderAccountId(props.agent) : undefined,
         onChange: (model, provider, accountId) => void selectAndConfirmModel(model, provider, accountId),
         onReasoningEffortChange: (effort) => void selectAndConfirmReasoning(effort),
-        // Codex only for now: on this computer, or on a joined server with `agent-fast-mode-v1`.
+        // A host with the additive speed contract can select all supported service tiers.
         fastMode: fastMode(),
+        ultrafast: ultrafast(),
+        onSpeedChange:
+          props.server?.kind === "local" || serverSupportsCapability(props.server, AGENT_SPEED_CAPABILITY)
+            ? (speed) => void changeSpeed(speed)
+            : undefined,
         onFastModeChange:
           settingsProvider() === "codex" &&
           (props.server?.kind === "local" || serverSupportsCapability(props.server, AGENT_FAST_MODE_CAPABILITY))

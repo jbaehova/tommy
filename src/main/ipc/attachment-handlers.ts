@@ -2,8 +2,11 @@
 // Every path here crosses to the local filesystem, so the parsers are the boundary.
 
 import { createHash, randomUUID } from "node:crypto";
-import { chmod, copyFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { chmod, copyFile, type FileHandle, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
+import { Writable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import {
   ARCHIVE_ATTACHMENT_EXTENSIONS,
   assertSupportedAttachmentName,
@@ -49,7 +52,7 @@ import { filePreviewPages } from "../file-preview-pages";
 import { AttachmentDownloadStopped } from "../remote-attachment-cache";
 import { decodeVoid } from "../remote-host-decoding";
 import type { RemoteServerManager } from "../remote-server-manager";
-import { remoteCall, remoteDecode } from "../remote-service-effects";
+import { RemoteWorkflowError, remoteCall, remoteDecode } from "../remote-service-effects";
 import {
   agentRequest,
   parseAttachmentData,
@@ -368,6 +371,84 @@ export function openAttachmentForServer(
     },
   });
 }
+
+/** Save a managed attachment to the local Downloads folder without a dialog or overwrite. */
+export const saveAttachmentForServer = Effect.fn("Attachment.saveForServer")(function* (
+  { mailbox, remoteServers }: Pick<OpenAttachmentDependencies, "mailbox" | "remoteServers">,
+  serverId: string,
+  attachmentId: string,
+) {
+  if (serverId === LOCAL_SERVER_ID) {
+    const attachment = yield* mailbox.resolveAttachment(attachmentId);
+    if (!attachment)
+      return yield* Effect.fail(
+        new RemoteWorkflowError({ cause: new Error(sourceText("error.attachment.unavailable")) }),
+      );
+    yield* saveInDownloads(attachment.name, (file) =>
+      pipeline(
+        createReadStream(attachment.path),
+        new Writable({
+          write(chunk: Buffer, _encoding, done) {
+            void file.writeFile(chunk).then(() => done(), done);
+          },
+        }),
+      ),
+    );
+    return true;
+  }
+  const downloaded = yield* remoteServers
+    .downloadAttachment(attachmentId, serverId, false)
+    .pipe(
+      Effect.catch((error) =>
+        error.cause instanceof AttachmentDownloadStopped ? Effect.succeed(null) : Effect.fail(error),
+      ),
+    );
+  if (!downloaded) return false;
+  yield* saveInDownloads(downloaded.name, (file) => file.writeFile(downloaded.bytes));
+  return true;
+});
+
+const saveInDownloads = Effect.fn("Attachment.saveInDownloads")(function* (
+  name: string,
+  write: (file: FileHandle) => Promise<void>,
+) {
+  const directory = app.getPath("downloads");
+  const safeName = safeFileName(name) || "attachment";
+  const extension = extname(safeName);
+  const stem = safeName.slice(0, safeName.length - extension.length);
+  yield* remoteCall(() => mkdir(directory, { recursive: true }));
+  for (let index = 1; index <= 10_000; index += 1) {
+    const target = join(directory, index === 1 ? safeName : `${stem} (${index})${extension}`);
+    const file = yield* remoteCall(() => open(target, "wx", 0o600)).pipe(
+      Effect.catch((error) => {
+        const cause = error.cause;
+        return cause instanceof Error && "code" in cause && cause.code === "EEXIST"
+          ? Effect.succeed(null)
+          : Effect.fail(error);
+      }),
+    );
+    if (!file) continue;
+    let complete = false;
+    yield* Effect.acquireUseRelease(
+      Effect.succeed(file),
+      (handle) =>
+        Effect.gen(function* () {
+          yield* remoteCall(() => write(handle));
+          complete = true;
+        }),
+      (handle) =>
+        remoteCall(async () => {
+          try {
+            await handle.close();
+          } finally {
+            if (!complete) await rm(target, { force: true });
+          }
+        }).pipe(Effect.catch(() => Effect.void)),
+    );
+    return;
+  }
+  return yield* Effect.fail(new RemoteWorkflowError({ cause: new Error(sourceText("error.attachment.unavailable")) }));
+});
 
 // A remote file has to land on disk before the OS can open it. Owner-only, under a per-server and
 // per-path digest so two servers sharing a file name cannot overwrite each other. The host supplies

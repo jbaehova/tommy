@@ -449,3 +449,26 @@ and clears navigation history. Secrets are not retried without a new answer from
 `bun scripts/browser-secure-login-e2e.ts` drives the host in a hidden window and writes
 `.tommy-build/browser-secure-login-e2e/report.json`. Authentication inside unsupported frames,
 unclear OAuth account selection, CAPTCHA, passkeys, and payment confirmation use takeover.
+
+An agent script marks the document and any reachable opener or popup document. A saved-login or
+card fill waits until those scripted documents navigate or close. The host also clears the site's
+Cache Storage and service workers before a fill. A document served by an old service worker must
+reload. Cookies, local storage and IndexedDB stay intact. A failed purge refuses the fill. This is
+a fill safety boundary, not a way to make arbitrary agent scripts safe.
+
+Browser scripts keep at most 1 MiB of internal result data. Model-facing results stay bounded to
+64 KiB. Large snapshots omit hidden branches before spending the visible element budget. A chat
+owns its tab limit; restoring tabs applies that limit without taking focus.
+
+An optional profile proxy is an encrypted host setting. The UI receives its address without a
+password and a hasPassword flag. Keeping a saved password requires the same scheme, endpoint and
+user. HTTP, HTTPS and authenticated SOCKS5 connect from the host. A proxy failure stops navigation;
+there is no direct fallback. Changing or clearing a proxy closes profile tabs and sockets before
+the next navigation. Clearing restores the host system proxy and keeps profile storage. No client
+computer becomes an exit node. Proxied views disable non-proxied WebRTC UDP.
+
+Browser and thread tags carry validated IDs and display names. The host resolves their current
+context and permissions at delivery time. A human can share an owned tab with another thread of
+the same agent; text from an agent, routine or external message cannot grant that share. URLs in
+tag context omit credentials, query strings and fragments. A thread tag can read only that agent's
+thread and respects its latest context reset.

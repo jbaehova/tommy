@@ -8,6 +8,8 @@ import {
   isSidebarPinsSnapshot,
   type SidebarPinsSnapshot,
 } from "@tommy/contracts/ipc";
+import { isRoutineWithRunPlace } from "@tommy/contracts/routine-run-place-v1";
+import { decodeProviderAccountModelsFromMain } from "./provider-account-models-decoding";
 // What main answers for agents: provider status, models, the agents themselves, memories, routines,
 // shared tables and the sidebar layout.
 //
@@ -39,7 +41,6 @@ import {
   isClientAgentSummary,
   isProviderAccountId,
   isProviderAccountStatus,
-  isRoutine,
   isRoutineCalendar,
   isRoutineFeed,
   isRoutineRun,
@@ -56,9 +57,9 @@ import {
 import { decodeRecord, guardedDecoder, guardedListDecoder } from "@tommy/contracts/ipc-decoding";
 import { isDynamicRecord, isHttpsUrl, isNumber, isOneOf, isString } from "@tommy/contracts/runtime-values";
 
-export const decodeRoutine = guardedDecoder(isRoutine, "routine response");
+export const decodeRunPlaceRoutineFromMain = guardedDecoder(isRoutineWithRunPlace, "routine response");
 export const decodeAgentHostSettingsFromMain = guardedDecoder(isAgentHostSettings, "agent host settings response");
-export const decodeRoutines = guardedListDecoder(isRoutine, "routine list response");
+export const decodeRunPlaceRoutinesFromMain = guardedListDecoder(isRoutineWithRunPlace, "routine list response");
 export const decodeRoutineRun = guardedDecoder(isRoutineRun, "routine run response");
 export const decodeRoutineRuns = guardedListDecoder(isRoutineRun, "routine history response");
 export const decodeAutomationRunCommand = guardedDecoder(isString, "run command response");
@@ -150,7 +151,15 @@ export function decodeHostProviderAccountsFromMain(value: unknown): HostProvider
       !row.accounts.every(isProviderAccountStatus)
     )
       throw invalid();
-    return { provider: row.provider, accounts: row.accounts };
+    const provider = row.provider;
+    return {
+      provider,
+      accounts: row.accounts.map((account) =>
+        account.models === undefined
+          ? account
+          : { ...account, models: decodeProviderAccountModelsFromMain({ models: account.models }, provider).models },
+      ),
+    };
   });
   const agents = value.agents.map((row: unknown) => {
     if (!isDynamicRecord(row) || !isString(row.agentId) || !row.agentId || !isProviderAccountId(row.accountId))

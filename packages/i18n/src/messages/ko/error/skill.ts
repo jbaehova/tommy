@@ -55,4 +55,10 @@ export const messages = {
   "error.skill.localMissingSkillFile": "스킬 폴더의 루트에 SKILL.md가 필요해요.",
   "error.skill.pathSymlink": "스킬 경로에는 심볼릭 링크를 포함할 수 없어요.",
   "error.skill.folderNotRead": "{provider}은(는) {folder}을(를) 읽지 않아요. 이 폴더를 {target}(으)로 복사해 주세요.",
+  "error.skill.managedSlug":
+    "Tommy는 모든 에이전트에 자체 {slug} 스킬을 제공해요. 이 스킬에는 다른 이름을 지정해 주세요.",
+  "error.skill.learningStopped": "스킬 학습이 중지됐어요.",
+  "error.skill.learningSecret": "학습한 스킬에는 비밀정보를 포함할 수 없어요.",
+  "error.skill.learningPersonal": "학습한 스킬에서는 개인정보를 예시 값으로 바꿔야 해요.",
+  "error.skill.localRevisionChanged": "스킬이 변경됐어요. 수정하기 전에 최신 버전을 읽어 주세요.",
 } as const satisfies PartialTranslation<typeof source>;

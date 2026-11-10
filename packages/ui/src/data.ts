@@ -5,8 +5,10 @@ import type {
   AgentInstructionsChange,
   AgentModelId,
   AgentReasoningEffort,
+  AgentTask,
   AttachmentSummary,
   AvatarHue,
+  BrowserTab,
   ChannelRoutingConversationEvent,
   ClientAgentSummary,
   ConversationMemoryChange,
@@ -26,6 +28,7 @@ import type {
   RoutineRunConversationEvent,
   SkillConversationEvent,
 } from "@tommy/contracts/ipc";
+import type { SkillSuggestionEvent } from "@tommy/contracts/ipc-skill-learning";
 import type { ConversationUiBlock } from "@tommy/contracts/ui-blocks";
 
 /**
@@ -130,7 +133,12 @@ export type ChatActionMarkerModel =
       /** Set when the timeline shows the runs as rows under the group: whether they show. */
       expanded?: boolean;
     }
-  | (ChannelRoutingConversationEvent & { kind: "channel-routing"; timestamp: string })
+  | {
+      kind: "channel-routing";
+      action: ChannelRoutingConversationEvent["action"];
+      agentIds: string[];
+      timestamp: string;
+    }
   /** The agent suggested a Marketplace app. The chat shows a card to connect it. */
   | { kind: "marketplace-suggestion"; appId: string; timestamp: string }
   /** The agent saved an MCP server that needs a sign-in. The chat shows a card to sign in. */
@@ -194,6 +202,7 @@ export interface AgentMessage {
   voiceRecording?: AttachmentSummary | undefined;
   imageGeneration?: ImageGenerationInfo | undefined;
   questionPrompt?: ConversationQuestionPrompt | undefined;
+  skillSuggestion?: SkillSuggestionEvent | undefined;
   /** The interactive block an agent drew. A blocking block sits beside `questionPrompt`. */
   uiBlock?: ConversationUiBlock;
   citations?: MessageCitation[];
@@ -256,6 +265,7 @@ export interface AgentProfile {
   browserProfileId?: string | undefined;
   /** Absent means off. Absent for an agent on a remote host too, which does not share it. */
   fastMode?: boolean | undefined;
+  ultrafast?: boolean | undefined;
   /** Absent means the app default. Absent for an agent on a remote host too, which does not share it. */
   busyMessageMode?: ClientAgentSummary["busyMessageMode"];
   /** Absent means the default task limit. Absent for an agent on a remote host too, which runs no tasks. */
@@ -299,3 +309,6 @@ export type ComposerMcpServer = Pick<
   McpServerConfig,
   "id" | "name" | "enabled" | "transport" | "command" | "args" | "url"
 >;
+
+export type ComposerBrowserTab = Pick<BrowserTab, "id" | "title" | "url">;
+export type ComposerThread = Pick<AgentTask, "id" | "title" | "state" | "outcome" | "progress" | "error">;

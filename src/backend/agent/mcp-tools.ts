@@ -102,7 +102,7 @@ export interface AgentMcpServers {
   setEnabled(mcpServerId: string, enabled: boolean): Effect.Effect<unknown, ToolOperationFailed>;
   remove(mcpServerId: string): Effect.Effect<unknown, ToolOperationFailed>;
   /** A silent test: stored sign-ins only, never a browser. */
-  inspect(config: McpServerConfig): Effect.Effect<McpProbeOutcome, ToolOperationFailed>;
+  inspect(config: McpServerConfig, tested?: boolean): Effect.Effect<McpProbeOutcome, ToolOperationFailed>;
   /** Masks the MCP secret values in a text that goes back to the agent. */
   redact(text: string): string;
 }
@@ -124,10 +124,10 @@ export function mcpServersFromGateway(
     save: (config) => gateway.save({ config }).pipe(toToolFailure),
     setEnabled: (mcpServerId, enabled) => gateway.setEnabled({ mcpServerId, enabled }).pipe(toToolFailure),
     remove: (mcpServerId) => gateway.remove({ mcpServerId }).pipe(toToolFailure),
-    inspect: (config) =>
+    inspect: (config, tested) =>
       (prepareTest?.(config) ?? Effect.void).pipe(
         Effect.mapError((cause) => new ToolOperationFailed({ cause })),
-        Effect.andThen(gateway.inspect(config).pipe(toToolFailure)),
+        Effect.andThen(gateway.inspect(config, tested).pipe(toToolFailure)),
       ),
     redact: (text) => gateway.redact(text),
   };
@@ -176,7 +176,7 @@ const runMcpServerTool = Effect.fn("McpServerTools.handle")(function* (
     case "test_mcp_server": {
       const { name } = yield* toolStep(() => namedServerSchema.parse(call.arguments));
       const config = yield* findServer(servers, name);
-      return yield* report(servers, call, config, yield* servers.inspect(config), false);
+      return yield* report(servers, call, config, yield* servers.inspect(config, true), false);
     }
     case "save_mcp_server": {
       const input = yield* toolStep(() => saveMcpServerToolSchema.parse(call.arguments));

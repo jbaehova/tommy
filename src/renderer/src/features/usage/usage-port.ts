@@ -5,6 +5,8 @@ import type { TommyDesktopApi } from "@tommy/contracts/ipc";
  * make the report stale.
  */
 export interface UsagePort {
+  storage?: Pick<TommyDesktopApi["storage"], "getMachineMetrics">;
+  hostAdmin?: Pick<TommyDesktopApi["hostAdmin"], "setMachineAlerts">;
   agent: Pick<TommyDesktopApi["agent"], "getHostAnalytics" | "listAgents" | "onScopedEvent">;
   servers: Pick<TommyDesktopApi["servers"], "onEvent">;
 }

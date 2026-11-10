@@ -329,8 +329,9 @@ export function createRendererForwarders({
     if (notification) closeRetainedNotification(notification);
   }
 
-  async function notifyAgentEvent(serverId: string, event: AgentEvent): Promise<void> {
-    withdrawResolvedNotification(serverId, event);
+  async function notifyAgentEvent(serverId: string, received: AgentEvent): Promise<void> {
+    withdrawResolvedNotification(serverId, received);
+    const event = received.type === "routine-thread-turn-completed" ? received.turn : received;
     // Most events stream while an agent works. Only these can notify, so the others skip the server list.
     if (!agentEventCanNotify(event) && event.type !== "usage-limit-reached") return;
     // Like Discord, nothing pops up while the user is looking at the app. The level is read again

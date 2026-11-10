@@ -1,3 +1,5 @@
+import { addRoutineTaskReferences } from "@tommy/contracts/team-protocol/routine-run-place-v1";
+import { addSkillSuggestionNames, SKILL_LEARNING_CAPABILITY } from "@tommy/contracts/team-protocol/skill-learning-v1";
 // Putting one Team API call on the wire, and reading what came back off it.
 //
 // HTTP uses the adapter for the negotiated protocol: V6 adds Cursor and Cline, V5 adds Gemini and
@@ -107,14 +109,18 @@ export const requestJson = Effect.fn("RemoteHttp.requestJson")(function* <T>(
   if (value !== undefined) {
     const input = value;
     value = yield* Effect.try({
-      try: () =>
-        sideRoute
+      try: () => {
+        const decoded = sideRoute
           ? sideRoute.response(path, response.status, input, {
               historyExtent: true,
               channelAttention: true,
               agentTaskUiBlocks: true,
             })
-          : codec.decodeResponse(method, path, response.status, input),
+          : codec.decodeResponse(method, path, response.status, input);
+        if (options.capabilities?.includes(SKILL_LEARNING_CAPABILITY)) addSkillSuggestionNames(decoded, input);
+        addRoutineTaskReferences(decoded, input);
+        return decoded;
+      },
       catch: (cause) =>
         new RemoteProtocolError("protocol_error", sourceText("error.remote.unsafeData"), null, { cause }),
     });

@@ -101,7 +101,7 @@ export class AgentInterruptTool {
       if (!ownedBy(deliveries, callerAgentId)) {
         return tommyToolFailure(sourceText("error.backend.interruptOtherWork"));
       }
-      if (!this.#store.activeProviderSession(agentId) && !this.#conversation.routineSession(agentId)) {
+      if (!this.#store.activeProviderSession(agentId) && !this.#conversation.hasRoutineSession(agentId)) {
         return tommyToolFailure(sourceText("error.backend.interruptNoSession"));
       }
     }
@@ -109,7 +109,21 @@ export class AgentInterruptTool {
     // Before the interrupt: the interrupted turn schedules the next drain as it completes, and that
     // drain would start the next of these messages.
     const cancelledMessages = yield* toolStep(() => this.#cancelQueuedFrom(agentId, callerAgentId));
-    if (!turnId) return tommyToolResult({ interruptedTurnId: null, cancelledMessages });
+    if (!turnId) {
+      const runningTasks = this.#conversation.workingTaskSnapshots(agentId).length;
+      const runningChannelTask = this.#conversation.workingChannelSnapshots(agentId).length > 0;
+      return tommyToolResult({
+        interruptedTurnId: null,
+        cancelledMessages,
+        ...(runningTasks ? { runningTasks } : {}),
+        ...(runningChannelTask ? { runningChannelTask: true } : {}),
+        ...(runningChannelTask
+          ? { note: "This agent still works on a channel task. Use the task controls in the channel." }
+          : runningTasks
+            ? { note: "This agent still works on tasks that this tool cannot stop." }
+            : {}),
+      });
+    }
 
     // The turn can end, or the user can steer a message into it, while the stop is on its way. The
     // check then runs again on the deliveries the turn has at that moment. No stop, no notice.
@@ -129,7 +143,9 @@ export class AgentInterruptTool {
         .unresolvedDeliveries()
         .find(
           ({ delivery }) =>
-            delivery.recipientAgentId === agentId && delivery.turnId && !this.#mailbox.taskIdForDelivery(delivery.id),
+            delivery.recipientAgentId === agentId &&
+            delivery.turnId &&
+            this.#mailbox.laneIdForDelivery(delivery.id) === null,
         )?.delivery.turnId ?? null
     );
   }

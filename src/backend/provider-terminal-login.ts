@@ -4,6 +4,7 @@ import { sourceText } from "@tommy/i18n/source";
 import { Effect, type Scope } from "effect";
 import type { CliLoginProcess } from "./agent/cli-login-flow";
 import { waitForSuccessfulProcess } from "./agent/provider-status";
+import { childProcessEnvironment } from "./child-process-environment";
 import { type AgentCliInfo, cliPathEnvironment } from "./cli";
 import { stopProcessTree } from "./process-tree";
 import { type ProviderClientOperationError, providerCall, providerSync } from "./provider-client-effects";
@@ -60,6 +61,7 @@ export const startProviderTerminalLogin = Effect.fn("ProviderTerminalLogin.start
       execute("/usr/bin/osascript", ["-e", OPEN_MAC, terminalLoginCommand(cli.executable)], {
         timeout: 30_000,
         maxBuffer: 4096,
+        env: childProcessEnvironment(),
       }),
     );
     const tty = opened.stdout.trim();
@@ -70,11 +72,17 @@ export const startProviderTerminalLogin = Effect.fn("ProviderTerminalLogin.start
     // The TTY identifies only the tab this operation opened. Other windows and tabs stay open.
     yield* Effect.addFinalizer(() =>
       providerCall(() =>
-        execute("/usr/bin/osascript", ["-e", CLOSE_MAC, tty], { timeout: 10_000, maxBuffer: 4096 }),
+        execute("/usr/bin/osascript", ["-e", CLOSE_MAC, tty], {
+          timeout: 10_000,
+          maxBuffer: 4096,
+          env: childProcessEnvironment(),
+        }),
       ).pipe(Effect.ignore),
     );
     const child = yield* Effect.acquireRelease(
-      providerSync(() => spawn("/usr/bin/osascript", ["-e", WAIT_MAC, tty], { stdio: "ignore" })),
+      providerSync(() =>
+        spawn("/usr/bin/osascript", ["-e", WAIT_MAC, tty], { stdio: "ignore", env: childProcessEnvironment() }),
+      ),
       (child) => stopProcessTree(child).pipe(Effect.ignore),
     );
     return { child, done: waitForSuccessfulProcess(child, timeoutMs) };
@@ -83,7 +91,7 @@ export const startProviderTerminalLogin = Effect.fn("ProviderTerminalLogin.start
     providerSync(() =>
       spawn("xterm", ["-e", cli.executable], {
         stdio: "ignore",
-        env: { ...process.env, ...cliPathEnvironment(cli) },
+        env: childProcessEnvironment({ ...process.env, ...cliPathEnvironment(cli) }),
       }),
     ),
     (child) => stopProcessTree(child).pipe(Effect.ignore),

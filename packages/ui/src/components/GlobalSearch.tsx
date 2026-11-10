@@ -115,6 +115,7 @@ type PagedSearch<T> = (query: string, cursor?: string) => Promise<GlobalSearchPa
 type MessageHit = { agentId: string; message: AgentMessage };
 
 interface GlobalSearchProps {
+  deletedMessageIds?: Readonly<Record<string, readonly string[]>> | undefined;
   open: boolean;
   agents: AgentProfile[];
   /** Omit to hide the Channels filter, for a client or server without channels. */
@@ -654,7 +655,10 @@ export function GlobalSearch(props: GlobalSearchProps) {
     indexed(
       messageSearch.items().flatMap(({ agentId, message }): MessageResult[] => {
         const agent = agentsById().get(agentId);
-        return agent && message.kind !== "thinking" && messagePreview(message)
+        return agent &&
+          !props.deletedMessageIds?.[agentId]?.includes(message.id) &&
+          message.kind !== "thinking" &&
+          messagePreview(message)
           ? [{ kind: "message", agent, message }]
           : [];
       }),
@@ -664,7 +668,9 @@ export function GlobalSearch(props: GlobalSearchProps) {
     indexed(
       fileSearch.items().flatMap((file): FileResult[] => {
         const agent = agentsById().get(file.agentId);
-        return agent ? [{ kind: "file", agent, file }] : [];
+        return agent && !props.deletedMessageIds?.[file.agentId]?.includes(file.messageId)
+          ? [{ kind: "file", agent, file }]
+          : [];
       }),
     ),
   );
@@ -676,7 +682,22 @@ export function GlobalSearch(props: GlobalSearchProps) {
     // A remote section counts the results that are not loaded yet.
     const remote = (search: RemoteSearch<unknown>, limit?: number) => ({
       limit,
-      total: search.total(),
+      total:
+        search.total() === undefined
+          ? undefined
+          : Math.max(
+              0,
+              (search.total() ?? 0) -
+                (search === messageSearch
+                  ? messageSearch
+                      .items()
+                      .filter((hit) => props.deletedMessageIds?.[hit.agentId]?.includes(hit.message.id)).length
+                  : search === fileSearch
+                    ? fileSearch
+                        .items()
+                        .filter((file) => props.deletedMessageIds?.[file.agentId]?.includes(file.messageId)).length
+                    : 0),
+            ),
       more: search.hasMore() && search.total() === undefined,
     });
     let groups: GlobalSearchSection[];

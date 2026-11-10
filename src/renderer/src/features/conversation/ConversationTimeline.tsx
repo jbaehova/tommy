@@ -3,11 +3,12 @@ import type { ConversationMessageSender, MessageReaction } from "@tommy/contract
 import type { ConversationUiBlock } from "@tommy/contracts/ui-blocks";
 import { Button } from "@tommy/ui";
 import type { AgentMessage, ChatActionMarkerModel } from "@tommy/ui/data";
-import { ChannelActivityIndicator } from "@tommy/ui/features/channels/ChannelActivityIndicator";
+import { ChannelActivityIndicator, type ChannelWorker } from "@tommy/ui/features/channels/ChannelActivityIndicator";
 import { AgentActivityIndicator } from "@tommy/ui/features/conversation/AgentActivity";
 import { AgentChatEmptyState } from "@tommy/ui/features/conversation/AgentChatEmptyState";
-import { AgentStepsDisclosure, type AgentStepsTrace } from "@tommy/ui/features/conversation/AgentSteps";
+import { type AgentStep, AgentStepsDisclosure, type AgentStepsTrace } from "@tommy/ui/features/conversation/AgentSteps";
 import { AttachmentCards } from "@tommy/ui/features/conversation/AttachmentCards";
+import { agentActivityExitDelay, agentActivityExitDuration } from "@tommy/ui/features/conversation/activity-timing";
 import { UsageLimitAskCard } from "@tommy/ui/features/conversation/BackupModels";
 import { branchPointIds } from "@tommy/ui/features/conversation/branch-points";
 import { ChatActionMarker } from "@tommy/ui/features/conversation/ChatActionMarker";
@@ -28,7 +29,7 @@ import { UnreadMessagesBanner, UnreadMessagesDivider } from "@tommy/ui/features/
 import { VoicePlayer } from "@tommy/ui/features/conversation/VoicePlayer";
 import { teamMemberName } from "@tommy/ui/features/team/TeamPersonAvatar";
 import { useText } from "@tommy/ui/text";
-import { createMemo, createSignal, For, Loading, lazy, onCleanup, Show, untrack } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Loading, lazy, onCleanup, Show, untrack } from "solid-js";
 import { useShowAgentSteps } from "../../agent-steps-preference";
 import { planItems, planTitle } from "../../app-message-projection";
 import { currentDevicePlatform } from "../../send-shortcut-preference";
@@ -133,6 +134,8 @@ export function ConversationTimeline() {
     copyMessage,
     messageText,
     expandedEmojiMessageId,
+    skillLearningFor,
+    messageDeletion,
     installedSkills,
     scrollFades,
     jumpToLatestMessage,
@@ -156,6 +159,7 @@ export function ConversationTimeline() {
     openSharedFile,
     openWorkspaceFile,
     openQuote,
+    openTaggedReference,
     pendingSendFor,
     presentedQueueDeliveries,
     providerUpdateRequired,
@@ -404,6 +408,7 @@ export function ConversationTimeline() {
             // A workspace path is in the workspace of the agent that wrote it, as in a channel.
             onOpenWorkspaceFile={(path) => openWorkspaceFile(path, undefined, current().exchange?.senderAgentId)}
             onOpenQuote={openQuote}
+            onOpenTag={openTaggedReference}
             macWindowControls={props.platform === "darwin"}
           />
         )}
@@ -544,6 +549,43 @@ export function ConversationTimeline() {
     },
   });
   const channelWorkingSteps = createMemo(() => (channel ? turnSteps.workingSteps(channel.workingTurns()) : []));
+  /*
+   * The channel's activity line leaves as the agent chat's line does: it waits a moment for the next
+   * member, then folds away with the workers and steps it last showed. When it went at once, the chat
+   * above it jumped down.
+   */
+  const [channelActivity, setChannelActivity] = createSignal<{
+    workers: ChannelWorker[];
+    steps: readonly AgentStep[];
+    phase: "active" | "exiting";
+  } | null>(null);
+  createEffect(
+    (): ChannelWorker[] => channel?.workers() ?? [],
+    (workers) => {
+      if (workers.length > 0) {
+        setChannelActivity({
+          workers,
+          steps: untrack(channelWorkingSteps),
+          phase: "active",
+        });
+        return;
+      }
+      if (!untrack(channelActivity)) return;
+      let exitTimer: number | undefined;
+      const delayTimer = window.setTimeout(() => {
+        setChannelActivity((latest) => latest && { ...latest, phase: "exiting" });
+        exitTimer = window.setTimeout(() => setChannelActivity(null), agentActivityExitDuration());
+      }, agentActivityExitDelay());
+      return () => {
+        window.clearTimeout(delayTimer);
+        window.clearTimeout(exitTimer);
+      };
+    },
+  );
+  createEffect(channelWorkingSteps, (steps) => {
+    if (untrack(channelActivity)?.phase === "active" && untrack(() => channel?.workers().length))
+      setChannelActivity((latest) => latest && { ...latest, steps });
+  });
   /**
    * A direct chat with no message yet, and no turn, queued send or question. A queued send leaves the
    * timeline for the queue tray, and the activity line shows only after a delay, so both are read here.
@@ -833,6 +875,7 @@ export function ConversationTimeline() {
                                             routineAvailable={routineMarkerAvailable(marker(), availableRoutineIds())}
                                             onSelectAgent={props.onSelectAgent}
                                             onOpenRoutine={openRoutineSettings}
+                                            routineThread={props.threads?.routineThread}
                                             onToggleRoutineRun={toggleRoutineRun}
                                             onToggleAgentMessage={toggleAgentMessage}
                                             agentMessageText={agentMessageText}
@@ -1199,6 +1242,7 @@ export function ConversationTimeline() {
                         fallback={
                           <ChatMessageRow
                             message={message() ?? initialMessage}
+                            skillLearning={skillLearningFor((message() ?? initialMessage).id)}
                             author={author()}
                             showAuthor={
                               author().kind === "member" || (channel && author().kind === "agent")
@@ -1231,6 +1275,7 @@ export function ConversationTimeline() {
                                 : undefined
                             }
                             onOpenQuote={openQuote}
+                            onOpenTag={openTaggedReference}
                             onDownload={(attachment) => attachmentAction(attachment, "download")}
                             mediaSource={runtime.attachmentMedia}
                             downloads={attachmentDownloads}
@@ -1254,6 +1299,7 @@ export function ConversationTimeline() {
                                     state={pendingState()}
                                     updateRequired={Boolean(providerUpdateRequired())}
                                     error={pendingSend()?.error ?? null}
+                                    errorReference={pendingSend()?.errorReference ?? null}
                                     retrySafe={pendingRetrySafe()}
                                     canEdit={!composerHasContent() && !editingDeliveryId()}
                                     onRetry={() => {
@@ -1304,6 +1350,12 @@ export function ConversationTimeline() {
                                 ? undefined
                                 : () => (
                                     <MessageMenu
+                                      onDelete={
+                                        messageDeletion.canDeleteMessage(message() ?? initialMessage)
+                                          ? () => messageDeletion.requestMessage(message() ?? initialMessage)
+                                          : undefined
+                                      }
+                                      deleteDisabled={messageDeletion.busy()}
                                       message={message() ?? initialMessage}
                                       reactions={!channel}
                                       authorName={channel ? author().name : undefined}
@@ -1386,12 +1438,15 @@ export function ConversationTimeline() {
               <Show
                 when={!channel}
                 fallback={
-                  <Show when={channel && channel.workers().length > 0}>
-                    <ChannelActivityIndicator
-                      workers={channel?.workers() ?? []}
-                      steps={channelWorkingSteps()}
-                      stepsOpenByDefault={showAgentSteps()}
-                    />
+                  <Show when={channelActivity()}>
+                    {(activity) => (
+                      <ChannelActivityIndicator
+                        workers={activity().workers}
+                        steps={activity().steps}
+                        phase={activity().phase}
+                        stepsOpenByDefault={showAgentSteps()}
+                      />
+                    )}
                   </Show>
                 }
               >
@@ -1435,6 +1490,8 @@ export function ConversationTimeline() {
               {(ask) => (
                 <UsageLimitAskCard
                   provider={ask().provider}
+                  model={ask().model}
+                  agentName={ask().agentName}
                   resetsAt={ask().resetsAt}
                   options={ask().options}
                   onSend={ask().onSend}

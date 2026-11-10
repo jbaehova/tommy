@@ -357,7 +357,11 @@
     "./features/transfer/instance-transfer.css": "./src/features/transfer/instance-transfer.css",
     "./features/conversation/AgentSessionSettings": "./src/features/conversation/AgentSessionSettings.tsx",
     "./features/conversation/AgentSettingsPanel": "./src/features/conversation/AgentSettingsPanel.tsx",
-    "./features/conversation/ConversationHeader": "./src/features/conversation/ConversationHeader.tsx"
+    "./features/conversation/ConversationHeader": "./src/features/conversation/ConversationHeader.tsx",
+    "./features/files/LibraryPage": "./src/features/files/LibraryPage.tsx",
+    "./features/conversation/SkillSuggestionCard": "./src/features/conversation/SkillSuggestionCard.tsx",
+    "./features/browser/BrowserProfileProxyEditor": "./src/features/browser/BrowserProfileProxyEditor.tsx",
+    "./features/conversation/LiveVoicePanel": "./src/features/conversation/LiveVoicePanel.tsx"
   },
   "dependencies": {
     "@tommy/contracts": "workspace:*",

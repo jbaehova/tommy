@@ -266,8 +266,7 @@ li[data-arrived] > .tasks-page-row {
  */
 .tasks-page-side {
   position: relative;
-  flex: 0 0 420px;
-  overflow: hidden;
+  flex: 0 0 var(--tasks-page-side-width, 420px);
   transition:
     flex-basis var(--tommy-duration-overlay) var(--tommy-ease-out),
     opacity var(--tommy-duration-overlay) var(--tommy-ease-out);
@@ -287,11 +286,28 @@ li[data-arrived] > .tasks-page-row {
   transition-timing-function: cubic-bezier(0.5, 0, 0.75, 0);
 }
 
+/* The panel follows the pointer while its edge is dragged. */
+html.panel-resizing .tasks-page-side {
+  transition: none;
+}
+
+.tasks-page-side[data-closing] > .panel-resizer {
+  visibility: hidden;
+}
+
+/* Only the content clips during the open and close transitions. */
+.tasks-page-side-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
 .tasks-page-side-content {
   position: absolute;
   inset: 0 auto 0 0;
   display: flex;
-  width: 420px;
+  width: var(--tasks-page-side-width, 420px);
   --browser-panel-width: 100%;
 }
 

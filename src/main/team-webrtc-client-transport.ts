@@ -1,10 +1,13 @@
 import { generateKeyPairSync, randomBytes, sign, verify } from "node:crypto";
 import { EventEmitter } from "node:events";
 import type { AgentEvent, TeamRealtimeEvent } from "@tommy/contracts/ipc";
+import type { VoiceLiveEvent } from "@tommy/contracts/ipc-voice";
 import { isDynamicRecord, isNumber, isString } from "@tommy/contracts/runtime-values";
 import { teamCapabilitiesForProtocol } from "@tommy/contracts/team-protocol/current";
 import { optionalTeamEvent, optionalTeamEventToCurrent } from "@tommy/contracts/team-protocol/optional-events";
+import { addRoutineTaskReferences } from "@tommy/contracts/team-protocol/routine-run-place-v1";
 import { teamSideRouteCodec } from "@tommy/contracts/team-protocol/side-routes";
+import { addSkillSuggestionNames } from "@tommy/contracts/team-protocol/skill-learning-v1";
 import {
   type TeamProtocolV1CurrentEventControl,
   toWireTeamProtocolV1ClientEvent,
@@ -56,6 +59,7 @@ interface TeamWebRtcClientTransportEvents {
   connected: [hostId: string];
   disconnected: [hostId: string];
   event: [hostId: string, event: AgentEvent | TeamRealtimeEvent];
+  liveVoice: [hostId: string, event: VoiceLiveEvent];
   path: [hostId: string, path: "p2p" | "relay"];
   error: [hostId: string, code: string, message: string];
   desktopData: [hostId: string, data: string | ArrayBuffer];
@@ -474,15 +478,18 @@ export class TeamWebRtcClientTransport extends EventEmitter<TeamWebRtcClientTran
         const status = envelope.status;
         const body = file
           ? null
-          : yield* remoteDecode(() =>
-              sideRoute
+          : yield* remoteDecode(() => {
+              const decoded = sideRoute
                 ? sideRoute.response(path, status, envelope.body, {
                     historyExtent: true,
                     channelAttention: true,
                     agentTaskUiBlocks: true,
                   })
-                : decodeTeamProtocolV9WebRtcHttpResponse(method, path, status, envelope.body),
-            ).pipe(
+                : decodeTeamProtocolV9WebRtcHttpResponse(method, path, status, envelope.body);
+              addSkillSuggestionNames(decoded, envelope.body);
+              addRoutineTaskReferences(decoded, envelope.body);
+              return decoded;
+            }).pipe(
               Effect.mapError(
                 () =>
                   new RemoteWorkflowError({
@@ -1323,7 +1330,26 @@ export class TeamWebRtcClientTransport extends EventEmitter<TeamWebRtcClientTran
         this.#failProtocol(hostId, sourceText("error.remote.malformedKnownEvent"));
         return;
       }
-      if (decoded.status === "known") this.emit("event", hostId, decoded.event);
+      if (decoded.status === "known") {
+        const event = decoded.event;
+        addSkillSuggestionNames(event, frame.payload);
+        addRoutineTaskReferences(event, frame.payload);
+        if (event.type === "live-voice")
+          this.emit(
+            "liveVoice",
+            hostId,
+            event.kind === "transcript"
+              ? {
+                  type: "transcript",
+                  sessionId: event.sessionId,
+                  role: event.role,
+                  text: event.text,
+                  final: event.final,
+                }
+              : { type: "ended", sessionId: event.sessionId, error: event.error },
+          );
+        else this.emit("event", hostId, event);
+      }
       this.#lastEventSequence.set(hostId, frame.sequence);
       this.#sendRecoverable(
         hostId,

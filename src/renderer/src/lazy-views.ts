@@ -31,3 +31,7 @@ export const SettingsModal = lazy(() =>
 export const WorkflowsPage = lazy(() =>
   import("./features/workflows/WorkflowsPage").then((module) => ({ default: module.WorkflowsPage })),
 );
+
+export const LibraryPanel = lazy(() =>
+  import("./features/files/LibraryPanel").then((module) => ({ default: module.LibraryPanel })),
+);

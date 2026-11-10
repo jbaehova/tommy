@@ -31,6 +31,7 @@ import {
   EMPTY_AGENT_NOTIFICATION_LEVELS,
   LOCAL_SERVER_ID,
 } from "@tommy/contracts/ipc";
+import type { VoiceLiveEvent } from "@tommy/contracts/ipc-voice";
 import { TEAM_API_ROUTES } from "@tommy/contracts/team-api-routes";
 import {
   AGENT_NOTIFICATION_LEVELS_CAPABILITY,
@@ -66,6 +67,7 @@ import {
   decodeConversationSearchPageFromHost,
   decodeConversationWithReadState,
 } from "./remote-conversation-decoding";
+import { decodeScopedVoiceLiveEventFromHost } from "./remote-extension-decoding";
 import { acceptEmpty, decodeVoid, type ResponseDecoder } from "./remote-host-decoding";
 import { type RemoteRequestInit, RemoteServerClient } from "./remote-server-client";
 import { RemoteServerConnections } from "./remote-server-connections";
@@ -98,6 +100,7 @@ interface RemoteServerEvents {
   agent: [serverId: string, event: AgentEvent, bufferedLive?: boolean];
   presence: [serverId: string, snapshot: TeamPresenceSnapshot];
   machineAlert: [serverId: string, event: MachineAlertEvent];
+  liveVoice: [serverId: string, event: VoiceLiveEvent];
   attachmentDownload: [progress: AttachmentDownloadProgress];
 }
 
@@ -268,6 +271,7 @@ export class RemoteServerManager extends EventEmitter<RemoteServerEvents> {
       onPresence: (serverId, snapshot) => this.#presence.accept(serverId, snapshot),
       onHostRestart: (serverId, event) => this.#applyHostRestart(serverId, event),
       onMachineAlert: (serverId, event) => this.emit("machineAlert", serverId, event),
+      onLiveVoice: (serverId, event) => this.#forwardLiveVoice(serverId, event),
       onOffline: (serverId) => this.#presence.markOffline(serverId),
       onChanged: () => this.#emitChanged(),
     });
@@ -318,6 +322,7 @@ export class RemoteServerManager extends EventEmitter<RemoteServerEvents> {
       if (wasOnline) this.emit("directoryInvalidated");
     });
     this.#webrtcTransport?.on("event", (serverId, event) => this.#handleWebRtcEvent(serverId, event));
+    this.#webrtcTransport?.on("liveVoice", (serverId, event) => this.#forwardLiveVoice(serverId, event));
     this.#webrtcTransport?.on("error", (serverId, code, message) => {
       // A failure to connect also checks the restart time: the workspace shows "Updating" until it ends.
       // An error on a live connection, such as `rate_limited`, does not start that time.
@@ -1357,6 +1362,11 @@ export class RemoteServerManager extends EventEmitter<RemoteServerEvents> {
       this.#events.syncScopes();
     }
   });
+
+  #forwardLiveVoice(serverId: string, event: VoiceLiveEvent): void {
+    const scoped = decodeScopedVoiceLiveEventFromHost({ serverId, event });
+    this.emit("liveVoice", scoped.serverId, scoped.event);
+  }
 
   #handleWebRtcEvent(serverId: string, event: AgentEvent | TeamRealtimeEvent): void {
     if (event.type === "team-identity") {

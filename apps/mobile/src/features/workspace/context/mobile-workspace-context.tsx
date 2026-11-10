@@ -53,6 +53,7 @@ import { decodeTeamProtocolSupportV9 } from "@tommy/contracts/team-protocol/v9";
 import { VAULT_IMPORT_CAPABILITY } from "@tommy/contracts/team-protocol/vault-import-v1";
 import { VAULT_CAPABILITY } from "@tommy/contracts/team-protocol/vault-v1";
 import { VAULT_V2_CAPABILITY } from "@tommy/contracts/team-protocol/vault-v2";
+import { VAULT_V3_CAPABILITY } from "@tommy/contracts/team-protocol/vault-v3";
 import { sourceText } from "@tommy/i18n/source";
 import {
   createRemoteAccountRefresh,
@@ -94,6 +95,7 @@ import { showFailureAlert } from "@/features/analytics/failure-reports";
 import { useMobileSession } from "@/features/auth/context/mobile-session-context";
 import { decodeMobileBrowserTabs } from "@/features/browser/model/browser-tabs";
 import { MobileChannelStore } from "@/features/channels/model/channel-store";
+import { deleteServerDrafts } from "@/features/chat/model/composer-drafts";
 import { NotificationAvatarSync } from "@/features/push-notifications/notification-avatar-sync";
 import { usePushNotifications } from "@/features/push-notifications/use-push-notifications";
 import { useSyncedNotificationLevelsLoader } from "@/features/push-notifications/use-synced-notification-levels";
@@ -145,6 +147,7 @@ import {
   startDrawerSnapshots,
 } from "@/features/workspace/model/drawer-snapshot";
 import { LiveWorkspaceStore } from "@/features/workspace/model/live-workspace-store";
+import { applyMobileMessageDeletion } from "@/features/workspace/model/message-deletion-cache";
 import {
   dropApproval,
   InactiveRequestError,
@@ -359,6 +362,8 @@ export function MobileWorkspaceProvider({ children }: PropsWithChildren) {
   const cachedSummaries = useRef(new Map<string, RemoteAgent[]>());
   /** Servers whose cache this run read, once each. */
   const restoredServers = useRef(new Set<string>());
+  /** Servers with a complete live snapshot in this session. Disk cache alone is not enough. */
+  const loadedServers = useRef(new Set<string>());
   /** Servers shown from the cache whose connection did not register yet. */
   const quietStarts = useRef(new Set<string>());
   const [liveState] = useState(() => new LiveWorkspaceStore());
@@ -439,9 +444,11 @@ export function MobileWorkspaceProvider({ children }: PropsWithChildren) {
   const dropServerState = useCallback(
     (serverIds: ReadonlySet<string>) => {
       if (!serverIds.size) return;
+      deleteServerDrafts(serverIds);
       const removedAgentIds = new Set<string>();
       for (const serverId of serverIds) {
         removedServers.current.add(serverId);
+        loadedServers.current.delete(serverId);
         deleteServerAvatars(serverId);
         connectionWaits.drop(serverId, new Error(currentText().t("mobile.workspace.error.transportNotReady")));
         readRefresh.invalidate(serverId);
@@ -832,6 +839,7 @@ export function MobileWorkspaceProvider({ children }: PropsWithChildren) {
   const loadConversationAround = useCallback(
     async (agentId: string, messageId: string, serverId = activeServerIdRef.current) => {
       const generation = loadGeneration.current;
+      const conversationVersion = conversationStore.version(agentId);
       // A query parameter never reaches the JSON adapters. A host that does not know `around` sends the
       // latest page, which does not hold an older message, so the chat then opens at the latest message.
       const page = await request(
@@ -844,7 +852,12 @@ export function MobileWorkspaceProvider({ children }: PropsWithChildren) {
       if (page.agentId !== agentId) throw new Error("The server returned a page for another conversation.");
       const current =
         generation === loadGeneration.current && Boolean(serverId) && !removedServers.current.has(serverId ?? "");
-      if (!current || !page.messages.some((message) => message.id === messageId)) return false;
+      if (
+        !current ||
+        conversationStore.version(agentId) !== conversationVersion ||
+        !page.messages.some((message) => message.id === messageId)
+      )
+        return false;
       conversationStore.applyAround(page);
       return true;
     },
@@ -890,8 +903,8 @@ export function MobileWorkspaceProvider({ children }: PropsWithChildren) {
       setPreferences((current) => ({ ...current, [serverId]: saved }));
       context.stage = "connection";
       // Events sent while the connection was down are lost, so open chats read their page again.
-      conversationStore.markStale();
-      await client.connect(serverId, publicKey);
+      conversationStore.markStale(serverAgentIds.current.get(serverId) ?? []);
+      const reusedConnection = await client.connect(serverId, publicKey);
       if (!context.isCurrent()) return;
       context.stage = "compatibility";
       const compatibilityRead = client.request("GET", TEAM_API_ROUTES.compatibility, decodeTeamProtocolSupportV9);
@@ -912,9 +925,11 @@ export function MobileWorkspaceProvider({ children }: PropsWithChildren) {
             () => context.isCurrent() && !removedServers.current.has(serverId),
           ),
         );
-      const early = known
-        ? { capabilities: known, reads: startWorkspaceReads(client, known), conversationReads: loadReads() }
-        : null;
+      const checkOnly = context.checkOnly && reusedConnection && loadedServers.current.has(serverId);
+      const early =
+        known && !checkOnly
+          ? { capabilities: known, reads: startWorkspaceReads(client, known), conversationReads: loadReads() }
+          : null;
       early?.conversationReads.catch(() => undefined);
       const compatibility = await compatibilityRead;
       if (!context.isCurrent()) return;
@@ -928,6 +943,38 @@ export function MobileWorkspaceProvider({ children }: PropsWithChildren) {
       }
       serverCapabilities.current.set(serverId, compatibility.capabilities);
       channelStore.configure(serverId, compatibility.capabilities);
+      // The ordered compatibility answer checks the direct socket. With the same capabilities,
+      // events still own the workspace. Refresh the read state and the chats that have a reader.
+      if (checkOnly && known && sameCapabilities(known, compatibility.capabilities)) {
+        try {
+          context.stage = "reads";
+          await Promise.all([
+            loadReads(),
+            ...agentsRef.current
+              .filter((agent) => agent.serverId === serverId && conversationStore.isObserved(agent.id))
+              .map((agent) =>
+                conversationStore.loadLatest(
+                  agent.id,
+                  () =>
+                    client.request(
+                      "GET",
+                      `${TEAM_API_ROUTES.agent.conversationPage(agent.id)}?limit=50`,
+                      decodeConversationPage,
+                    ),
+                  context.isCurrent,
+                  true,
+                ),
+              ),
+          ]);
+          if (!context.isCurrent()) return;
+          persistServer(serverId);
+          context.stage = "connection";
+          return;
+        } catch {
+          if (!context.isCurrent()) return;
+          // A failed check reads the full workspace below. The normal recovery owns any retry.
+        }
+      }
       // The pins do not hold the connection. Until the host answers, and when it cannot, the pins of
       // this phone stay.
       if (compatibility.capabilities.includes(SIDEBAR_PINS_CAPABILITY))
@@ -1019,12 +1066,9 @@ export function MobileWorkspaceProvider({ children }: PropsWithChildren) {
         sections,
       ]);
       if (!context.isCurrent()) return;
-      // The server is usable now, so the reconnect status does not wait for every cached chat. They
-      // load again after it, the open chat first. A lost connection stops them, and the next attempt
-      // loads them again; a chat that does not load here loads when it opens.
-      const ordered = [...summaries].sort(
-        (a, b) => Number(conversationStore.isObserved(b.id)) - Number(conversationStore.isObserved(a.id)),
-      );
+      loadedServers.current.add(serverId);
+      // Closed chats stay stale and read when they open. Only open chats need a page now.
+      const ordered = summaries.filter((agent) => conversationStore.isObserved(agent.id));
       void (async () => {
         for (const agent of ordered) {
           if (!context.isCurrent()) return;
@@ -1244,6 +1288,22 @@ export function MobileWorkspaceProvider({ children }: PropsWithChildren) {
         }
         return;
       }
+      if (event.type === "conversation-messages-deleted" || event.type === "channel-messages-deleted") {
+        applyMobileMessageDeletion(
+          { queryClient, queryScope, serverId, conversations: conversationStore, channels: channelStore },
+          event,
+        );
+        // An encrypted read-only disk cache must not bring a removed message back after a restart.
+        void workspaceCache
+          ?.remove(serverId)
+          .then(() => persistServer(serverId))
+          .catch(() => undefined);
+        readRefresh.invalidate(serverId);
+        void refreshConversationReads(serverId).catch(() => undefined);
+        if (event.type === "conversation-messages-deleted" && conversationStore.isObserved(event.agentId))
+          void loadConversation(event.agentId, serverId, true).catch(() => undefined);
+        return;
+      }
       // The task events above already wrote the task lists, so a task turn stays out of the chat's activity.
       const chatEvent = withoutTaskTurns(queryClient, queryScope, serverId, event);
       if (
@@ -1321,6 +1381,7 @@ export function MobileWorkspaceProvider({ children }: PropsWithChildren) {
       }
     },
     [
+      workspaceCache,
       persistServer,
       applyServerIdentity,
       liveState,
@@ -1942,7 +2003,9 @@ export function MobileWorkspaceProvider({ children }: PropsWithChildren) {
       canManageVault: (serverId) => administers(serverId, VAULT_CAPABILITY),
       canImportVault: (serverId) => administers(serverId, VAULT_IMPORT_CAPABILITY),
       canTransferServer: (serverId) => administers(serverId, INSTANCE_TRANSFER_CAPABILITY),
-      canManageVaultApiKeys: (serverId) => administers(serverId, VAULT_V2_CAPABILITY),
+      canManageVaultApiKeys: (serverId) =>
+        administers(serverId, VAULT_V2_CAPABILITY) || administers(serverId, VAULT_V3_CAPABILITY),
+      canManageVaultTwoStep: (serverId) => administers(serverId, VAULT_V3_CAPABILITY),
       canManageBrowserProfiles: (serverId) => administers(serverId, BROWSER_PROFILES_CAPABILITY),
       // The same rule as the Updates section of the desktop Server Settings.
       serverUpdateAccess: (serverId) => {

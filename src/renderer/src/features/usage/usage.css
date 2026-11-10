@@ -204,3 +204,16 @@
   min-height: 0;
   flex: 1;
 }
+
+.usage-machine-resources {
+  margin-block-end: var(--tommy-space-4);
+}
+.usage-machine-resources-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tommy-space-3);
+  margin-block-end: var(--tommy-space-3);
+  color: var(--tommy-text-secondary);
+  font-size: var(--tommy-text-sm);
+}

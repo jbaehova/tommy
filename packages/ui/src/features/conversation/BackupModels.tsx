@@ -286,6 +286,8 @@ export function BackupModelsPage(props: BackupModelsPageProps) {
 export interface UsageLimitAskCardProps {
   /** The provider whose usage limit holds the message. */
   provider: AgentProviderId;
+  model?: string | undefined;
+  agentName?: string | undefined;
   /** Epoch seconds, or null when the provider has not said. */
   resetsAt: number | null;
   /** The models that can take the message now, the first one preselected. */
@@ -311,6 +313,10 @@ export function UsageLimitAskCard(props: UsageLimitAskCardProps) {
   const [failure, setFailure] = createSignal<{ message: string; reference: string | null } | null>(null);
   const body = () => {
     const reset = formatUsageReset(props.resetsAt, format);
+    if (props.agentName)
+      return reset
+        ? t("chat.usageLimit.channelBodyReset", { name: props.agentName, reset })
+        : t("chat.usageLimit.channelBody", { name: props.agentName });
     return reset ? t("chat.usageLimit.bodyReset", { reset }) : t("chat.usageLimit.body");
   };
   async function send(option: BackupModelOption): Promise<void> {
@@ -327,7 +333,11 @@ export function UsageLimitAskCard(props: UsageLimitAskCardProps) {
   return (
     <section class="conversation-interaction-card usage-limit-ask-card" aria-labelledby={titleId}>
       <header class="conversation-interaction-header">
-        <strong id={titleId}>{t("chat.usageLimit.title", { provider: agentProviderName(props.provider) })}</strong>
+        <strong id={titleId}>
+          {props.model
+            ? t("chat.usageLimit.modelTitle", { model: props.model })
+            : t("chat.usageLimit.title", { provider: agentProviderName(props.provider) })}
+        </strong>
         <Badge variant="warning-light" class="conversation-interaction-status" role="status">
           <LoaderCircle class="conversation-interaction-spinner" data-icon="inline-start" aria-hidden="true" />
           {t("chat.usageLimit.onHold")}

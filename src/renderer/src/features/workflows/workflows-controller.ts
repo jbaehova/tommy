@@ -1,6 +1,5 @@
 import {
   type AgentAccessLevels,
-  DISCONNECTED_GITHUB_CONNECTOR,
   graphAgentIds,
   type WorkflowDetail,
   type WorkflowGitHubCatalog,
@@ -13,16 +12,22 @@ import {
 } from "@tommy/contracts/ipc";
 import type { AppTextKey } from "@tommy/i18n";
 import { toast } from "@tommy/ui";
-import type { WorkflowCanvasProps } from "@tommy/ui/features/workflows/WorkflowCanvas";
+import type { WorkflowBuild, WorkflowCanvasProps } from "@tommy/ui/features/workflows/WorkflowCanvas";
 import {
   EMPTY_GITHUB_HISTORY,
   githubItemUrl,
   type WorkflowGitHubCanvas,
 } from "@tommy/ui/features/workflows/workflow-github";
-import type { WorkflowDiscordServer, WorkflowPlace } from "@tommy/ui/features/workflows/workflow-model";
+import type {
+  WorkflowChannel,
+  WorkflowDiscordServer,
+  WorkflowPlace,
+  WorkflowSlackWorkspace,
+  WorkflowTelegramChat,
+} from "@tommy/ui/features/workflows/workflow-model";
 import { EMPTY_WORKFLOW_RUN_VIEW, type WorkflowRunView } from "@tommy/ui/features/workflows/workflow-run-view";
 import { useText } from "@tommy/ui/text";
-import { createEffect, createMemo, createSignal, onSettled, untrack } from "solid-js";
+import { createEffect, createMemo, createSignal, createStore, onSettled, untrack } from "solid-js";
 import type { WorkflowHost } from "./workflows-port";
 
 const RUN_PAGE = 20;
@@ -60,12 +65,22 @@ export function createWorkflowsController(host: WorkflowHost) {
     github: WorkflowGitHubHistory;
   }>();
   const [summaries, setSummaries] = createSignal<readonly WorkflowSummary[]>([]);
-  const [places, setPlaces] = createSignal<readonly WorkflowPlace[]>([]);
-  const [discord, setDiscord] = createSignal<readonly WorkflowDiscordServer[]>([]);
+  const [destinations, setDestinations] = createStore<{
+    places: readonly WorkflowPlace[];
+    channels: readonly WorkflowChannel[];
+    discord: readonly WorkflowDiscordServer[];
+    telegram: readonly WorkflowTelegramChat[];
+    slack: readonly WorkflowSlackWorkspace[];
+  }>({ places: [], channels: [], discord: [], telegram: [], slack: [] });
   /** Null while this account manages every agent of the host. */
   const [levels, setLevels] = createSignal<AgentAccessLevels | null>(null);
   const [preview, setPreview] = createSignal<{ versionId: string; graph: WorkflowGraph }>();
   const [resetKey, setResetKey] = createSignal(0);
+  /** The last change of an agent that the canvas plays. */
+  const [build, setBuild] = createSignal<WorkflowBuild>();
+  /** Plays a change of `agentId` on the canvas, from `before`, or from an empty canvas for a new workflow. */
+  const playBuild = (workflowId: string, agentId: string, before: WorkflowGraph | null) =>
+    setBuild((last) => ({ key: (last?.key ?? 0) + 1, workflowId, agentId, before }));
 
   /** The open workflow. A plain value, so that a callback reads the new one at once. */
   let current = "";
@@ -132,6 +147,7 @@ export function createWorkflowsController(host: WorkflowHost) {
   const [githubOptions, setGitHubOptions] = createSignal<ReadonlyMap<string, WorkflowGitHubRepositoryOptions>>(
     new Map(),
   );
+  const [openingGitHub, setOpeningGitHub] = createSignal(false);
   const askedOptions = new Set<string>();
   /** Each read replaces the one before it, so a slow answer never overwrites a newer one. */
   let catalogRead = 0;
@@ -159,8 +175,11 @@ export function createWorkflowsController(host: WorkflowHost) {
     refreshGitHub();
   };
 
-  /** Reads the library and, for the open workflow, its detail, runs and versions. */
-  const read = async (workflowId: string) => {
+  /**
+   * Reads the library and, for the open workflow, its detail, runs and versions. `agentId`: the agent
+   * whose change the read is for. When the change replaces the canvas, the canvas plays it.
+   */
+  const read = async (workflowId: string, agentId?: string) => {
     const seen = edits;
     const list = await host.workflows.list();
     if (disposed) return;
@@ -180,9 +199,13 @@ export function createWorkflowsController(host: WorkflowHost) {
       seen === edits &&
       writing === 0 &&
       pending === undefined;
+    const before = stored()?.detail;
     // The canvas reads the graph only when it opens or resets, so a read under its edits keeps them.
     setStored({ detail: next, runs: page, versions, github });
-    if (outside) reset(next);
+    if (outside) {
+      if (agentId !== undefined && before?.summary.id === workflowId) playBuild(workflowId, agentId, before.graph);
+      reset(next);
+    }
     return next;
   };
 
@@ -238,15 +261,53 @@ export function createWorkflowsController(host: WorkflowHost) {
   };
   const readPlaces = () => {
     host.places().then((next) => {
-      if (!disposed) setPlaces(next);
+      if (!disposed)
+        setDestinations((draft) => {
+          draft.places = next;
+        });
+    }, report);
+    host.channels().then((next) => {
+      if (!disposed)
+        setDestinations((draft) => {
+          draft.channels = next;
+        });
     }, report);
     host.discordServers().then((next) => {
-      if (!disposed) setDiscord(next);
+      if (!disposed)
+        setDestinations((draft) => {
+          draft.discord = next;
+        });
+    }, report);
+    host.telegramChats().then((next) => {
+      if (!disposed)
+        setDestinations((draft) => {
+          draft.telegram = next;
+        });
+    }, report);
+    host.slackWorkspaces().then((next) => {
+      if (!disposed)
+        setDestinations((draft) => {
+          draft.slack = next;
+        });
     }, report);
   };
 
-  const refresh = (workflowId: string | null) => {
-    read(workflowId ?? current).catch(report);
+  const refresh = (workflowId: string | null, agentId?: string) => {
+    // A workflow that an agent makes opens, so the person sees the agent build it. While the person's
+    // edit saves, the open workflow stays, and the new one only goes into the library.
+    if (
+      workflowId !== null &&
+      agentId !== undefined &&
+      workflowId !== current &&
+      writing === 0 &&
+      pending === undefined &&
+      !summaries().some((summary) => summary.id === workflowId)
+    ) {
+      playBuild(workflowId, agentId, null);
+      open(workflowId);
+      return;
+    }
+    read(workflowId ?? current, agentId).catch(report);
     if (workflowId !== null) return;
     readPlaces();
     readLevels();
@@ -255,9 +316,18 @@ export function createWorkflowsController(host: WorkflowHost) {
 
   onSettled(() => {
     const stop = host.onChanged(refresh);
+    const stopChannels = host.onChannelsChanged?.(() => {
+      host.channels().then((next) => {
+        if (!disposed)
+          setDestinations((draft) => {
+            draft.channels = next;
+          });
+      }, report);
+    });
     window.addEventListener("focus", onFocus);
     return () => {
       stop();
+      stopChannels?.();
       window.removeEventListener("focus", onFocus);
       // A pending edit still saves after the page closes.
       flush();
@@ -332,19 +402,18 @@ export function createWorkflowsController(host: WorkflowHost) {
       );
       return undefined;
     },
-    connection: () => ({
-      hostName: undefined,
-      status: DISCONNECTED_GITHUB_CONNECTOR,
-      busy: false,
-      repositories: null,
-      repositoriesError: null,
-      onConnect: () => {},
-      onCancel: () => {},
-      onOpenVerification: () => {},
-      onOpenInstall: () => {},
-    }),
-    openGitHub: () => {},
-    opening: () => false,
+    openGitHub: () => {
+      if (openingGitHub()) return;
+      setOpeningGitHub(true);
+      awaitingInstall = true;
+      host
+        .openUrl("https://github.com/settings/installations")
+        .catch(report)
+        .finally(() => {
+          if (!disposed) setOpeningGitHub(false);
+        });
+    },
+    opening: openingGitHub,
     openItem: (item) => {
       host.openUrl(githubItemUrl(item)).catch(report);
     },
@@ -356,6 +425,9 @@ export function createWorkflowsController(host: WorkflowHost) {
   const props: WorkflowsControllerProps = {
     get resetKey() {
       return resetKey();
+    },
+    get build() {
+      return build();
     },
     get runs() {
       return stored()?.runs ?? EMPTY_WORKFLOW_RUN_VIEW;
@@ -402,6 +474,11 @@ export function createWorkflowsController(host: WorkflowHost) {
       flush();
       const workflowId = current;
       return queued(() => host.workflows.rotateWebhookSecret({ workflowId, nodeId })).then((result) => result.secret);
+    },
+    onSetWebhookSenderSecret: (nodeId, secret) => {
+      flush();
+      const workflowId = current;
+      return queued(() => host.workflows.setSenderSecret({ workflowId, nodeId, secret }));
     },
     onLoadOlderRuns: () => {
       limit += RUN_PAGE;
@@ -453,5 +530,15 @@ export function createWorkflowsController(host: WorkflowHost) {
     },
   };
 
-  return { detail: () => stored()?.detail, places, discord, readOnly: () => lock() !== undefined, github, props };
+  return {
+    detail: () => stored()?.detail,
+    places: () => destinations.places,
+    channels: () => destinations.channels,
+    discord: () => destinations.discord,
+    telegram: () => destinations.telegram,
+    slack: () => destinations.slack,
+    readOnly: () => lock() !== undefined,
+    github,
+    props,
+  };
 }

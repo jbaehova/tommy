@@ -41,6 +41,12 @@ export function ConversationThread() {
     attachmentAction,
     attachmentDownloads,
     browserTakeoverResolution,
+    skillLearningFor,
+    messageDeletion,
+    liveVoiceActive,
+    taggableBrowserTabs,
+    taggableThreads,
+    openTaggedReference,
     installedSkills,
     installedSkillsLoadFailed,
     mcpServers,
@@ -157,7 +163,7 @@ export function ConversationThread() {
     const owned = threadVoiceOwned();
     return {
       phase: owned ? voicePhase() : "idle",
-      blocked: !owned && voicePhase() !== "idle",
+      blocked: liveVoiceActive() || (!owned && voicePhase() !== "idle"),
       liveText: threadVoiceLiveText(),
       levels: voiceLevels(),
       elapsedSeconds: voiceElapsedSeconds(),
@@ -237,7 +243,17 @@ export function ConversationThread() {
             agent={current().agent}
             agents={props.agents}
             messages={messages}
+            skillLearning={(messageId) => skillLearningFor(messageId, current().threads.open?.threadId)}
             skills={installedSkills()}
+            onDeleteMessage={
+              messageDeletion.available()
+                ? (message) => messageDeletion.requestMessage(message, current().threads.open?.id)
+                : undefined
+            }
+            deleteDisabled={messageDeletion.busy()}
+            browserTabs={taggableBrowserTabs()}
+            threads={taggableThreads().filter((task) => task.id !== current().threads.open?.id)}
+            onOpenTag={openTaggedReference}
             skillsLoadFailed={installedSkillsLoadFailed()}
             mcpServers={mcpServers()}
             draft={draft()?.text ?? ""}

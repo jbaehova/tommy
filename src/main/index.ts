@@ -1,7 +1,7 @@
 import { join, resolve } from "node:path";
 import { type AgentEvent, type CentralAuthState, type HostStatus, IPC_ENDPOINTS } from "@tommy/contracts/ipc";
-import { createFormat, resolveLocale, translateFor } from "@tommy/i18n";
-import { localizeSourceText } from "@tommy/i18n/source";
+import { createFormat, resolveLocale, translateFor, withHourCycle } from "@tommy/i18n";
+import { localizeSourceText, sourceText } from "@tommy/i18n/source";
 import { createTommyLogger, toLogValue } from "@tommy/logging";
 import { createRemoteDirectoryRefresh } from "@tommy/team-client/remote-directory";
 import { Effect, Semaphore } from "effect";
@@ -59,6 +59,7 @@ import { instanceTransferIpcHandlers } from "./ipc/instance-transfer-handlers";
 import { macAutomationIpcHandlers } from "./ipc/mac-automation-handlers";
 import { mcpServerIpcHandlers } from "./ipc/mcp-server-handlers";
 import { memoryIpcHandlers } from "./ipc/memory-handlers";
+import { messageDeletionIpcHandlers } from "./ipc/message-deletion-handlers";
 import { notificationIpcHandlers } from "./ipc/notification-handlers";
 import { providerAdminIpcHandlers } from "./ipc/provider-admin-handlers";
 import { providerIpcHandlers } from "./ipc/provider-handlers";
@@ -68,10 +69,12 @@ import { routineIpcHandlers } from "./ipc/routine-handlers";
 import { routineResultIpcHandlers } from "./ipc/routine-result-handlers";
 import { sharedTableIpcHandlers } from "./ipc/shared-table-handlers";
 import { skillIpcHandlers } from "./ipc/skill-handlers";
+import { skillLearningIpcHandlers } from "./ipc/skill-learning-handlers";
 import { storageIpcHandlers } from "./ipc/storage-handlers";
 import { teamIpcHandlers } from "./ipc/team-handlers";
 import { vaultIpcHandlers } from "./ipc/vault-handlers";
 import { voiceIpcHandlers } from "./ipc/voice-handlers";
+import { remoteLiveVoiceEventTarget } from "./ipc/voice-live-handlers";
 import { workflowIpcHandlers } from "./ipc/workflow-handlers";
 import { KeepAwake } from "./keep-awake";
 import { stopAppImageCrashpadHandlerAtExit } from "./linux-appimage-crashpad";
@@ -99,6 +102,7 @@ import { takeServerModeEnvironment } from "./server-mode";
 import { configureContentSecurityPolicy, configureRendererPermissions } from "./session-configuration";
 import { OWNER_PIN_KEY } from "./sidebar-pin-store";
 import { trustSystemCertificates } from "./system-certificates";
+import { systemHourCycle } from "./system-hour-cycle";
 import { TeardownRegistry } from "./teardown-registry";
 import type { TraceFile } from "./trace-file";
 import { setIpcCallObserver } from "./trusted-ipc";
@@ -173,12 +177,16 @@ try {
 
 const commandLineUserDataDirectory = app.commandLine.getSwitchValue("user-data-dir").trim();
 const developmentProfile = !app.isPackaged ? readDevelopmentProfile(process.env.TOMMY_DEV_PROFILE) : null;
+const backgroundDevelopment = !app.isPackaged && process.env.TOMMY_DEV_BACKGROUND === "1";
 // Before any child process starts: agents must not run as part of a Claude Code session that started Tommy.
 removeClaudeCodeSessionEnvironment(process.env);
 const serverMode = takeServerModeEnvironment(process.env, app.isPackaged, process.platform);
-if (serverMode) {
+if (serverMode || backgroundDevelopment) {
   hideExceptionErrorBox();
   keepWindowsHidden();
+}
+if (backgroundDevelopment) {
+  app.on("browser-window-created", (_event, window) => window.setFocusable(false));
 }
 const developmentRemoteDebuggingPort = !app.isPackaged
   ? readDevelopmentRemoteDebuggingPort(process.env.TOMMY_DEV_REMOTE_DEBUGGING_PORT)
@@ -355,7 +363,10 @@ const {
   // An agent event cannot arrive before the services that raise it, so the fallback stands only so
   // that this module-level value needs no null check on the notification path.
   getTranslate: () => services?.language.translate ?? translateFor("en"),
-  getFormat: () => createFormat(services?.language.locale ?? "en"),
+  getFormat: () => {
+    const locale = services?.language.locale ?? "en";
+    return createFormat(locale, withHourCycle(locale, systemHourCycle()));
+  },
   // The desktop app shows the notifications of a local server, as it does for every joined server.
   desktopNotificationsEnabled: () => services?.notificationPreference.get().desktopNotifications ?? true,
   notificationPreviewEnabled: () => services?.notificationPreference.get().messagePreview ?? true,
@@ -453,6 +464,8 @@ function registerIpcHandlers({
   centralAuth,
   pairedServer,
   skills,
+  skillLearning,
+  workflowConnectors,
   vault,
   routineFeed,
   events,
@@ -510,8 +523,25 @@ function registerIpcHandlers({
     ...macAutomationIpcHandlers({ platform: process.platform }),
     ...backgroundProcessIpcHandlers({ platform: process.platform, agents: () => service.listAgents() }),
     ...providerIpcHandlers({ service, providerRuntimes, credentials: providerCredentials, openLink }),
-    ...voiceIpcHandlers({ remoteServers, forwardTranscript: forwardVoiceStreamTranscript }),
+    ...voiceIpcHandlers({
+      remoteServers,
+      liveVoice: service.liveVoice,
+      forwardTranscript: forwardVoiceStreamTranscript,
+    }),
     ...accountIpcHandlers({ centralAuth, pairedServer, remoteServers }),
+    ...skillLearningIpcHandlers({
+      skillLearning,
+      saveSuggestion: (input) => service.saveSkillSuggestion(input),
+      remoteServers,
+    }),
+    ...messageDeletionIpcHandlers({
+      deleteMessage: (input) => service.deleteMessage(input),
+      deleteTaskMessage: (input) => service.deleteTaskMessage(input),
+      deleteChannelMessage: (input) => service.deleteChannelMessage(input),
+      deleteAgentHistory: (input) => service.deleteAgentHistory(input),
+      deleteChannelHistory: (input) => service.deleteChannelHistory(input),
+      remoteServers,
+    }),
     ...skillIpcHandlers({ skills, getMainWindow: getDialogParent, translate: language.translate }),
     ...agentFolderIpcHandlers({
       folders: agentFolders,
@@ -541,7 +571,16 @@ function registerIpcHandlers({
     ...sharedTableIpcHandlers({ service, remoteServers }),
     ...routineIpcHandlers({ service, remoteServers }),
     ...routineFlowIpcHandlers({ routineFlows, remoteServers }),
-    ...workflowIpcHandlers({ workflows, events, remoteServers }),
+    ...workflowIpcHandlers({
+      workflows,
+      events,
+      remoteServers,
+      integrationCatalog: () => workflowConnectors.catalog(),
+      githubCatalog: () => workflowConnectors.githubCatalog(),
+      githubOptions: (repository) =>
+        workflowConnectors.githubApi()?.options(repository) ??
+        Effect.fail({ code: "noAccess" as const, message: sourceText("error.workflow.outputRefused") }),
+    }),
     ...routineResultIpcHandlers({ routineResults }),
     ...channelMemoryIpcHandlers({ service, remoteServers }),
     ...channelRoutineIpcHandlers({ service, remoteServers }),
@@ -643,6 +682,10 @@ function requestDesktopNotificationPermission(
 /** `null` for every state but a signed-in one, matching what the two principal trackers store. */
 /** The Dock tile, the Linux desktop entry and the `tommy://` scheme. A local server has none of them. */
 async function presentApplication(): Promise<void> {
+  if (backgroundDevelopment) {
+    if (process.platform === "darwin") app.setActivationPolicy("accessory");
+    return;
+  }
   await ensureMacApplicationPresence(
     process.platform,
     (policy) => app.setActivationPolicy(policy),
@@ -946,6 +989,18 @@ if (!hasSingleInstanceLock) {
       remoteServers.on("agent", (serverId, event, bufferedLive) => {
         forwardAgentEvent(serverId, event, bufferedLive);
       });
+      remoteServers.on("liveVoice", (serverId, event) => {
+        const target = remoteLiveVoiceEventTarget(serverId, event);
+        const window = target ? BrowserWindow.fromWebContents(target) : null;
+        if (window) sendToRenderer(window, IPC_ENDPOINTS.voice.liveEvent, { serverId, event });
+      });
+      service.on("liveVoice", (event, ownerId) => {
+        if (ownerId.startsWith("local:")) {
+          const senderId = Number(ownerId.slice("local:".length));
+          const window = BrowserWindow.getAllWindows().find((candidate) => candidate.webContents.id === senderId);
+          if (window) sendToRenderer(window, IPC_ENDPOINTS.voice.liveEvent, { serverId: "local", event });
+        } else host.publishLiveVoice(ownerId, event);
+      });
       remoteServers.on("presence", forwardTeamPresence);
       remoteServers.on("attachmentDownload", forwardAttachmentDownload);
       // Machine alerts are hidden for now: the check does not start, and no alert notification shows.
@@ -1021,6 +1076,7 @@ if (!hasSingleInstanceLock) {
       reconcileDynamicIsland();
       await windows.loadRenderer(mainWindow);
       performance.mark("tommy:renderer-loaded");
+      Effect.runFork(built.prewarmAgentDatabase);
       // `sendToRenderer` dropped the server changes made while the window loaded: the host list and
       // the connection of the selected server. The renderer can have read the list before them.
       forwardServers(remoteServers.list());

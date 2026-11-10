@@ -12,6 +12,7 @@ import {
 import { type DynamicRecord, isDynamicRecord } from "@tommy/contracts/runtime-values";
 import { sourceText } from "@tommy/i18n/source";
 import { Deferred, Effect, Schema } from "effect";
+import { childProcessEnvironment } from "./child-process-environment";
 import { agentLaunchPath, isExecutable } from "./cli";
 import { causeHelpers } from "./effect-boundary";
 import { isMissingFileError } from "./file-errors";
@@ -418,7 +419,12 @@ export function mcpEnvironment(config: McpServerConfig): Record<string, string> 
     if (value !== undefined) environment[name] = value;
   }
   for (const pair of config.env) environment[pair.key] = pair.value;
-  return environment;
+  // This reserved host setting cannot be passed through by an agent-controlled MCP configuration.
+  return Object.fromEntries(
+    Object.entries(childProcessEnvironment(environment)).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
+  );
 }
 
 /** Claude reads a record keyed by name. Its stdio entry takes `cwd`; its http entry takes headers. */
@@ -529,7 +535,7 @@ export function acpMcpServers(servers: readonly UsableMcpServer[]): McpHandoff<A
  * and gave a Codex agent no tools. Two names that become the same key keep the first; the second is
  * reported as a drop.
  *
- * **A key Codex's own files use with the other transport travels as `tommy_<key>`.** See
+ * **A key Codex's own files already use travels as `tommy_<key>`.** See
  * `codexMcpServerKey`.
  */
 export type CodexMcpServer =
@@ -557,6 +563,8 @@ export type CodexOwnTransports = Readonly<Record<string, McpTransport>>;
 export interface CodexOwnServers {
   disabled: Record<string, CodexDisabledMcpServer>;
   transports: CodexOwnTransports;
+  /** Config layers stay internal, only for preserving explicit user prompt settings. */
+  read: DynamicRecord | null;
 }
 
 export function codexOwnTransports(configured: DynamicRecord | null): CodexOwnTransports {
@@ -583,6 +591,7 @@ export const codexDisabledServers = Effect.fn("McpShape.codexDisabledServers")(f
       }),
     ),
     transports: codexOwnTransports(configured),
+    read: config,
   };
 });
 
@@ -599,18 +608,19 @@ export function providerMcpServerName(name: string): string {
 
 /**
  * The key one server travels under to Codex. Codex merges a thread entry with the entry of the same
- * key in its own files. A stdio `command` and an http `url` under one key stop Codex from loading
- * its configuration at all, and the chat cannot start. The server then travels as `tommy_<key>`,
- * and the user's own entry stays as written, turned off. A clash with the same transport keeps the
- * key.
+ * key in its own files, field by field. A thread entry cannot remove an inherited field. Different
+ * transports can make the configuration invalid; the same transport can keep an unrelated
+ * enabled_tools filter and hide Tommy's tools. A used key therefore travels as `tommy_<key>`.
+ * If that new key is also taken, the same transport keeps its original key rather than being lost.
  *
  * Computer Use keeps its key: its tool consent and its instructions are found by that name.
  */
 export function codexMcpServerKey(config: McpServerConfig, own: CodexOwnTransports = {}): string {
   const name = providerMcpServerName(config.name);
-  return config.id !== AGENT_DESKTOP_MCP_SERVER_ID && Object.hasOwn(own, name) && own[name] !== config.transport
-    ? `tommy_${name}`
-    : name;
+  if (config.id === AGENT_DESKTOP_MCP_SERVER_ID || !Object.hasOwn(own, name)) return name;
+  const renamed = `tommy_${name}`;
+  const renamedTaken = Object.hasOwn(own, renamed) || isReservedMcpServerName(renamed);
+  return renamedTaken && own[name] === config.transport ? name : renamed;
 }
 
 /** Whether a key from `codexMcpServerKey` is taken by another server, or a renamed key by Tommy's own tools. */

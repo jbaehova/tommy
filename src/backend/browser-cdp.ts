@@ -27,6 +27,7 @@ import {
   CARD_SELECT_OPTION_FUNCTION,
   cardFieldAccepts,
   cardFieldText,
+  LOADED_FROM_NETWORK,
   parseCardFieldDescription,
 } from "./browser-card-fill";
 import {
@@ -315,10 +316,17 @@ export class BrowserCdpEngine {
       clear: (secret: string) => Effect.Effect<boolean, BrowserOperationError>;
       /**
        * Which secret the fields are built for, so a fill that no user approves goes only there: every
-       * field is a password field, or every field asks for a one-time code. The fingerprint check of
-       * `enter` keeps this true until the fill.
+       * field is a password field, or every field asks for a one-time code. A masked text input also
+       * counts as a password field. A code field has one-time-code autocomplete, or strong authenticator
+       * words in its id, name or aria-label. SMS, email and recovery fields do not qualify by name.
+       * The fingerprint keeps these attributes stable until entry; the computed mask is read only here.
        */
       fields: { password: boolean; oneTimeCode: boolean };
+      /**
+       * A service worker handled the page's navigation, so its code could come from Cache Storage. Read
+       * in the automation world. A worker that the page registers and claims later serves no navigation.
+       */
+      servedByWorker: boolean;
     },
     BrowserOperationError
   > {
@@ -395,19 +403,23 @@ export class BrowserCdpEngine {
         // The form method does not count: many sign-in forms have no method and send with their own
         // script. The host blocks a navigation that would carry a vault value in its URL.
         const fields = { password: inputs.length > 0, oneTimeCode: inputs.length > 0 };
+        let servedByWorker = false;
         for (const node of inputs) {
           const kind = yield* this.#callOnNode(
             send,
             node.backendNodeId,
             `function() {
-              return { password: this.type === 'password', oneTimeCode: (this.getAttribute('autocomplete') ?? '').toLowerCase().split(/\\s+/).includes('one-time-code') };
+              const named = [this.id, this.name, this.getAttribute('aria-label') ?? ''].join(' ').replace(/([a-z])([A-Z0-9])/g, '$1 $2').toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+              const oneTimeCode = (this.getAttribute('autocomplete') ?? '').toLowerCase().split(/\\s+/).includes('one-time-code') || (['text', 'tel', 'number'].includes(this.type) && /totp|\\b(?:otp|2fa|mfa)+(?:code|token|pin)?\\b|\\bauthenticator\\b|\\bone ?time ?(?:code|password|passcode|pin)\\b|\\bverification ?code\\b|\\btwo ?factor\\b/.test(named) && !/backup|recovery|mail|phone|sms|name|label/.test(named));
+              return { password: this.type === 'password' || (this.type === 'text' && !['', 'none'].includes(getComputedStyle(this).getPropertyValue('-webkit-text-security'))), oneTimeCode, network: ${LOADED_FROM_NETWORK} };
             }`,
             [],
           );
           fields.password &&= isDynamicRecord(kind) && kind.password === true;
           fields.oneTimeCode &&= isDynamicRecord(kind) && kind.oneTimeCode === true;
+          servedByWorker ||= !isDynamicRecord(kind) || kind.network !== true;
         }
-        return { inputs, button, usernameNode, fingerprints, fields };
+        return { inputs, button, usernameNode, fingerprints, fields, servedByWorker };
       }),
     );
     if (generation !== this.#navigationGeneration)
@@ -542,7 +554,7 @@ export class BrowserCdpEngine {
           return !recordValue(scan.exceptionDetails) && recordValue(scan.result)?.value === false;
         }),
       ).pipe(Effect.catch(() => Effect.succeed(false)));
-    return { enter, clear, fields: nodes.fields };
+    return { enter, clear, fields: nodes.fields, servedByWorker: nodes.servedByWorker };
   });
 
   /**
@@ -559,7 +571,8 @@ export class BrowserCdpEngine {
     targets: BrowserCardTargets,
     card: VaultCardSecret,
     policy: {
-      checkOrigin: (origin: string) => void;
+      /** `servedByWorker`: a service worker handled the navigation of the field's frame. */
+      checkOrigin: (origin: string, servedByWorker: boolean) => void;
       allowFill: () => Effect.Effect<boolean, BrowserOperationError>;
       onFill: () => void;
     },
@@ -592,7 +605,7 @@ export class BrowserCdpEngine {
           if (!description?.connected)
             return yield* unavailable(field, "is unavailable here. Take a fresh snapshot, or use request_takeover.");
           if (!description.secure) return yield* unavailable(field, "is not in an HTTPS page. Use request_takeover.");
-          yield* browserSync(() => policy.checkOrigin(description.origin));
+          yield* browserSync(() => policy.checkOrigin(description.origin, !description.network));
           if (description.disabled || !cardFieldAccepts(field, description))
             return yield* unavailable(field, "is not an enabled field that takes this value.");
           if (description.sendsGet && (field === "number" || field === "securityCode"))
@@ -675,6 +688,7 @@ export class BrowserCdpEngine {
   });
   #retainDebugger = false;
   #ownsDebugger = false;
+  #idleDetach: NodeJS.Immediate | undefined;
   #closing = false;
   #disposed = false;
   readonly #scope = Scope.makeUnsafe();
@@ -1990,8 +2004,18 @@ export class BrowserCdpEngine {
 
   /** The engine sees a dialog only while it stays attached: for each lease, watch, and open dialog. */
   #releaseIdleDebugger(): void {
-    if (this.#activeLeases === 0 && !this.#retainDebugger && !this.#dialog && this.#dialogWatches.size === 0)
-      this.#detachOwnedDebugger();
+    if (!this.#debuggerIdle() || this.#idleDetach) return;
+    // A lease can end inside a CDP message: a command fails while Chromium detaches the frame sessions
+    // of a committing navigation. A detach there frees the sessions that Chromium still uses, and the
+    // main process crashes (#5520). Detach on a later task, if the debugger is still idle then.
+    this.#idleDetach = setImmediate(() => {
+      this.#idleDetach = undefined;
+      if (this.#debuggerIdle()) this.#detachOwnedDebugger();
+    });
+  }
+
+  #debuggerIdle(): boolean {
+    return this.#activeLeases === 0 && !this.#retainDebugger && !this.#dialog && this.#dialogWatches.size === 0;
   }
 
   #signalDialogChange(): void {
@@ -2482,6 +2506,8 @@ export class BrowserCdpEngine {
     this.#disposed = true;
     yield* Scope.close(this.#scope, Exit.void);
     this.#retainDebugger = false;
+    clearImmediate(this.#idleDetach);
+    this.#idleDetach = undefined;
     this.#detachOwnedDebugger();
     // Electron keeps its box open after the page closes, a person's box too, and nobody can answer it
     // then. The box can also show after the close. The emit only runs JavaScript listeners.
@@ -2572,6 +2598,7 @@ export class BrowserCdpEngine {
     awaitPromise = true,
     timeoutMs = ACTION_TIMEOUT_MS,
     undefinedAsNull = false,
+    maxBytes = MAX_RESULT_BYTES,
   ): Effect.fn.Return<BrowserJsonValue, BrowserOperationError> {
     return yield* this.#leaseEffect((send) =>
       Effect.gen({ self: this }, function* () {
@@ -2602,8 +2629,10 @@ export class BrowserCdpEngine {
         if (serialized === undefined)
           return yield* browserFailure(new Error("Browser evaluation result is not JSON-serializable."));
         const bytes = Buffer.byteLength(serialized, "utf8");
-        if (bytes > MAX_RESULT_BYTES) {
-          return yield* browserFailure(new Error(`Browser evaluation result exceeds 64 KB (${bytes} bytes).`));
+        if (bytes > maxBytes) {
+          return yield* browserFailure(
+            new Error(`Browser evaluation result exceeds ${Math.round(maxBytes / 1024)} KB (${bytes} bytes).`),
+          );
         }
         // `serialized` is the value the caller receives, so parse that rather than asserting over
         // `value`: JSON.stringify already dropped anything a JSON value cannot hold.

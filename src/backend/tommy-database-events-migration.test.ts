@@ -10,6 +10,7 @@ import { AgentRoutineStore } from "./agent-routine-store";
 import { ChannelRoutineStore } from "./channel-routine-store";
 import { ChannelStore } from "./channel-store";
 import { runCauseEffect } from "./effect-boundary";
+import { removeImprovementSchemaFixture } from "./migration-fixture-rows";
 import { TommyDatabase } from "./tommy-database";
 
 const roots: string[] = [];
@@ -114,7 +115,7 @@ describe("Tommy webhook routine migration", () => {
     expect(migratedRoutines.getRecord("chief", routine.id)?.trigger).toMatchObject({ kind: "webhook", url: null });
     expect(migratedRoutines.listRuns("chief", routine.id, 10)).toEqual([expect.objectContaining({ id: run.id })]);
     expect(migrated.connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-      version: 52,
+      version: 58,
     });
     expect(migrated.connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     expect(migrated.connection.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
@@ -164,7 +165,7 @@ describe("Tommy webhook routine migration", () => {
       instruction: routine.instruction,
     });
     expect(retried.connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-      version: 52,
+      version: 58,
     });
     expect(retried.connection.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
     expect(retried.connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
@@ -182,6 +183,7 @@ async function createDatabase(): Promise<{ database: TommyDatabase; routineStore
 }
 
 function removeWebhookSchema(database: DatabaseSync): void {
+  removeImprovementSchemaFixture(database);
   database.exec(`
     DROP TABLE projection_routine_webhooks;
     DROP TABLE projection_channel_routine_webhooks;

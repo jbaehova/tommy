@@ -18,10 +18,18 @@ import {
   type VaultSecretRequest,
   type VaultState,
   type VaultStatus,
+  type VaultTwoStepCodes,
 } from "@tommy/contracts/ipc";
+import {
+  normalizeTwoStepKey,
+  parseTwoStepKey,
+  twoStepCode,
+  twoStepKeySecret,
+  twoStepRemainingMs,
+} from "@tommy/contracts/two-step-code";
 import { type SourceMessages, sourceText } from "@tommy/i18n/source";
-import { registerSecretValues } from "@tommy/logging";
-import { Effect } from "effect";
+import { registerExpiringSecretValues, registerSecretValues } from "@tommy/logging";
+import { Effect, Result } from "effect";
 import { type PasswordVault, PasswordVaultError, websiteMatchesOrigin, websiteUrl } from "../backend/password-vault";
 import {
   cardNumberLogForms,
@@ -55,6 +63,16 @@ function refuse(key: VaultErrorKey): never {
 function registerSecrets(record: VaultRecord): void {
   registerSecretValues(
     record.logins.map((login) => login.password),
+    { allowShort: true },
+  );
+  registerSecretValues(
+    record.logins.flatMap(({ twoStepKey }) => {
+      if (!twoStepKey) return [];
+      const secret = twoStepKeySecret(twoStepKey);
+      return secret
+        ? [twoStepKey, secret, secret.toLowerCase(), secret.match(/.{1,4}/gu)?.join(" ") ?? secret]
+        : [twoStepKey];
+    }),
     { allowShort: true },
   );
   registerSecretValues(record.cards.flatMap(({ number }) => cardNumberLogForms(number)));
@@ -172,6 +190,7 @@ function summary(record: VaultRecord): VaultItemSummary[] {
         username: login.username,
         notes: login.notes,
         hasPassword: login.password.length > 0,
+        hasTwoStep: Boolean(login.twoStepKey),
       }),
     ),
     ...record.cards.map(
@@ -211,6 +230,8 @@ function replaceOrAdd<T extends { id: string }>(items: readonly T[], item: T): T
 
 /** The CSV file that `importCsv` reads, in bytes. A password export of thousands of logins fits. */
 export const VAULT_CSV_LIMIT = 4 * 1024 * 1024;
+/** Keep expired codes masked while an outstanding fill or delayed diagnostic settles. */
+const TWO_STEP_REDACTION_GRACE_MS = 5 * 60_000;
 
 export interface VaultServiceOptions {
   store: VaultStore;
@@ -308,15 +329,21 @@ export class VaultService {
           website.length <= VAULT_TEXT_LIMIT &&
           row.username.length <= VAULT_TEXT_LIMIT &&
           row.password.length <= VAULT_PASSWORD_LIMIT;
-        const duplicate =
-          valid &&
-          logins.some(
-            (login) =>
-              loginTitle(login.website) === loginTitle(website) &&
-              login.username === row.username &&
-              login.password === row.password,
-          );
-        if (!valid || duplicate) {
+        const duplicate = valid
+          ? logins.find(
+              (login) =>
+                loginTitle(login.website) === loginTitle(website) &&
+                login.username === row.username &&
+                login.password === row.password,
+            )
+          : undefined;
+        const twoStepKey = row.twoStepKey ? normalizeTwoStepKey(row.twoStepKey) : null;
+        if (valid && duplicate && twoStepKey && !duplicate.twoStepKey) {
+          logins[logins.indexOf(duplicate)] = { ...duplicate, twoStepKey };
+          imported += 1;
+          continue;
+        }
+        if (!valid || duplicate || (row.twoStepKey && !twoStepKey)) {
           skipped += 1;
           continue;
         }
@@ -326,6 +353,7 @@ export class VaultService {
           username: row.username,
           password: row.password,
           notes: row.notes.slice(0, VAULT_NOTES_LIMIT),
+          ...(twoStepKey ? { twoStepKey } : {}),
         });
         imported += 1;
       }
@@ -347,6 +375,29 @@ export class VaultService {
     return this.state();
   });
 
+  /** Returns short-lived codes only. Setup keys never leave the host. */
+  readonly codes = Effect.fn("VaultService.codes")(function* (
+    this: VaultService,
+  ): Effect.fn.Return<VaultTwoStepCodes, PasswordVaultError> {
+    yield* Effect.try({ try: () => this.#requireReady(), catch: (cause) => new PasswordVaultError({ cause }) });
+    const at = Date.now();
+    const codes: VaultTwoStepCodes["codes"] = [];
+    for (const login of this.#store.read().logins) {
+      const key = login.twoStepKey ? parseTwoStepKey(login.twoStepKey) : null;
+      if (!key) continue;
+      const code = yield* Effect.tryPromise({
+        try: () => twoStepCode(key, at),
+        catch: (cause) => new PasswordVaultError({ cause }),
+      });
+      codes.push({ id: login.id, code, period: key.period, remainingMs: twoStepRemainingMs(key.period, at) });
+    }
+    registerExpiringSecretValues(
+      codes.map(({ code }) => code),
+      at + codes.reduce((longest, code) => Math.max(longest, code.remainingMs), 0) + TWO_STEP_REDACTION_GRACE_MS,
+    );
+    return { codes };
+  });
+
   /** The built-in logins, for the password vault router under the `tommy:` prefix. */
   readonly logins: PasswordVault = {
     connected: () => this.#status === "ready" && this.#store.read().logins.length > 0,
@@ -360,16 +411,24 @@ export class VaultService {
             id: login.id,
             title: loginTitle(login.website),
             username: login.username || null,
-            hasOneTimePassword: false,
+            hasOneTimePassword: Boolean(login.twoStepKey),
           }));
       }),
     secretFor: (loginId, origin, kind) =>
-      Effect.sync(() => {
-        if (this.#status !== "ready" || kind !== "password") return null;
+      Effect.gen({ self: this }, function* () {
+        if (this.#status !== "ready") return null;
         const login = this.#store.read().logins.find((item) => item.id === loginId);
-        if (!login?.password || !websiteMatchesOrigin({ url: login.website, autofill: "anywhere" }, origin))
-          return null;
-        return login.password;
+        if (!login || !websiteMatchesOrigin({ url: login.website, autofill: "anywhere" }, origin)) return null;
+        if (kind === "password") return login.password || null;
+        const key = login.twoStepKey ? parseTwoStepKey(login.twoStepKey) : null;
+        if (!key) return null;
+        const at = Date.now();
+        const code = yield* Effect.tryPromise({
+          try: () => twoStepCode(key, at),
+          catch: (cause) => new PasswordVaultError({ cause }),
+        });
+        registerExpiringSecretValues([code], at + twoStepRemainingMs(key.period, at) + TWO_STEP_REDACTION_GRACE_MS);
+        return code;
       }),
   };
 
@@ -587,12 +646,14 @@ export class VaultService {
     const existing = input.id === null ? undefined : this.#find(record.logins, input.id);
     const password = input.password ?? existing?.password;
     if (!password) return refuse("error.vault.passwordRequired");
+    const twoStepKey = input.twoStepKey === undefined ? existing?.twoStepKey : input.twoStepKey;
     return {
       id: existing?.id ?? randomUUID(),
       website: input.website,
       username: input.username,
       notes: input.notes,
       password,
+      ...(twoStepKey ? { twoStepKey } : {}),
       ...origin(existing, addedBy),
     };
   }
@@ -662,10 +723,13 @@ export class VaultService {
     if (this.#status === "unavailable") return yield* vaultError("error.vault.unavailable");
     if (this.#status === "unreadable") return yield* vaultError("error.vault.unreadable");
     const before = this.#store.read();
-    const next = yield* this.#store.update(change);
-    if (next === before) return;
-    registerSecrets(next);
-    this.#emit();
+    const updated = yield* Effect.result(this.#store.update(change));
+    const next = Result.isSuccess(updated) ? updated.success : this.#store.read();
+    if (next !== before) {
+      registerSecrets(next);
+      this.#emit();
+    }
+    if (Result.isFailure(updated)) return yield* updated.failure;
   });
 
   #emit(): void {

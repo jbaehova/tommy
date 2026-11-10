@@ -1,10 +1,39 @@
+import type { BrowserProfileProxyInput, BrowserProfileProxySummary } from "./browser-profile-proxy";
 import type { AgentAccessChange, AgentAccessSnapshot } from "./ipc-agent-access";
 import type {
   AgentSessionSettings,
   ResetAgentSessionSettingInput,
   SetAgentSessionSettingInput,
 } from "./ipc-agent-session-settings";
+import type { AgentSpeedModels, AgentSpeedSettings, UpdateAgentSpeedInput } from "./ipc-agent-speed";
+import type {
+  ChannelHistoryDeleteInput,
+  ChannelMessageDeleteInput,
+  HistoryDeleteInput,
+  HistoryDeleteResult,
+  MessageDeleteInput,
+  MessageDeleteResult,
+  TaskMessageDeleteInput,
+} from "./ipc-message-deletion";
 import type { ServerAuditLog } from "./ipc-server-audit";
+import type {
+  HostSkillLearning,
+  RestoreLearnedSkillInput,
+  RestoreLearnedSkillResult,
+  SaveSkillSuggestionInput,
+  SaveSkillSuggestionResult,
+  SkillLearningPreference,
+} from "./ipc-skill-learning";
+import type { VaultTwoStepCodes } from "./ipc-vault";
+import type {
+  ScopedVoiceLiveEvent,
+  VoiceLiveCancel,
+  VoiceLiveSession,
+  VoiceLiveStart,
+  VoiceLiveStop,
+} from "./ipc-voice";
+import type { SetRoutineSenderSecretInput, SetWorkflowSenderSecretInput } from "./ipc-webhook-sender-secret";
+import type { WorkflowIntegrationCatalog } from "./ipc-workflows";
 // The one channel list. Each endpoint holds its wire value, the group it belongs to, and whether it
 // is a request the renderer invokes or an event the main process sends. That is what lets a
 // registrar bind its handlers as an object keyed by endpoint, so a channel with no handler, and a
@@ -652,6 +681,10 @@ export const IPC_ENDPOINTS = {
     event: event<ProviderRuntimeSnapshot>()("provider-runtimes:event"),
   },
   voice: {
+    startLive: scopedRequest<VoiceLiveStart, VoiceLiveSession>()("voice:start-live"),
+    cancelLive: scopedRequest<VoiceLiveCancel, void>()("voice:cancel-live"),
+    stopLive: scopedRequest<VoiceLiveStop, void>()("voice:stop-live"),
+    liveEvent: event<ScopedVoiceLiveEvent>()("voice:live-event"),
     /** The status of the model of the host: ready when the host has an API key. */
     getModelStatus: request<undefined, VoiceModelStatus>()("voice:get-model-status"),
     prepareModel: request<undefined, VoiceModelStatus>()("voice:prepare-model"),
@@ -855,7 +888,19 @@ export const IPC_ENDPOINTS = {
   // returns one when the user asks, and `copy` writes one to the clipboard in main. The `host*`
   // endpoints do the same for one server: a joined server answers through `vault-v1`, to an owner
   // or admin. It has no CSV import, as the file is on this computer.
+  skillLearning: {
+    listLocal: scopedQuery<MarketplaceSkillDetail[], "required">()("skill-learning:local-list"),
+    readLocal: scopedRequest<LocalSkillRevisionInput, MarketplaceSkillDetail, "required">()(
+      "skill-learning:local-read",
+    ),
+    get: scopedQuery<HostSkillLearning>()("skill-learning:get"),
+    set: scopedRequest<SkillLearningPreference, HostSkillLearning>()("skill-learning:set"),
+    save: scopedRequest<SaveSkillSuggestionInput, SaveSkillSuggestionResult>()("skill-learning:save"),
+    restore: scopedRequest<RestoreLearnedSkillInput, RestoreLearnedSkillResult>()("skill-learning:restore"),
+  },
   vault: {
+    codes: request<undefined, VaultTwoStepCodes>()("vault:codes"),
+    hostCodes: scopedQuery<VaultTwoStepCodes, "required">()("vault:host-codes"),
     list: request<undefined, VaultState>()("vault:list"),
     save: request<VaultSaveInput, VaultState>()("vault:save"),
     delete: request<string, VaultState>()("vault:delete"),
@@ -1067,6 +1112,8 @@ export const IPC_ENDPOINTS = {
    * when it supports it.
    */
   workflows: {
+    setSenderSecret: scopedRequest<SetWorkflowSenderSecretInput, void>()("workflows:set-sender-secret"),
+    integrationCatalog: scopedQuery<WorkflowIntegrationCatalog>()("workflows:integration-catalog"),
     list: scopedQuery<WorkflowSummary[]>()("workflows:list"),
     get: scopedRequest<string, WorkflowDetail>()("workflows:get"),
     create: scopedRequest<CreateWorkflowInput, WorkflowDetail>()("workflows:create"),
@@ -1218,7 +1265,27 @@ export const IPC_ENDPOINTS = {
   },
   // Access and auto-approve of one agent, read and written on the computer that runs it. A joined
   // server answers only an owner or admin, and only when it advertises `agent-admin-v1`.
+  messageDeletion: {
+    deleteMessage: scopedRequest<MessageDeleteInput, MessageDeleteResult>()("agent:delete-message"),
+    deleteTaskMessage: scopedRequest<TaskMessageDeleteInput, MessageDeleteResult>()("agent:delete-task-message"),
+    deleteChannelMessage: scopedRequest<ChannelMessageDeleteInput, MessageDeleteResult>()(
+      "agent:delete-channel-message",
+    ),
+    deleteAgentHistory: scopedRequest<HistoryDeleteInput, HistoryDeleteResult>()("agent:delete-history"),
+    deleteChannelHistory: scopedRequest<ChannelHistoryDeleteInput, HistoryDeleteResult>()(
+      "agent:delete-channel-history",
+    ),
+  },
   agentAdmin: {
+    getAgentSpeedModels: scopedQuery<AgentSpeedModels>()("agent:admin:speed-models"),
+    getAgentSpeed: scopedRequest<string, AgentSpeedSettings>()("agent:admin:get-speed"),
+    updateAgentSpeed: scopedRequest<UpdateAgentSpeedInput, AgentSpeedSettings>()("agent:admin:update-speed"),
+    getBrowserProfileProxy: scopedRequest<string, BrowserProfileProxySummary>()(
+      "agent:admin:get-browser-profile-proxy",
+    ),
+    setBrowserProfileProxy: scopedRequest<BrowserProfileProxyInput, BrowserProfileProxySummary>()(
+      "agent:admin:set-browser-profile-proxy",
+    ),
     getAgentHostSettings: scopedRequest<string, AgentHostSettings>()("agent:admin:get-host-settings"),
     updateAgentHostSettings: scopedRequest<UpdateAgentHostSettingsInput, AgentHostSettings>()(
       "agent:admin:update-host-settings",
@@ -1317,6 +1384,7 @@ export const IPC_ENDPOINTS = {
   },
   // Bound against the storage service, not `AgentService`, so it is its own group.
   storage: {
+    saveFile: scopedRequest<import("./ipc-storage").SaveStoredFileInput, boolean, "required">()("storage:save-file"),
     getUsage: scopedRequest<GetStorageUsageInput, StorageUsage | null, "required">()("storage:get-usage"),
     // Free and total disk space with no scan, for the sidebar storage card. Null before `storage-disk-v1`.
     getDisk: scopedQuery<StorageDisk | null, "required">()("storage:get-disk"),
@@ -1355,6 +1423,7 @@ export const IPC_ENDPOINTS = {
     event: event<HostStatus>()("host:event"),
   },
   events: {
+    setSenderSecret: scopedRequest<SetRoutineSenderSecretInput, void, "required">()("events:set-sender-secret"),
     getStatus: scopedQuery<EventStatus, "required">()("events:get-status"),
     listRoutines: scopedRequest<ListEventRoutinesInput, EventRoutine[], "required">()("events:list-routines"),
     saveRoutine: scopedRequest<SaveEventRoutineInput, SaveEventRoutineResult, "required">()("events:save-routine"),
@@ -1392,6 +1461,7 @@ export const IPC_GROUP_PATHS = {
   providerAdmin: "providerAdmin",
   hostAdmin: "hostAdmin",
   vault: "vault",
+  skillLearning: "skillLearning",
   routineFeed: "routineFeed",
   routineFlows: "routineFlows",
   workflows: "workflows",
@@ -1413,6 +1483,7 @@ export const IPC_GROUP_PATHS = {
   browserInput: "browser",
   servers: "servers",
   agentAdmin: "agent",
+  messageDeletion: "agent",
   mcpServers: "agent",
   storage: "storage",
   instanceTransfer: "instanceTransfer",

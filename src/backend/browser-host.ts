@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { isIP } from "node:net";
 import { basename, extname, join } from "node:path";
+import type { BrowserProfileProxyConnection } from "@tommy/contracts/browser-profile-proxy";
 import { INPUT_LIMITS } from "@tommy/contracts/input-limits";
 import type {
   AgentBrowserProfile,
@@ -20,7 +21,7 @@ import type {
   BrowserViewTarget,
   BrowserVisibilityInput,
 } from "@tommy/contracts/ipc";
-import { isDynamicRecord, isNumber, isString } from "@tommy/contracts/runtime-values";
+import { isNumber, isString } from "@tommy/contracts/runtime-values";
 import {
   type BrowserSignInCookie,
   browserSignInCookieFitsHost,
@@ -43,6 +44,7 @@ import {
   type Input,
   Menu,
   type NativeImage,
+  nativeImage,
   type Rectangle,
   type Session,
   session,
@@ -86,6 +88,7 @@ import {
   normalizeBrowserUrl,
   preferredBrowserLanguageCodes,
 } from "./browser-policy";
+import { type BrowserProxyRelay, openBrowserProxyRelay, socksExit } from "./browser-profiles/browser-proxy-relay";
 import { BrowserRecorder } from "./browser-recorder";
 import {
   BROWSER_SCRIPT_USER_CONTROL_ERROR,
@@ -115,6 +118,7 @@ import {
   reownStoredBrowserTab,
   resolveEnvironment,
   type StoredBrowserStateV2,
+  type StoredBrowserTab,
   storedSessionFields,
   storedTabSession,
 } from "./browser-state";
@@ -148,8 +152,10 @@ import {
   browserInputAction,
   browserToolTimeout,
 } from "./browser-tool-actions";
+import { repairBrowserToolInput } from "./browser-tool-input";
 import {
   BROWSER_SCRIPT_DEFAULT_TIMEOUT_MS,
+  BROWSER_SCRIPT_EVALUATE_MAX_BYTES,
   BROWSER_SCRIPT_MAX_STEPS,
   type BrowserStep,
   type BrowserToolArguments,
@@ -161,6 +167,7 @@ import { runCauseEffect } from "./effect-boundary";
 import type { DynamicToolCallParams, DynamicToolResult } from "./protocol";
 import { isRecord } from "./protocol";
 import type { VaultCardSecret } from "./vault-items";
+import { TimeoutError, withTimeout } from "./with-timeout";
 
 interface BrowserHostEvents {
   changed: [tabs: BrowserTab[], activeTabId: string | null];
@@ -183,11 +190,27 @@ interface BrowserSiteVisit {
 
 const MAX_ENCODED_CAPTURE_PIXELS = 4_194_304;
 /**
+ * The shortest side of an image for the model. Some model endpoints refuse an image with a shorter
+ * side, and the image stays in the session, so each later turn fails too (#6188).
+ */
+const MIN_CAPTURE_SIDE = 64;
+
+/** Certificate failures use Chromium codes -200 through -299. Never bypass its certificate checks. */
+function certificateLoadFailure(failure: BrowserOperationError): BrowserOperationError {
+  const raw = /\((-\d+)\)/u.exec(String(failure.cause))?.[1];
+  const code = raw === undefined ? undefined : Number(raw);
+  return code !== undefined && code <= -200 && code > -300
+    ? browserFailure(new Error(sourceText("error.backend.browserCertificateUntrusted")))
+    : failure;
+}
+/**
  * How long enumerating a tab's documents may take before it is unwound. It runs off a navigation
  * rather than a tool call, so no caller is waiting on it and nothing else supplies a deadline -- but
  * it is queued on the tab, so whatever the agent does next waits behind it.
  */
 const DOCUMENT_ENUMERATION_TIMEOUT_MS = 10_000;
+/** A cache purge that never answers must refuse a fill instead of holding every later fill. */
+const CACHE_PURGE_TIMEOUT_MS = 10_000;
 /**
  * How long a preview request waits for a new frame before it answers with the last one. The card
  * asks again three seconds after each answer, and the capture keeps running, so the next request
@@ -285,8 +308,9 @@ export type BrowserSecretOutcome = { status: "submitted" } | { status: "failed";
 export interface PreparedBrowserSecret {
   request: BrowserSecretRequest;
   /**
-   * True when an agent ran its own script on a page of this origin during this app session. That
-   * script can still listen to the fields, so only the user may decide to fill them.
+   * True when agent code from `evaluate` can still run in the page or in a page of its origin in
+   * the same session, or a service worker served the page after such a script. That code can
+   * listen to the fields, so only the user may decide to fill them.
    */
   agentScriptedOrigin: boolean;
   /**
@@ -326,6 +350,31 @@ function runBrowserTool<Name extends BrowserToolName>(
   hooks: BrowserDynamicToolHooks,
 ): Effect.Effect<DynamicToolResult, BrowserOperationError> {
   return handlers[tool](call, params, hooks);
+}
+
+const AGENT_CODE_CARD_FILL =
+  "Card fill is unavailable while a script from evaluate can still run in this page or in another open page of this site. Reload this page, close or navigate each other tab where you ran evaluate on this site, take a fresh snapshot, and call fill_card again, or use request_takeover.";
+
+/**
+ * The origins of the documents in the page. A frame whose renderer is gone, for example after a crash,
+ * has no document. `isDestroyed()` of its `WebContents` stays false, but Electron throws when code
+ * reads the frame, and in an Electron event listener that throw stops the main process.
+ */
+function frameOrigins(contents: WebContents): string[] {
+  if (contents.isDestroyed() || contents.mainFrame.isDestroyed()) return [];
+  return contents.mainFrame.framesInSubtree.flatMap((frame) => (frame.isDestroyed() ? [] : [frame.origin]));
+}
+
+function markScriptedOrigin(tab: BrowserHostTab, origin: string): void {
+  const origins = tab.scriptedOrigins ?? new Set<string>();
+  origins.add(origin);
+  tab.scriptedOrigins = origins;
+}
+
+function markWorkerExposedOrigin(tab: BrowserHostTab, origin: string): void {
+  const origins = tab.workerExposedOrigins ?? new Set<string>();
+  origins.add(origin);
+  tab.workerExposedOrigins = origins;
 }
 
 function urlOrigin(value: string): string | null {
@@ -380,6 +429,8 @@ export class BrowserHost {
   readonly #downloadsRoot: string;
   readonly #statePath: string;
   readonly #tabs = new Map<string, BrowserHostTab>();
+  /** Tabs whose saved profile proxy could not load. They remain on disk without loading a page. */
+  readonly #unrestoredTabs = new Map<string, StoredBrowserTab>();
   readonly #closingTabDrains = new Map<string, Fiber.Fiber<void, BrowserOperationError>>();
   readonly #listeners = new Set<(...args: BrowserHostEvents["changed"]) => void>();
   readonly #documentListeners = new Set<(...args: BrowserHostEvents["documentChanged"]) => void>();
@@ -404,15 +455,29 @@ export class BrowserHost {
   /** The agent tool calls that wait for the release of a tab. */
   readonly #userControlWaiters = new Map<string, Set<Deferred.Deferred<void>>>();
   /**
-   * The origins where an agent ran `evaluate`. Kept by origin, not by document: a same-origin popup,
-   * opener or service worker carries the script past one document.
+   * The origins, per session, whose Cache Storage an agent script could write since the last purge.
+   * A service worker can serve those entries to a later document as page code. Each tab's
+   * `scriptedOrigins` follows the agent code that runs in its document.
    */
-  readonly #agentScriptedOrigins = new Set<string>();
+  readonly #cacheTaintedOrigins = new WeakMap<Session, Set<string>>();
+  /** The last purge of each tainted origin, per session. False when it failed. A fill waits for it. */
+  readonly #originPurges = new WeakMap<Session, Map<string, Promise<boolean>>>();
   #persistLock = Semaphore.makeUnsafe(1);
   readonly #scope = Scope.makeUnsafe();
   #destroying: Deferred.Deferred<void, BrowserOperationError> | null = null;
   /** Whether the machine is too low on memory for one more tab. Only a server has a reading. */
   readonly #memoryLow: () => boolean;
+  readonly #profileProxy: (profileId: string) => BrowserProfileProxyConnection | null;
+  readonly #proxyLock = Semaphore.makeUnsafe(1);
+  readonly #appliedProxies = new Map<
+    string,
+    {
+      key: string;
+      signIn: { host: string; port: number; username: string; password: string } | null;
+      relay: BrowserProxyRelay | null;
+      proxied: boolean;
+    }
+  >();
   readonly #idleTabSweep: NodeJS.Timeout;
 
   constructor(
@@ -428,6 +493,8 @@ export class BrowserHost {
       browserProfile?: (agentId: string) => AgentBrowserProfile;
       /** Whether a named profile still exists. A tab never opens in a deleted profile. */
       profileExists?: (profileId: string) => boolean;
+      /** Host-owned address lookup. A failure prevents the profile from loading. */
+      profileProxy?: (profileId: string) => BrowserProfileProxyConnection | null;
       /** True when the key is part of the Mac quit shortcut, which a focused tab must not give to the menu. */
       quitShortcut?: (input: Input) => boolean;
     } = {},
@@ -436,6 +503,7 @@ export class BrowserHost {
     this.#memoryLow = options.memoryLow ?? (() => false);
     this.#browserProfile = options.browserProfile ?? (() => ({ kind: "shared" }));
     this.#profileExists = options.profileExists ?? (() => false);
+    this.#profileProxy = options.profileProxy ?? (() => null);
     this.#quitShortcut = options.quitShortcut ?? (() => false);
     this.#downloadsRoot = downloadsRoot;
     this.#statePath = statePath;
@@ -478,16 +546,18 @@ export class BrowserHost {
 
     const tabs: BrowserHostTab[] = [];
     for (const saved of state.tabs) {
+      // Each saved tab passed the tab limit when it opened, so a restart does not drop one. The reown can
+      // put the tabs of several chats in the agent's main chat, which then lists and closes all of them.
       const stored = reownStoredBrowserTab(saved, agents);
-      const ownerAgentId =
-        stored.ownerAgentId ??
-        agents.find((agent) => agent.threadId === stored.ownerThreadId && stored.ownerThreadId !== null)?.id ??
-        null;
-      if (!this.#hasTabCapacity(stored.ownerThreadId, ownerAgentId)) continue;
       // A tab comes back in the session it opened in, whatever the agent's setting is now. A tab of
       // a deleted profile does not come back: no other session may load its page.
       const tabSession = storedTabSession(stored);
       if (tabSession?.kind === "profile" && !this.#profileExists(tabSession.profileId)) continue;
+      // A restored tab must never load before its saved proxy applies.
+      if (Exit.isFailure(yield* Effect.exit(this.#applyProfileProxy(tabSession)))) {
+        this.#unrestoredTabs.set(stored.id, stored);
+        continue;
+      }
       const tab = this.#createTab(
         stored.id,
         stored.url,
@@ -498,7 +568,9 @@ export class BrowserHost {
         undefined,
         tabSession,
       );
+      if (stored.sharedThreadIds) tab.sharedThreadIds = new Set(stored.sharedThreadIds);
       this.#tabs.set(tab.id, tab);
+      this.#unrestoredTabs.delete(tab.id);
       this.#bindTabEvents(tab);
       tabs.push(tab);
     }
@@ -626,6 +698,7 @@ export class BrowserHost {
       this.#bindTabEvents(tab);
       this.#unmountView(view);
       if (!contents.isDestroyed()) contents.close();
+      this.#releaseScriptedDocument(tab);
       // A person can open the tab while the engine stops, which shows the old view.
       this.#syncAttachedView();
     });
@@ -757,7 +830,7 @@ export class BrowserHost {
     ownerAgentId: string | null = null,
     focus = false,
   ): Effect.fn.Return<BrowserTab, BrowserOperationError> {
-    return yield* this.#open(url, ownerThreadId, ownerAgentId, focus);
+    return yield* this.#open(url, ownerThreadId, ownerAgentId, focus, false);
   }).bind(this);
 
   /**
@@ -771,15 +844,22 @@ export class BrowserHost {
   ): Effect.fn.Return<BrowserTab, BrowserOperationError> {
     const privateSession = session.fromPartition(`tommy-private-${randomUUID()}`, { cache: false });
     this.#configureSession(privateSession);
-    return yield* this.#open(url, null, null, false, privateSession);
+    return yield* this.#open(url, null, null, false, true, privateSession);
   }).bind(this);
 
+  /**
+   * With `closeOnFailure` false, a tab whose first page does not load stays open on that address, as
+   * a tab does when a later page does not load, so the person sees where it failed and can try again.
+   * The open tool of an agent closes its tab, so that failed attempts do not fill the tab limit, and
+   * a private sign-in page closes its tab, as its callers expect.
+   */
   readonly #open = Effect.fn("BrowserHost.openTab")(function* (
     this: BrowserHost,
     url: string,
     ownerThreadId: string | null,
     ownerAgentId: string | null,
     focus: boolean,
+    closeOnFailure: boolean,
     privateSession?: Session,
   ): Effect.fn.Return<BrowserTab, BrowserOperationError> {
     if (!this.#hasTabCapacity(ownerThreadId, ownerAgentId)) {
@@ -792,6 +872,7 @@ export class BrowserHost {
     const normalizedUrl = yield* browserSync(() => normalizeBrowserUrl(url));
     const previouslyFocused = focus ? null : this.#focusedContentsOutsideTabs();
     const tabSession = privateSession || !ownerAgentId ? undefined : yield* this.#agentTabSession(ownerAgentId);
+    yield* this.#applyProfileProxy(tabSession);
     const tab = this.#createTab(
       randomUUID(),
       normalizedUrl,
@@ -829,7 +910,7 @@ export class BrowserHost {
             const error = operationFailure.cause;
             // The user entered an address before the first page loaded: that load is the tab's page now.
             if (this.#tabs.get(tab.id) === tab && tab.loadGeneration !== loadGeneration) return;
-            if (this.#tabs.get(tab.id) === tab) {
+            if (this.#tabs.get(tab.id) === tab && (closeOnFailure || tab.contents.isDestroyed())) {
               this.#unmountView(tab.view);
               this.#tabs.delete(tab.id);
               this.#userControlTabIds.delete(tab.id);
@@ -843,6 +924,9 @@ export class BrowserHost {
             }
             this.#emitChanged();
             yield* this.#persistState();
+            // An agent keeps the Chromium reason so it can identify the failed certificate check.
+            const certificateFailure = closeOnFailure ? operationFailure : certificateLoadFailure(operationFailure);
+            if (certificateFailure !== operationFailure) return yield* certificateFailure;
             return yield* browserFailure(
               new Error(sourceText("error.backend.browserOpenFailed", { url: normalizedUrl, reason: String(error) })),
             );
@@ -854,12 +938,18 @@ export class BrowserHost {
     }).pipe(Effect.onInterrupt(() => this.close(tab.id).pipe(Effect.ignore)));
   }).bind(this);
 
+  /**
+   * The limit counts the open tabs of the owner thread: the tabs that `list_tabs` of that thread shows
+   * and that it can close. Tabs of the agent's other threads do not count, as the thread cannot see them.
+   */
   #hasTabCapacity(ownerThreadId: string | null, ownerAgentId: string | null): boolean {
-    const tabs = [...this.#tabs.values()].filter((tab) => {
-      if (tab.ownerAgentId && ownerAgentId) return tab.ownerAgentId === ownerAgentId;
-      if (tab.ownerThreadId) return tab.ownerThreadId === ownerThreadId;
-      return tab.ownerAgentId === null && ownerAgentId === null && ownerThreadId === null;
-    });
+    const tabs = [...this.#tabs.values()].filter(
+      (tab) =>
+        !tab.closing &&
+        !tab.contents.isDestroyed() &&
+        tab.ownerThreadId === ownerThreadId &&
+        (tab.ownerAgentId === null || tab.ownerAgentId === ownerAgentId),
+    );
     return tabs.length < INPUT_LIMITS.browserTabs;
   }
 
@@ -907,6 +997,7 @@ export class BrowserHost {
             tab,
             navigateAndWait(tab.contents, () => tab.contents.loadURL(normalizedUrl, browserLoadOptions())),
           ).pipe(
+            Effect.mapError(certificateLoadFailure),
             // A same-document load or a load that does not start leaves the flag for the next navigation.
             Effect.ensuring(
               Effect.sync(() => {
@@ -999,11 +1090,18 @@ export class BrowserHost {
     tabId: string,
   ): Effect.fn.Return<void, BrowserOperationError> {
     const tab = this.#tabs.get(tabId);
-    if (!tab) return;
+    if (!tab) {
+      if (this.#unrestoredTabs.delete(tabId)) {
+        yield* this.#persistState();
+        this.#emitChanged();
+      }
+      return;
+    }
     const tabIds = [...this.#tabs.keys()];
     const closedIndex = tabIds.indexOf(tabId);
     const browserHadFocus = tab.focusedAtPageClose === true || this.#tabHasFocus();
     this.#unmountView(tab.view);
+    this.#releaseScriptedDocument(tab);
     this.#tabs.delete(tabId);
     // A popup that a private page opened without an opener is not its child, but it holds the same sign-in.
     const signInSession = tab.popup ? undefined : tab.privateSession;
@@ -1149,7 +1247,9 @@ export class BrowserHost {
         this.listTabs().find((tab) => this.#userControlTabIds.has(tab.id) && this.#canUseToolTab(params, tab))?.id ??
         null
       );
-    const tabId = isRecord(params.arguments) ? params.arguments.tabId : undefined;
+    // The tool reads the repaired arguments, so this check does too: a call with tab_id names the tab.
+    const args = repairBrowserToolInput(params.tool, params.arguments).value;
+    const tabId = isRecord(args) ? args.tabId : undefined;
     if (!isString(tabId) || !this.#userControlTabIds.has(tabId)) return null;
     const tab = this.listTabs().find((candidate) => candidate.id === tabId);
     return tab && this.#canUseToolTab(params, tab) ? tabId : null;
@@ -1264,7 +1364,7 @@ export class BrowserHost {
           ...(args.usernameTarget ? { askUsername: true as const } : {}),
           ...(args.usernameTarget && args.username ? { username: args.username } : {}),
         },
-        agentScriptedOrigin: this.#agentScriptedOrigins.has(url.origin),
+        agentScriptedOrigin: yield* this.#agentCodeCanRead(tab, [url.origin], entry.servedByWorker),
         vaultFillable:
           args.method === "password"
             ? entry.fields.password
@@ -1432,9 +1532,12 @@ export class BrowserHost {
     if (!tab.hasSharedBrowsingContext) return;
     const site = approximateSite(origin);
     for (const connected of this.#connectedTabs(tab)) {
-      if (connected === tab || connected.contents.isDestroyed()) continue;
-      const origins = connected.contents.mainFrame.framesInSubtree.map((frame) => frame.origin);
-      if (origins.some((frameOrigin) => frameOrigin !== "null" && approximateSite(frameOrigin) === site))
+      if (connected === tab) continue;
+      if (
+        frameOrigins(connected.contents).some(
+          (frameOrigin) => frameOrigin !== "null" && approximateSite(frameOrigin) === site,
+        )
+      )
         throw new Error(
           "Secure input is unavailable while a connected popup or opener tab shows the same site. Use takeover.",
         );
@@ -1452,6 +1555,135 @@ export class BrowserHost {
   #requireNoFilledCard(tab: BrowserHostTab, action: string): void {
     if (tab.filledCard)
       throw new Error(`${action} is unavailable while the page shows a filled card. Use snapshots until it navigates.`);
+  }
+
+  #cacheTainted(target: Session): Set<string> {
+    const origins = this.#cacheTaintedOrigins.get(target) ?? new Set<string>();
+    this.#cacheTaintedOrigins.set(target, origins);
+    return origins;
+  }
+
+  /**
+   * The tab's document is going away, and agent code in it stops. Until now, that code could put code
+   * in a same-origin page of a connected tab, so such a page keeps the mark until it navigates. It
+   * could also write Cache Storage that a service worker serves to any page of the origin in the
+   * session, also after the page loaded. So each other open page of the origin must navigate before
+   * a fill, and a tainted origin is cleared again.
+   */
+  #releaseScriptedDocument(tab: BrowserHostTab): void {
+    const scripted = tab.scriptedOrigins;
+    const exposed = tab.workerExposedOrigins;
+    if (!scripted && !exposed) return;
+    delete tab.scriptedOrigins;
+    delete tab.workerExposedOrigins;
+    // A tab that closed itself has no `contents.session`.
+    const target = this.#tabSession(tab);
+    // The next fill on the origin reads the result from `#originPurges`.
+    for (const origin of new Set([...(scripted ?? []), ...(exposed ?? [])]))
+      if (this.#cacheTaintedOrigins.get(target)?.has(origin))
+        void runCauseEffect(Effect.forkIn(this.#purgeOrigin(target, origin), this.#scope));
+    if (!scripted) return;
+    const connected = this.#connectedTabs(tab);
+    for (const other of this.#sessionTabs(target)) {
+      if (other === tab) continue;
+      const otherOrigins = new Set(frameOrigins(other.contents));
+      for (const origin of scripted) {
+        if (!otherOrigins.has(origin)) continue;
+        if (connected.has(other)) markScriptedOrigin(other, origin);
+        else markWorkerExposedOrigin(other, origin);
+      }
+    }
+  }
+
+  /** The tabs of one browser session. Popups use the session of their opener. */
+  #sessionTabs(target: Session): BrowserHostTab[] {
+    return [...this.#tabs.values()].filter((other) => this.#tabSession(other) === target);
+  }
+
+  /**
+   * Whether agent code can run in the tab's page of one of these origins: a script runs in a page of
+   * the origin in the tab's session, or the tab's page was open while one ran. A connected page can
+   * reach the tab, and any page can write the Cache Storage that a service worker serves to the tab.
+   */
+  #agentCodeReaches(tab: BrowserHostTab, origins: string[]): boolean {
+    const others = this.#sessionTabs(this.#tabSession(tab));
+    return origins.some(
+      (origin) =>
+        tab.workerExposedOrigins?.has(origin) || others.some((candidate) => candidate.scriptedOrigins?.has(origin)),
+    );
+  }
+
+  /**
+   * Whether agent code can read what Tommy fills into the tab's fields of these origins. A page that
+   * a service worker served could run code that a script put in Cache Storage, so that page must
+   * reload after Tommy clears the origin's Cache Storage and service workers. When no other page of
+   * the origin is open in the session, nothing can write that cache again and the origin is clean.
+   */
+  readonly #agentCodeCanRead = Effect.fn("BrowserHost.agentCodeCanRead")(function* (
+    this: BrowserHost,
+    tab: BrowserHostTab,
+    origins: string[],
+    servedByWorker: boolean,
+  ): Effect.fn.Return<boolean> {
+    if (this.#agentCodeReaches(tab, origins)) return true;
+    const target = this.#tabSession(tab);
+    const tainted = this.#cacheTaintedOrigins.get(target);
+    const dirty = origins.filter((origin) => tainted?.has(origin));
+    if (!tainted || dirty.length === 0) return false;
+    const clean = servedByWorker ? [] : dirty.filter((origin) => !this.#originOpenElsewhere(target, origin, tab));
+    const purges = dirty.map((origin) =>
+      servedByWorker || clean.includes(origin)
+        ? this.#purgeOrigin(target, origin)
+        : Effect.promise(() => this.#originPurges.get(target)?.get(origin) ?? Promise.resolve(true)),
+    );
+    // A purge that fails leaves the cache as it was, so the user decides.
+    if (!(yield* Effect.all(purges, { concurrency: "unbounded" })).every(Boolean)) return true;
+    // A page of the origin can open, and run a script, while the purge runs.
+    if (this.#agentCodeReaches(tab, origins)) return true;
+    if (!servedByWorker) {
+      for (const origin of clean) if (!this.#originOpenElsewhere(target, origin, tab)) tainted.delete(origin);
+      return false;
+    }
+    for (const origin of dirty) markWorkerExposedOrigin(tab, origin);
+    return true;
+  });
+
+  /**
+   * Clears the origin's Cache Storage and service workers after the purge that already runs for it.
+   * A later purge that succeeds clears what an earlier one that failed left.
+   */
+  readonly #purgeOrigin = Effect.fn("BrowserHost.purgeOrigin")(function* (
+    this: BrowserHost,
+    target: Session,
+    origin: string,
+  ): Effect.fn.Return<boolean> {
+    const purges = this.#originPurges.get(target) ?? new Map<string, Promise<boolean>>();
+    this.#originPurges.set(target, purges);
+    const previous = purges.get(origin) ?? Promise.resolve(true);
+    const purge = runCauseEffect(
+      withTimeout(
+        browserCall(() =>
+          previous.then(() => target.clearStorageData({ origin, storages: ["cachestorage", "serviceworkers"] })),
+        ),
+        CACHE_PURGE_TIMEOUT_MS,
+        "Browser cache cleanup timed out.",
+      ).pipe(Effect.mapError((error) => (error instanceof TimeoutError ? browserFailure(error) : error))),
+    ).then(
+      () => true,
+      (error: unknown) => {
+        logger.warn("Unable to clear a site's caches", { origin, error: toLogValue(error) });
+        return false;
+      },
+    );
+    purges.set(origin, purge);
+    return yield* Effect.promise(() => purge);
+  });
+
+  /** Whether a page of the origin other than the tab's own is open in the session. */
+  #originOpenElsewhere(target: Session, origin: string, tab: BrowserHostTab): boolean {
+    return [...this.#tabs.values()].some(
+      (other) => other !== tab && this.#tabSession(other) === target && frameOrigins(other.contents).includes(origin),
+    );
   }
 
   #connectedTabs(tab: BrowserHostTab): Set<BrowserHostTab> {
@@ -1824,7 +2056,7 @@ export class BrowserHost {
   readonly #toolHandlers: BrowserToolHandlers = {
     open: ({ args }, params) =>
       Effect.gen({ self: this }, function* () {
-        const tab = yield* this.open(args.url, params.threadId, params.ownerAgentId ?? null);
+        const tab = yield* this.#open(args.url, params.threadId, params.ownerAgentId ?? null, false, true);
         this.#controls.updateTab(params, tab.id);
         return textResult({ tab });
       }),
@@ -2200,26 +2432,31 @@ export class BrowserHost {
           if (!topOrigin?.startsWith("https://"))
             return yield* browserFailure(new Error("Card fill needs an HTTPS page. Use request_takeover."));
           const frames = new Set<string>();
+          let servedByWorker = false;
           result = yield* current.engine.fillCard(
             args.targets,
             card,
             {
-              checkOrigin: (origin) => {
+              checkOrigin: (origin, frameServedByWorker) => {
                 // A script the agent ran on the page or the payment frame's site can read the fields.
-                if (this.#agentScriptedOrigins.has(origin) || this.#agentScriptedOrigins.has(topOrigin))
-                  throw new Error("Card fill is unavailable on a site where you ran evaluate. Use request_takeover.");
+                if (this.#agentCodeReaches(current, [origin, topOrigin])) throw new Error(AGENT_CODE_CARD_FILL);
                 this.#requireIsolatedFromConnectedTabs(current, topOrigin);
                 if (origin !== topOrigin) this.#requireIsolatedFromConnectedTabs(current, origin);
                 frames.add(origin);
+                servedByWorker ||= frameServedByWorker;
               },
-              allowFill: () => {
-                if (!vault.approved(args.cardId, topOrigin, [...frames])) {
-                  outcome.approval = { page: topOrigin, frames: [...frames] };
-                  return Effect.succeed(false);
-                }
-                // A recording would keep the frames that show the card. A fill that waits keeps it.
-                return this.#recorder.discard(args.tabId, "requested").pipe(Effect.as(true));
-              },
+              allowFill: () =>
+                Effect.gen({ self: this }, function* () {
+                  if (yield* this.#agentCodeCanRead(current, [...frames], servedByWorker))
+                    return yield* browserFailure(new Error(AGENT_CODE_CARD_FILL));
+                  if (!vault.approved(args.cardId, topOrigin, [...frames])) {
+                    outcome.approval = { page: topOrigin, frames: [...frames] };
+                    return false;
+                  }
+                  // A recording would keep the frames that show the card. A fill that waits keeps it.
+                  yield* this.#recorder.discard(args.tabId, "requested");
+                  return true;
+                }),
               onFill: () => {
                 markDispatched();
                 current.filledCard = true;
@@ -2385,8 +2622,12 @@ export class BrowserHost {
               step.awaitPromise ?? true,
               browserToolTimeout(step.timeoutMs),
               true,
+              BROWSER_SCRIPT_EVALUATE_MAX_BYTES,
             ),
           };
+        case "sleep":
+          yield* Effect.sleep(step.ms);
+          return { status: "ok" };
         case "snapshot":
           return {
             status: "ok",
@@ -2491,6 +2732,7 @@ export class BrowserHost {
   }).bind(this);
 
   readonly destroy = Effect.fn("BrowserHost.destroy")(function* (this: BrowserHost) {
+    yield* this.closeProfileProxies();
     if (this.#destroying) return yield* Deferred.await(this.#destroying);
     const done = Deferred.makeUnsafe<void, BrowserOperationError>();
     this.#destroying = done;
@@ -2586,18 +2828,26 @@ export class BrowserHost {
     // A session that never opened has nothing to clear, and opening one would create it.
     if (!this.#tabSessions.has(partition) && !existsSync(join(app.getPath("sessionData"), "Partitions", partition)))
       return;
+    yield* this.#dropAppliedProxy(partition);
     const target = this.#tabSessions.get(partition) ?? session.fromPartition(`persist:${partition}`, { cache: true });
     this.#tabSessions.delete(partition);
     yield* browserCall(() => target.clearStorageData());
     yield* browserCall(() => target.clearCache());
   }).bind(this);
 
-  /** The open tabs in a session other than the shared one, popups included. */
+  /** A session's open and deferred tabs, so an explicit profile clear can close every saved tab. */
   tabIdsInSession(tabSession: BrowserTabSession): string[] {
     const partition = browserTabPartition(tabSession);
-    return [...this.#tabs.values()]
+    const loaded = [...this.#tabs.values()]
       .filter((tab) => tab.tabSession && browserTabPartition(tab.tabSession) === partition)
       .map((tab) => tab.id);
+    const deferred = [...this.#unrestoredTabs.values()]
+      .filter((tab) => {
+        const savedSession = storedTabSession(tab);
+        return savedSession !== undefined && browserTabPartition(savedSession) === partition;
+      })
+      .map((tab) => tab.id);
+    return [...loaded, ...deferred];
   }
 
   /** The session of each open tab that is not in the shared session or a private one. */
@@ -2618,6 +2868,105 @@ export class BrowserHost {
     if (!this.#profileExists(profile.profileId))
       return yield* browserFailure(new Error(sourceText("error.backend.browserProfileMissing")));
     return { kind: "profile", profileId: profile.profileId };
+  }).bind(this);
+
+  readonly #applyProfileProxy = Effect.fn("BrowserHost.applyProfileProxy")(function* (
+    this: BrowserHost,
+    tabSession: BrowserTabSession | undefined,
+  ): Effect.fn.Return<void, BrowserOperationError> {
+    if (tabSession?.kind !== "profile") return;
+    yield* this.#proxyLock.withPermit(
+      Effect.gen({ self: this }, function* () {
+        const partition = browserTabPartition(tabSession);
+        const proxy = yield* browserSync(() => this.#profileProxy(tabSession.profileId));
+        const key = JSON.stringify(proxy);
+        const previous = this.#appliedProxies.get(partition);
+        if (previous?.key === key) return;
+        const target = this.#persistentTabSession(tabSession);
+        this.#appliedProxies.delete(partition);
+        // Block egress during changes and after any failure. Never add a direct fallback rule.
+        yield* browserCall(() =>
+          target.setProxy({ mode: "fixed_servers", proxyRules: "http://127.0.0.1:9", proxyBypassRules: "<-loopback>" }),
+        );
+        yield* browserCall(() => target.closeAllConnections());
+        yield* browserCall(() => target.clearAuthCache());
+        if (previous?.relay) yield* previous.relay.close;
+        const relay =
+          proxy?.scheme === "socks5" && proxy.username !== null
+            ? yield* openBrowserProxyRelay(
+                socksExit({
+                  host: proxy.host.replace(/^\[|\]$/gu, ""),
+                  port: proxy.port,
+                  username: proxy.username,
+                  password: proxy.password ?? "",
+                }),
+              )
+            : null;
+        const rules = relay
+          ? `http://${relay.host}:${relay.port}`
+          : proxy
+            ? `${proxy.scheme}://${proxy.host}:${proxy.port}`
+            : null;
+        yield* browserCall(() =>
+          target.setProxy(
+            rules === null
+              ? { mode: "system" }
+              : { mode: "fixed_servers", proxyRules: rules, proxyBypassRules: "<-loopback>" },
+          ),
+        ).pipe(Effect.onError(() => relay?.close ?? Effect.void));
+        this.#appliedProxies.set(partition, {
+          key,
+          relay,
+          proxied: proxy !== null,
+          signIn:
+            relay ??
+            (proxy?.username
+              ? { host: proxy.host, port: proxy.port, username: proxy.username, password: proxy.password ?? "" }
+              : null),
+        });
+      }),
+    );
+  }).bind(this);
+
+  readonly #dropAppliedProxy = Effect.fn("BrowserHost.dropAppliedProxy")(function* (
+    this: BrowserHost,
+    partition: string,
+  ) {
+    const applied = this.#appliedProxies.get(partition);
+    this.#appliedProxies.delete(partition);
+    if (applied?.relay) yield* applied.relay.close;
+  }).bind(this);
+
+  /** Close profile tabs first. Existing cookies and storage remain when an address changes. */
+  readonly releaseProfileProxy = Effect.fn("BrowserHost.releaseProfileProxy")(function* (
+    this: BrowserHost,
+    profileId: string,
+  ): Effect.fn.Return<void, BrowserOperationError> {
+    const tabSession: BrowserTabSession = { kind: "profile", profileId };
+    if (this.tabIdsInSession(tabSession).length > 0)
+      return yield* browserFailure(new Error(sourceText("error.backend.browserProfileInUse")));
+    yield* this.#proxyLock.withPermit(
+      Effect.gen({ self: this }, function* () {
+        const partition = browserTabPartition(tabSession);
+        const target = this.#tabSessions.get(partition);
+        if (target) {
+          yield* browserCall(() =>
+            target.setProxy({
+              mode: "fixed_servers",
+              proxyRules: "http://127.0.0.1:9",
+              proxyBypassRules: "<-loopback>",
+            }),
+          );
+          yield* browserCall(() => target.closeAllConnections());
+          yield* browserCall(() => target.clearAuthCache());
+        }
+        yield* this.#dropAppliedProxy(partition);
+      }),
+    );
+  }).bind(this);
+
+  readonly closeProfileProxies = Effect.fn("BrowserHost.closeProfileProxies")(function* (this: BrowserHost) {
+    for (const partition of [...this.#appliedProxies.keys()]) yield* this.#dropAppliedProxy(partition);
   }).bind(this);
 
   #persistentSessions(): Session[] {
@@ -2780,11 +3129,40 @@ export class BrowserHost {
   #bindTabEvents(tab: BrowserHostTab): void {
     const contents = tab.contents;
     const changed = () => this.#emitChanged();
+    const applied =
+      tab.tabSession?.kind === "profile" ? this.#appliedProxies.get(browserTabPartition(tab.tabSession)) : undefined;
+    if (applied?.proxied) contents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
+    let proxySignIns = 0;
+    contents.on("login", (event, _details, authInfo, callback) => {
+      if (!authInfo.isProxy) return;
+      event.preventDefault();
+      const signIn =
+        tab.tabSession?.kind === "profile"
+          ? this.#appliedProxies.get(browserTabPartition(tab.tabSession))?.signIn
+          : null;
+      if (
+        !signIn ||
+        proxySignIns >= 2 ||
+        authInfo.host.replace(/^\[|\]$/gu, "") !== signIn.host.replace(/^\[|\]$/gu, "") ||
+        authInfo.port !== signIn.port
+      ) {
+        callback();
+        return;
+      }
+      proxySignIns++;
+      callback(signIn.username, signIn.password);
+    });
+    contents.on("did-navigate", () => {
+      proxySignIns = 0;
+    });
     contents.on("close", () => {
       // `#closeRenderer` closes the old contents of a tab that stays open.
       if (tab.contents !== contents) return;
       tab.closing = true;
       tab.focusedAtPageClose = contents.isFocused();
+    });
+    contents.on("render-process-gone", () => {
+      if (tab.contents === contents) this.#releaseScriptedDocument(tab);
     });
     contents.once("destroyed", () => {
       if (tab.contents !== contents) return;
@@ -2978,6 +3356,7 @@ export class BrowserHost {
     });
     contents.on("did-navigate", (_event, url) => {
       tab.documents += 1;
+      this.#releaseScriptedDocument(tab);
       if (tab.secretDocument) {
         tab.secretDocument = false;
         contents.navigationHistory.clear();
@@ -3058,6 +3437,8 @@ export class BrowserHost {
             tab.privateSession,
             tab.tabSession,
           );
+          // A thread that drives a shared tab also drives its popups, for example a sign-in window.
+          if (tab.sharedThreadIds?.size) popup.sharedThreadIds = new Set(tab.sharedThreadIds);
           // Chromium exposes no opener for noopener/noreferrer requests.
           if (options.webContents?.opener) {
             popup.openerTabId = tab.id;
@@ -3325,11 +3706,55 @@ export class BrowserHost {
     );
   }
 
+  /**
+   * The owner thread can use its tab. Another thread of the same agent can use it after a person shared
+   * it with that thread. A tab with no owner agent is never shared.
+   */
   #canUseToolTab(params: DynamicToolCallParams, tab: BrowserTab): boolean {
-    return (
-      tab.ownerThreadId === params.threadId &&
-      (tab.ownerAgentId === null || tab.ownerAgentId === (params.ownerAgentId ?? null))
-    );
+    const ownerAgentId = params.ownerAgentId ?? null;
+    if (tab.ownerThreadId === params.threadId) return tab.ownerAgentId === null || tab.ownerAgentId === ownerAgentId;
+    if (tab.ownerAgentId === null || tab.ownerAgentId !== ownerAgentId) return false;
+    return this.#tabs.get(tab.id)?.sharedThreadIds?.has(params.threadId) ?? false;
+  }
+
+  /**
+   * Lets one more thread of the tab's owner agent use the tab: a person tagged the tab in a message to
+   * that thread. A tab of another agent, or of no agent, does not change, so a false tag shares nothing.
+   */
+  shareTab(tabId: string, target: { agentId: string; threadId: string }): void {
+    const tab = this.#tabs.get(tabId);
+    if (!tab || tab.closing || tab.privateSession || tab.ownerAgentId === null) return;
+    if (tab.ownerAgentId !== target.agentId || tab.ownerThreadId === target.threadId) return;
+    if (tab.sharedThreadIds?.has(target.threadId)) return;
+    tab.sharedThreadIds = (tab.sharedThreadIds ?? new Set()).add(target.threadId);
+    this.#schedulePersist();
+  }
+
+  /** A deleted thread can use no tab. */
+  unshareThread(threadId: string): void {
+    let changed = false;
+    for (const tab of this.#tabs.values()) changed = tab.sharedThreadIds?.delete(threadId) === true || changed;
+    if (changed) this.#schedulePersist();
+  }
+
+  /**
+   * The title and address of a tab of this agent, as its message references show them to the provider,
+   * or null when the agent does not own the tab. A page can put a typed card value in either one, so
+   * both go through the tab's scrub, as the tab list of the browser tool does.
+   */
+  agentTab(tabId: string, agentId: string): { title: string; url: string } | null {
+    const tab = this.#tabs.get(tabId);
+    if (
+      !tab ||
+      tab.closing ||
+      tab.privateSession ||
+      tab.secret ||
+      tab.contents.isDestroyed() ||
+      tab.ownerAgentId !== agentId
+    )
+      return null;
+    const { title, url } = toPublicTab(tab);
+    return { title: tab.engine.scrubText(title), url: tab.engine.scrubText(url) };
   }
 
   readonly #enqueue = Effect.fn("BrowserHost.enqueue")(function* <T>(
@@ -3367,13 +3792,16 @@ export class BrowserHost {
     awaitPromise: boolean,
     timeoutMs: number,
     undefinedAsNull = false,
+    maxBytes?: number,
   ): Effect.fn.Return<BrowserJsonValue, BrowserOperationError> {
     const tab = yield* this.#requireTab(tabId);
     // The origin is read in the tab's queue, just before the script runs, and again when it ends: a
     // navigation queued before it, or one that commits while it runs, decides where it ran.
     const markScripted = () => {
       const origin = urlOrigin(currentTabUrl(tab));
-      if (origin) this.#agentScriptedOrigins.add(origin);
+      if (!origin) return;
+      markScriptedOrigin(tab, origin);
+      this.#cacheTainted(this.#tabSession(tab)).add(origin);
     };
     return yield* runTabEvaluation(
       tab,
@@ -3385,6 +3813,7 @@ export class BrowserHost {
       awaitPromise,
       timeoutMs,
       undefinedAsNull,
+      maxBytes,
     ).pipe(Effect.ensuring(Effect.sync(markScripted)));
   });
 
@@ -3463,14 +3892,20 @@ export class BrowserHost {
     const state: StoredBrowserStateV2 = {
       version: 2,
       activeTabId: saved.some((tab) => tab.id === this.#activeTabId) ? this.#activeTabId : (saved[0]?.id ?? null),
-      tabs: saved.map((tab) => ({
-        id: tab.id,
-        url: tab.secret?.origin ?? persistentBrowserUrl(currentTabUrl(tab), { popup: tab.popup }),
-        ownerThreadId: tab.ownerThreadId,
-        ownerAgentId: tab.ownerAgentId,
-        environment: tab.environment,
-        ...storedSessionFields(tab.tabSession),
-      })),
+      tabs: [
+        ...saved.map((tab) => ({
+          id: tab.id,
+          url: tab.secret?.origin ?? persistentBrowserUrl(currentTabUrl(tab), { popup: tab.popup }),
+          ownerThreadId: tab.ownerThreadId,
+          ownerAgentId: tab.ownerAgentId,
+          environment: tab.environment,
+          ...storedSessionFields(tab.tabSession),
+          ...(tab.sharedThreadIds?.size ? { sharedThreadIds: [...tab.sharedThreadIds] } : {}),
+        })),
+        ...[...this.#unrestoredTabs.values()]
+          .filter((tab) => !this.#tabs.has(tab.id) && (tab.profile === undefined || this.#profileExists(tab.profile)))
+          .map((tab) => ({ ...tab, environment: tab.environment ?? defaultBrowserEnvironment() })),
+      ],
     };
     yield* this.#persistLock.withPermit(
       writeJsonFileAtomically(this.#statePath, state).pipe(Effect.mapError((error) => browserFailure(error.cause))),
@@ -3548,17 +3983,42 @@ function readConsoleMessage(args: unknown[]): BrowserConsoleMessageDetails | nul
 
 function boundedCaptureDataUrl(image: NativeImage): string {
   const size = image.getSize();
+  // A typed failure in `browserSync`, so the agent reads the reason, not a failed tool request (#5991).
   if (size.width <= 0 || size.height <= 0) throw new Error("Browser screenshot is empty.");
   const area = size.width * size.height;
-  if (area <= MAX_ENCODED_CAPTURE_PIXELS) return image.toDataURL();
   const scale = Math.sqrt(MAX_ENCODED_CAPTURE_PIXELS / area);
-  return image
-    .resize({
-      width: Math.max(1, Math.floor(size.width * scale)),
-      height: Math.max(1, Math.floor(size.height * scale)),
-      quality: "good",
-    })
-    .toDataURL();
+  const fitted =
+    area <= MAX_ENCODED_CAPTURE_PIXELS
+      ? image
+      : image.resize({
+          width: Math.max(1, Math.floor(size.width * scale)),
+          height: Math.max(1, Math.floor(size.height * scale)),
+          quality: "good",
+        });
+  const fittedSize = fitted.getSize();
+  if (fittedSize.width < MIN_CAPTURE_SIDE || fittedSize.height < MIN_CAPTURE_SIDE) return paddedCaptureDataUrl(fitted);
+  return fitted.toDataURL();
+}
+
+/**
+ * Extends a small capture to `MIN_CAPTURE_SIDE` on the right and the bottom with its top-left pixel,
+ * the page around an element. The content keeps its scale and position, so a point in the image is
+ * still the same pixel.
+ */
+function paddedCaptureDataUrl(image: NativeImage): string {
+  const encoded = image.toDataURL();
+  // One representation in the encoded pixels: `getSize` gives a 2x capture in half of them.
+  const source = nativeImage.createFromDataURL(encoded);
+  const size = source.getSize();
+  const width = Math.max(MIN_CAPTURE_SIDE, size.width);
+  const height = Math.max(MIN_CAPTURE_SIDE, size.height);
+  if (width === size.width && height === size.height) return encoded;
+  const pixels = source.toBitmap();
+  const padded = Buffer.alloc(width * height * 4);
+  padded.fill(pixels.subarray(0, 4));
+  for (let row = 0; row < size.height; row++)
+    pixels.copy(padded, row * width * 4, row * size.width * 4, (row + 1) * size.width * 4);
+  return nativeImage.createFromBitmap(padded, { width, height }).toDataURL();
 }
 
 /** A load that `BrowserHost.stop` ended succeeds: the person chose to keep the page as it is. */
@@ -3610,13 +4070,17 @@ function snapshotTextResult(value: SnapshotToolPayload): DynamicToolResult {
  * The model reads many snapshots in a task, so the model text is compact. Each element is one line,
  * which leaves out the JSON keys and the empty defaults. The history leaves out what the model already
  * knows: network requests that succeeded, and its own actions that succeeded with no detail. The
- * snapshot tool description says so.
+ * snapshot tool description says so. Only the snapshot's own elements become lines: a value that a
+ * script returns keeps its `elements` key as it is.
  */
 function snapshotJson(value: SnapshotToolPayload): string {
-  return JSON.stringify(value, function (this: unknown, key, field: unknown) {
-    if (!Array.isArray(field) || !isDynamicRecord(this) || !Array.isArray(this.elements)) return field;
-    return key === "elements" ? field.map(elementLine) : field;
-  });
+  if ("elements" in value) return JSON.stringify(withElementLines(value));
+  if ("snapshot" in value) return JSON.stringify({ ...value, snapshot: withElementLines(value.snapshot) });
+  return JSON.stringify(value);
+}
+
+function withElementLines(snapshot: BrowserSnapshot | ClosedTabResult | DialogTabResult | null | undefined) {
+  return snapshot && "elements" in snapshot ? { ...snapshot, elements: snapshot.elements.map(elementLine) } : snapshot;
 }
 
 /** Tags that the role already implies. The line names a tag only when it adds to the role. */

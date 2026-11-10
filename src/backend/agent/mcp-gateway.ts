@@ -21,13 +21,14 @@ import type { McpOperationError } from "../mcp-effects";
 import { McpHandoffLog } from "../mcp-handoff-log";
 import { type McpOAuthAuthority, type McpSignInOpener, mcpOAuthAccountKey } from "../mcp-oauth-provider";
 import { McpOAuthProxy, type McpOAuthProxyTarget, mcpOAuthProxyAgentKey, mcpOAuthProxyRoute } from "../mcp-oauth-proxy";
-import { inspectMcpServer, type McpSignInPlace, testMcpServer } from "../mcp-probe";
+import { inspectMcpServer, type McpProbeOutcome, type McpSignInPlace } from "../mcp-probe";
 import {
   type McpEndpoint,
   type McpEndpointRefusal,
   type McpServerDrop,
   type McpToolRuntimeSource,
   type McpToolRuntimes,
+  mcpFingerprintValues,
   NO_MCP_TOOL_RUNTIMES,
 } from "../mcp-provider-shapes";
 import { mcpSecretValues, redactMcpValues } from "../mcp-redaction";
@@ -116,6 +117,8 @@ export class McpGateway {
    * Cleared whenever the MCP list changes, because the user is then owed a fresh answer.
    */
   readonly #reportedDrops = new Set<string>();
+  /** Last successful explicit test of each enabled row in this run, by its saved fingerprint. */
+  readonly #testedTools = new Map<string, string>();
   /** The loopback address that holds the OAuth tokens for the agents. Its listener starts at first use. */
   readonly #proxy: McpOAuthProxy;
   readonly #logger: Logger;
@@ -373,16 +376,41 @@ export class McpGateway {
         ? { accessToken: (url) => stored.accessToken(url), signIn: (url) => stored.signIn(url, open) }
         : (stored ?? undefined);
     const oauth = options.interactive ? opened : silent;
-    return yield* testMcpServer(config, undefined, this.#toolRuntimes(), oauth, options.signInPlace ?? null).pipe(
-      toMcpGatewayFailed,
-    );
+    const outcome = yield* inspectMcpServer(
+      config,
+      undefined,
+      this.#toolRuntimes(),
+      oauth,
+      options.signInPlace ?? null,
+    ).pipe(toMcpGatewayFailed);
+    // A successful interactive sign-in refreshes through signIn instead.
+    if (!options.interactive) yield* this.#refreshForTestedTools(config, outcome);
+    return { toolCount: outcome.toolCount, error: outcome.error };
+  });
+
+  /** Refreshes stale provider tool lists only after an explicit test of an unchanged saved row. */
+  readonly #refreshForTestedTools = Effect.fn("McpGateway.refreshForTestedTools")(function* (
+    this: McpGateway,
+    config: McpServerConfig,
+    outcome: McpProbeOutcome,
+  ) {
+    if (outcome.error !== null) return;
+    const saved = this.#servers.listEnabled().find((row) => row.id === config.id);
+    const [key] = saved ? mcpFingerprintValues([saved]) : [];
+    if (key === undefined || key !== mcpFingerprintValues([{ ...config, enabled: true }])[0]) return;
+    const tools = [String(outcome.toolCount), ...[...outcome.tools].sort()].join("\u0000");
+    if (this.#testedTools.get(key) === tools) return;
+    yield* this.#hooks.refreshAllAgentRuntimes();
+    // A failed refresh must remain eligible for the next explicit test.
+    this.#testedTools.set(key, tools);
   });
 
   /**
    * The test an agent asks for. Silent like the Test button: it spends the sign-ins this computer
    * holds and never opens a browser, because the user hands a sign-in over from the conversation.
+   * An automatic tool-search probe does not refresh a provider session.
    */
-  readonly inspect = Effect.fnUntraced(function* (this: McpGateway, config: McpServerConfig) {
+  readonly inspect = Effect.fnUntraced(function* (this: McpGateway, config: McpServerConfig, tested = false) {
     const normalized = normalizeMcpConfig(config);
     const errors = mcpConfigErrors(normalized);
     const firstError = errors.name ?? errors.command ?? errors.url;
@@ -391,9 +419,11 @@ export class McpGateway {
     const silent: Pick<McpOAuthAuthority, "accessToken" | "signIn"> | undefined = stored
       ? { accessToken: (url) => stored.accessToken(url), signIn: () => null }
       : undefined;
-    return yield* inspectMcpServer(normalized, undefined, this.#toolRuntimes(), silent, "here").pipe(
+    const outcome = yield* inspectMcpServer(normalized, undefined, this.#toolRuntimes(), silent, "here").pipe(
       toMcpGatewayFailed,
     );
+    if (tested) yield* this.#refreshForTestedTools(normalized, outcome);
+    return outcome;
   });
 
   /**

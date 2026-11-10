@@ -1,4 +1,4 @@
-import { type ChildProcess, execFileSync, spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
@@ -35,7 +35,6 @@ import {
   loadSharedDevelopmentEnvironment,
   requireDevelopmentValues,
 } from "./development-environment";
-import { resolveDevelopmentAppDataRoot } from "./development-state-paths";
 import { withoutElectronRuntimeFlags } from "./electron-spawn-env";
 import { resolvePackageBin } from "./package-bin";
 import { prepareDevelopmentEnvironment } from "./prepare-dev-environment";
@@ -187,45 +186,6 @@ export function createDevInstanceRecord(
   };
 }
 
-// A dev profile no start has ever created is an empty one: the app opens on
-// first-run setup with no agents and no chats. `bun run dev:prepare` seeds the
-// worktree profile, but a setup that only ran `bun install` never reaches it,
-// and the shared `Tommy Dev` profile was never seeded by either, so the
-// profile this start is about to open is seeded here instead. Only a missing
-// profile is seeded, so a later start costs nothing and no data is replaced.
-//
-// The app spec, not the shared environment, decides which profile that is: a
-// start whose default renderer port was busy takes the port as its instance id,
-// and reading it any earlier would seed the shared profile while the app opens
-// `Tommy Dev <port>`.
-export function developmentProfileToSeed(
-  specs: readonly DevelopmentServiceSpec[],
-  profileExists: (path: string) => boolean = existsSync,
-): { profile: string; env: NodeJS.ProcessEnv } | null {
-  // The seed writes the app profile, which every target except `api` opens.
-  const app = specs.find((spec) => spec.name === "app");
-  if (!app) return null;
-  const instanceId = readDevelopmentInstanceId(app.env.TOMMY_DEV_INSTANCE_ID);
-  const profile = resolve(
-    resolveDevelopmentAppDataRoot(process.platform, app.env),
-    developmentUserDataName("app", instanceId),
-  );
-  return profileExists(profile) ? null : { profile, env: app.env };
-}
-
-function seedDevelopmentProfile(profile: string, environment: NodeJS.ProcessEnv): void {
-  logger.info(`Seeding the new development profile ${profile}.`);
-  // `--if-missing` repeats the check above inside the seed, so a profile that
-  // appeared in between is kept rather than replaced. The seed runs with the app
-  // child's own environment, so it reads the same instance id and writes the
-  // profile that child opens.
-  execFileSync(process.execPath, ["run", "dev:seed", "--if-missing"], {
-    cwd: projectRoot,
-    stdio: "inherit",
-    env: withoutElectronRuntimeFlags(environment),
-  });
-}
-
 const DEVELOPMENT_OPTIONS = ["--dry-run", "--force", "--shared", "--isolated", "--hosting=test"] as const;
 /** The deployed `test` account Worker. It creates real hosted server VMs for the accounts on its allow list. */
 const TEST_ACCOUNT_API_URL = "http://127.0.0.1:8787";
@@ -351,16 +311,7 @@ async function main(): Promise<void> {
   // when this process exits, which is when the stack stops: `runDevelopmentServices` returns as soon
   // as the services have started.
 
-  try {
-    // After the lock, because seeding a profile takes long enough that a sibling
-    // worktree should not wait behind it to choose its own ports.
-    const seed = developmentProfileToSeed(specs);
-    if (seed) seedDevelopmentProfile(seed.profile, seed.env);
-
-    await runDevelopmentServices(specs, stack);
-  } catch (error) {
-    throw error;
-  }
+  await runDevelopmentServices(specs, stack);
 }
 
 /**

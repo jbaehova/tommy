@@ -22,6 +22,7 @@ import { ChannelRoutineStore } from "./channel-routine-store";
 import { ChannelStore } from "./channel-store";
 import { ConversationReadStore } from "./conversation-read-store";
 import { runCauseEffect } from "./effect-boundary";
+import { removeImprovementSchemaFixture } from "./migration-fixture-rows";
 import { TommyDatabase } from "./tommy-database";
 
 const roots: string[] = [];
@@ -55,6 +56,7 @@ describe("TommyDatabase", () => {
     const root = database.userDataPath;
     database.close();
     const legacy = new DatabaseSync(path);
+    removeImprovementSchemaFixture(legacy);
     removeSchemaAfterVersion14(legacy);
     // The squatted name is the index's, not a table's: the migration creates its tables with
     // IF NOT EXISTS, and SQLite refuses an index whose name a table already holds however the
@@ -175,6 +177,12 @@ describe("TommyDatabase", () => {
       { version: 50 },
       { version: 51 },
       { version: 52 },
+      { version: 53 },
+      { version: 54 },
+      { version: 55 },
+      { version: 56 },
+      { version: 57 },
+      { version: 58 },
     ]);
     database.close();
   });
@@ -1269,6 +1277,7 @@ describe("TommyDatabase", () => {
     database.close();
 
     const legacy = new DatabaseSync(database.path);
+    removeImprovementSchemaFixture(legacy);
     removeSchemaAfterVersion14(legacy);
     legacy.exec("PRAGMA journal_mode = WAL");
     legacy
@@ -1347,6 +1356,7 @@ describe("TommyDatabase", () => {
     database.close();
 
     const analyticsRelease = new DatabaseSync(database.path);
+    removeImprovementSchemaFixture(analyticsRelease);
     for (const table of ["memories", "routines", "routine_triggers", "routine_runs"])
       analyticsRelease.exec(`DROP TABLE projection_channel_${table}`);
     for (const table of ["assignments", "tasks", "messages", "summaries", "reads", "contexts"])
@@ -1419,6 +1429,12 @@ describe("TommyDatabase", () => {
       { version: 50 },
       { version: 51 },
       { version: 52 },
+      { version: 53 },
+      { version: 54 },
+      { version: 55 },
+      { version: 56 },
+      { version: 57 },
+      { version: 58 },
     ]);
     expect(migrated.connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     migrated.close();
@@ -1444,6 +1460,7 @@ describe("TommyDatabase", () => {
     database.close();
 
     const legacy = new DatabaseSync(database.path);
+    removeImprovementSchemaFixture(legacy);
     removeProviderHistorySchema(legacy);
     legacy
       .prepare(
@@ -1529,6 +1546,7 @@ describe("TommyDatabase", () => {
     // Recreate the unshipped channel branch's version 18 profile: channel migrations are marked through
     // 18, while its provider table still has the three-provider CHECK that migration 17 widens.
     const legacy = new DatabaseSync(database.path);
+    removeImprovementSchemaFixture(legacy);
     removeProviderHistorySchema(legacy);
     legacy.exec(`
       PRAGMA foreign_keys = OFF;
@@ -1579,7 +1597,7 @@ describe("TommyDatabase", () => {
         .get(),
     ).toMatchObject({ sql: expect.not.stringContaining("CHECK(provider") });
     expect(migrated.connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-      version: 52,
+      version: 58,
     });
     migrated.close();
   });
@@ -1595,6 +1613,7 @@ describe("TommyDatabase", () => {
 
     // A version 19 database: the table migration 20 creates is not there, and neither is its row.
     const legacy = new DatabaseSync(database.path);
+    removeImprovementSchemaFixture(legacy);
     removeProviderHistorySchema(legacy);
     legacy.exec(`
       DROP TABLE projection_mcp_servers;
@@ -1623,7 +1642,7 @@ describe("TommyDatabase", () => {
       { name: "Filesystem" },
     ]);
     expect(reopened.connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-      version: 52,
+      version: 58,
     });
     reopened.close();
   });
@@ -1658,6 +1677,7 @@ describe("TommyDatabase", () => {
 
       // A version 24 database: neither the tables of migration 25 nor its marker.
       const legacy = new DatabaseSync(database.path);
+      removeImprovementSchemaFixture(legacy);
       removeProviderHistorySchema(legacy);
       legacy.exec(`
         DROP TABLE projection_messaging_allowed_roles;
@@ -1689,7 +1709,7 @@ describe("TommyDatabase", () => {
       expect(migrated.listAgents()).toEqual([agent]);
       expect(migrated.readConversation(agent.id, agent.threadId).messages).toEqual(conversation.messages);
       expect(connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 52,
+        version: 58,
       });
       expect(connection.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
       expect(connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
@@ -1735,6 +1755,7 @@ describe("TommyDatabase", () => {
     // A version 20 database, written when `computer_use` was still a name a user could take. The
     // second row holds the first name the migration reaches for, so it has to reach further.
     const legacy = new DatabaseSync(database.path);
+    removeImprovementSchemaFixture(legacy);
     removeProviderHistorySchema(legacy);
     legacy.exec(`
       INSERT INTO projection_mcp_servers
@@ -1779,6 +1800,7 @@ describe("TommyDatabase", () => {
     database.close();
 
     const legacy = new DatabaseSync(database.path);
+    removeImprovementSchemaFixture(legacy);
     removeSchemaAfterVersion14(legacy);
     legacy.exec(`
       DROP TABLE projection_routine_runs;
@@ -1855,6 +1877,12 @@ describe("TommyDatabase", () => {
       { version: 50 },
       { version: 51 },
       { version: 52 },
+      { version: 53 },
+      { version: 54 },
+      { version: 55 },
+      { version: 56 },
+      { version: 57 },
+      { version: 58 },
     ]);
     migrated.close();
   });
@@ -1867,6 +1895,7 @@ describe("TommyDatabase", () => {
     database.close();
 
     const legacy = new DatabaseSync(database.path);
+    removeImprovementSchemaFixture(legacy);
     removeSchemaAfterVersion14(legacy);
     downgradeReactionsToV7(legacy);
     legacy.close();
@@ -1900,6 +1929,7 @@ describe("TommyDatabase", () => {
     database.close();
 
     const legacy = new DatabaseSync(database.path);
+    removeImprovementSchemaFixture(legacy);
     removeSchemaAfterVersion14(legacy);
     downgradeReactionsToV7(legacy);
     legacy.exec("CREATE TABLE projection_reactions_v8 (blocker TEXT)");
@@ -1965,6 +1995,12 @@ describe("TommyDatabase", () => {
       { version: 50 },
       { version: 51 },
       { version: 52 },
+      { version: 53 },
+      { version: 54 },
+      { version: 55 },
+      { version: 56 },
+      { version: 57 },
+      { version: 58 },
     ]);
     retried.close();
   });
@@ -1987,6 +2023,7 @@ describe("TommyDatabase", () => {
     database.close();
 
     const legacy = new DatabaseSync(database.path);
+    removeImprovementSchemaFixture(legacy);
     removeSchemaAfterVersion14(legacy);
     legacy.prepare("DELETE FROM schema_migrations WHERE version >= 10").run();
     legacy.close();
@@ -2018,6 +2055,7 @@ describe("TommyDatabase", () => {
     database.close();
 
     const legacy = new DatabaseSync(database.path);
+    removeImprovementSchemaFixture(legacy);
     removeSchemaAfterVersion14(legacy);
     legacy.prepare("DELETE FROM schema_migrations WHERE version >= 11").run();
     legacy.close();
@@ -2052,6 +2090,7 @@ describe("TommyDatabase", () => {
     database.close();
 
     const legacy = new DatabaseSync(database.path);
+    removeImprovementSchemaFixture(legacy);
     removeSchemaAfterVersion14(legacy);
     legacy.exec(`
       DELETE FROM schema_migrations WHERE version >= 11;
@@ -2092,6 +2131,7 @@ describe("TommyDatabase", () => {
     database.close();
 
     const legacy = new DatabaseSync(database.path);
+    removeImprovementSchemaFixture(legacy);
     removeSchemaAfterVersion14(legacy);
     downgradeToV11(legacy);
     legacy.exec(`
@@ -2124,6 +2164,7 @@ describe("TommyDatabase", () => {
     database.close();
 
     const legacy = new DatabaseSync(database.path);
+    removeImprovementSchemaFixture(legacy);
     removeSchemaAfterVersion14(legacy);
     downgradeToV11(legacy);
     legacy.exec(`
@@ -2179,6 +2220,7 @@ describe("TommyDatabase", () => {
     const legacyWorkspace = `/Users/dev/Tommy/Agents/${legacyId}`;
     const workspace = `/Users/dev/Tommy/Agents/${agentId}`;
     const legacy = new DatabaseSync(database.path);
+    removeImprovementSchemaFixture(legacy);
     removeSchemaAfterVersion14(legacy);
     downgradeToV11(legacy);
     seedLegacyAgent(legacy, legacyId, legacyWorkspace);
@@ -2327,6 +2369,7 @@ describe("TommyDatabase", () => {
 
     const legacyId = "bot-6d3e8b17-9c04-4f21-8a55-1b2c3d4e5f60";
     const legacy = new DatabaseSync(database.path);
+    removeImprovementSchemaFixture(legacy);
     removeSchemaAfterVersion14(legacy);
     downgradeToV11(legacy);
     seedLegacyAgent(legacy, legacyId, `/Users/dev/Tommy/Bots/${legacyId}`);
@@ -2371,6 +2414,7 @@ describe("TommyDatabase", () => {
     // one onto the other is a primary-key collision the substitution resolves by dropping a row -- so an
     // agent nobody touched disappears on upgrade.
     const legacy = new DatabaseSync(database.path);
+    removeImprovementSchemaFixture(legacy);
     removeSchemaAfterVersion14(legacy);
     downgradeToV11(legacy);
     seedLegacyAgent(legacy, "bot-research", "/Users/dev/Tommy/Agents/bot-research");
@@ -2460,6 +2504,7 @@ describe("TommyDatabase", () => {
     database.close();
 
     const legacy = new DatabaseSync(database.path);
+    removeImprovementSchemaFixture(legacy);
     removeSchemaAfterVersion14(legacy);
     legacy.exec(`
       PRAGMA foreign_keys = OFF;
@@ -2552,6 +2597,7 @@ describe("TommyDatabase", () => {
 
       // A v16 database: the shipped three-provider constraint, and the migration ledger stamped one short.
       const legacy = new DatabaseSync(database.path);
+      removeImprovementSchemaFixture(legacy);
       legacy.exec(`
       DELETE FROM schema_migrations WHERE version >= 17;
       PRAGMA foreign_keys = OFF;
@@ -2680,6 +2726,7 @@ describe("TommyDatabase", () => {
 
       // A v21 database: the four-provider constraint that migration 17 wrote, and no marker for 22.
       const legacy = new DatabaseSync(database.path);
+      removeImprovementSchemaFixture(legacy);
       legacy.exec(`
       DELETE FROM schema_migrations WHERE version >= 22;
       PRAGMA foreign_keys = OFF;
@@ -2751,7 +2798,7 @@ describe("TommyDatabase", () => {
       expect(migrated.connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       expect(migrated.connection.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
       expect(migrated.connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 52,
+        version: 58,
       });
       expect(
         migrated.connection.prepare("SELECT provider_session_id FROM projection_turns WHERE turn_id = ?").get("turn-1"),
@@ -2823,6 +2870,7 @@ describe("TommyDatabase", () => {
       database.close();
 
       const legacy = new DatabaseSync(database.path);
+      removeImprovementSchemaFixture(legacy);
       const list = providers.map((provider) => `'${provider}'`).join(", ");
       legacy.exec(`
       DELETE FROM schema_migrations WHERE version > ${source};
@@ -2892,7 +2940,7 @@ describe("TommyDatabase", () => {
       expect(connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       expect(connection.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
       expect(connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 52,
+        version: 58,
       });
       expect(
         connection.prepare("SELECT provider_session_id FROM projection_turns WHERE turn_id = ?").get("turn-1"),
@@ -2985,6 +3033,7 @@ describe("TommyDatabase", () => {
       database.close();
 
       const legacy = new DatabaseSync(database.path);
+      removeImprovementSchemaFixture(legacy);
       const list = providers.map((provider) => `'${provider}'`).join(", ");
       legacy.exec(`
       DELETE FROM schema_migrations WHERE version > ${source};
@@ -3054,7 +3103,7 @@ describe("TommyDatabase", () => {
       expect(connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       expect(connection.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
       expect(connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 52,
+        version: 58,
       });
       expect(
         connection.prepare("SELECT provider_session_id FROM projection_turns WHERE turn_id = ?").get("turn-1"),
@@ -3160,6 +3209,7 @@ describe("TommyDatabase", () => {
       database.close();
 
       const legacy = new DatabaseSync(database.path);
+      removeImprovementSchemaFixture(legacy);
       const list = providers.map((provider) => `'${provider}'`).join(", ");
       legacy.exec(`
       DELETE FROM schema_migrations WHERE version > ${source};
@@ -3229,7 +3279,7 @@ describe("TommyDatabase", () => {
       expect(connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       expect(connection.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
       expect(connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 52,
+        version: 58,
       });
       expect(
         connection.prepare("SELECT provider_session_id FROM projection_turns WHERE turn_id = ?").get("turn-1"),
@@ -3352,6 +3402,7 @@ describe("TommyDatabase", () => {
 
       // The shipped shape: no policy column, and no marker past the source version.
       const legacy = new DatabaseSync(database.path);
+      removeImprovementSchemaFixture(legacy);
       legacy.exec(`
         ALTER TABLE projection_agent_routines DROP COLUMN limit_policy;
         ALTER TABLE projection_channel_routines DROP COLUMN limit_policy;
@@ -3391,14 +3442,14 @@ describe("TommyDatabase", () => {
       const waiting = (rows: readonly object[]) => rows.map((row) => ({ ...row, limit_policy: "wait" }));
       expect(routineRows(connection)).toEqual({
         ...original,
-        agent: waiting(original.agent),
+        agent: waiting(original.agent).map((row) => ({ ...row, run_in: "chat" })),
         channel: waiting(original.channel),
       });
       expect(connection.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
       expect(connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       expect(connection.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
       expect(connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 52,
+        version: 58,
       });
       const agentRoutines = new AgentRoutineStore(migrated);
       expect(agentRoutines.get(agent.id, agentRoutine.id)?.limitPolicy).toBe("wait");
@@ -3490,6 +3541,7 @@ describe("TommyDatabase", () => {
       database.close();
 
       const legacy = new DatabaseSync(database.path);
+      removeImprovementSchemaFixture(legacy);
       const list = providers.map((provider) => `'${provider}'`).join(", ");
       legacy.exec(`
       DELETE FROM schema_migrations WHERE version > ${source};
@@ -3563,7 +3615,7 @@ describe("TommyDatabase", () => {
       expect(connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       expect(connection.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
       expect(connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 52,
+        version: 58,
       });
       expect(
         connection.prepare("SELECT provider_session_id FROM projection_turns WHERE turn_id = ?").get("turn-1"),
@@ -3726,6 +3778,7 @@ describe("TommyDatabase", () => {
 
       // The shipped shape: no routine flow tables, and no marker past the source version.
       const legacy = new DatabaseSync(database.path);
+      removeImprovementSchemaFixture(legacy);
       legacy.exec(`
         DROP TABLE routine_flow_steps;
         DROP TABLE routine_flow_links;
@@ -3777,7 +3830,7 @@ describe("TommyDatabase", () => {
       expect(migrated.readConversation(agent.id, agent.threadId).messages).toEqual(conversation.messages);
       expect(routineRows(connection)).toEqual(original);
       expect(connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 52,
+        version: 58,
       });
       expect(connection.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
       expect(connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
@@ -3846,6 +3899,7 @@ describe("TommyDatabase", () => {
   it("checks the file after a migration at a start after a clean close", async () => {
     const database = await createDatabase();
     const userDataPath = database.userDataPath;
+    removeImprovementSchemaFixture(database.connection);
     database.connection.exec(
       "DROP TABLE projection_agent_threads; DELETE FROM schema_migrations WHERE version IN (38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52)",
     );

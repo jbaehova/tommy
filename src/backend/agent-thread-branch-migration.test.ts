@@ -58,6 +58,9 @@ function withBranchLink(
 ): Record<string, Record<string, SQLOutputValue>[]> {
   return {
     ...before,
+    browser_profile_proxies: [],
+    projection_deleted_thread_messages: [],
+    projection_deleted_provider_history_sources: [],
     // Migration 49 adds the GitHub workflow tables, empty.
     workflow_github_actions: [],
     workflow_github_deliveries: [],
@@ -66,6 +69,7 @@ function withBranchLink(
     agent_usage_skill_loads: [],
     projection_agent_threads: (before.projection_agent_threads ?? []).map((row) => ({
       ...row,
+      routine_id: null,
       branch_source_thread_id: null,
       branch_source_message_id: null,
       branch_through_message_id: null,
@@ -81,7 +85,7 @@ function threadColumns(db: DatabaseSync): string[] {
 }
 
 function expectHealthy(db: DatabaseSync): void {
-  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 52 });
+  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 58 });
   expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
   expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   expect(db.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
@@ -94,7 +98,7 @@ describe("agent thread branch migration", () => {
     const before = contents(db);
     migrateTommyDatabase(db);
     expect(contents(db)).toEqual(withBranchLink(before));
-    expect(threadColumns(db).slice(-3)).toEqual(BRANCH_COLUMNS);
+    expect(threadColumns(db).slice(-4, -1)).toEqual(BRANCH_COLUMNS);
     expectHealthy(db);
   });
 
@@ -122,7 +126,7 @@ describe("agent thread branch migration", () => {
     db.exec("ALTER TABLE projection_agent_threads ADD COLUMN branch_source_thread_id TEXT");
     db.exec("UPDATE projection_agent_threads SET branch_source_thread_id='tommy-thread-chief' WHERE origin='user'");
     migrateTommyDatabase(db);
-    expect(threadColumns(db).slice(-3)).toEqual(BRANCH_COLUMNS);
+    expect(threadColumns(db).slice(-4, -1)).toEqual(BRANCH_COLUMNS);
     expect(
       db
         .prepare(
@@ -152,9 +156,9 @@ describe("agent thread branch migration", () => {
     seed(db);
     const before = contents(db);
     const columnsBefore = threadColumns(db);
-    db.exec("INSERT INTO schema_migrations VALUES(53,'now')");
+    db.exec("INSERT INTO schema_migrations VALUES(59,'now')");
     expect(() => migrateTommyDatabase(db)).toThrow("newer than this application supports");
-    db.exec("DELETE FROM schema_migrations WHERE version=53; DELETE FROM schema_migrations WHERE version=46");
+    db.exec("DELETE FROM schema_migrations WHERE version=59; DELETE FROM schema_migrations WHERE version=46");
     expect(() => migrateTommyDatabase(db)).toThrow("missing version 46");
     expect(contents(db)).toEqual(before);
     expect(threadColumns(db)).toEqual(columnsBefore);
@@ -166,7 +170,7 @@ describe("agent thread branch migration", () => {
     migrateTommyDatabase(db);
     const after = contents(db);
     // An application one release older knows versions up to 47: version 48 is newer than it supports.
-    db.exec("INSERT INTO schema_migrations VALUES(53,'now')");
+    db.exec("INSERT INTO schema_migrations VALUES(59,'now')");
     expect(() => migrateTommyDatabase(db)).toThrow("newer than this application supports");
     expect(contents(db)).toEqual(after);
   });

@@ -39,6 +39,7 @@ export interface BrowserProfilesPanelProps {
   onClear: (profileId: string) => Promise<void>;
   /** Moves the agents of the profile to the shared profile, closes its tabs and deletes its data. */
   onDelete: (profileId: string) => Promise<void>;
+  onConfigureProxy?: ((profile: BrowserProfileSummary) => void) | undefined;
   /** Where the row menus open, so they stay inside the settings page. */
   menuMount?: HTMLElement | undefined;
 }
@@ -175,6 +176,7 @@ export function BrowserProfilesPanel(props: BrowserProfilesPanelProps) {
                         <ItemActions>
                           <BrowserProfileRowMenu
                             name={profile.name}
+                            onProxy={props.onConfigureProxy ? () => props.onConfigureProxy?.(profile) : undefined}
                             disabled={draft.busy}
                             mount={props.menuMount}
                             onRename={() =>
@@ -317,6 +319,7 @@ function BrowserProfileRowMenu(props: {
   disabled: boolean;
   mount: HTMLElement | undefined;
   onRename: () => void;
+  onProxy?: (() => void) | undefined;
   onClear: () => void;
   onDelete: () => void;
 }) {
@@ -349,6 +352,15 @@ function BrowserProfileRowMenu(props: {
             <Pencil aria-hidden="true" />
             {t("common.rename")}
           </DropdownMenu.Item>
+          <Show when={props.onProxy}>
+            <DropdownMenu.Item
+              onSelect={() => {
+                afterClose = props.onProxy;
+              }}
+            >
+              {t("browser.profiles.proxy.menu")}
+            </DropdownMenu.Item>
+          </Show>
           <DropdownMenu.Item onSelect={() => props.onClear()}>
             <LogOut aria-hidden="true" />
             {t("browser.profiles.clear")}

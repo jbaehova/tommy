@@ -8,6 +8,7 @@ import {
   encodeDirectFrame,
 } from "@tommy/contracts/direct-connection";
 import type { AgentEvent, TeamRealtimeEvent } from "@tommy/contracts/ipc";
+import type { VoiceLiveEvent } from "@tommy/contracts/ipc-voice";
 import { isDynamicRecord, isNumber, isString } from "@tommy/contracts/runtime-values";
 import { TEAM_API_ROUTES } from "@tommy/contracts/team-api-routes";
 import {
@@ -25,7 +26,9 @@ import {
   teamProtocolV2AuthenticationTranscript,
 } from "@tommy/contracts/team-protocol";
 import { optionalTeamEvent, optionalTeamEventToCurrent } from "@tommy/contracts/team-protocol/optional-events";
+import { addRoutineTaskReferences } from "@tommy/contracts/team-protocol/routine-run-place-v1";
 import { teamSideRouteCodec } from "@tommy/contracts/team-protocol/side-routes";
+import { addSkillSuggestionNames } from "@tommy/contracts/team-protocol/skill-learning-v1";
 import { addUiBlockAutoAnswers } from "@tommy/contracts/team-protocol/ui-block-auto-answer-v1";
 import { addUiBlockVaultRequests } from "@tommy/contracts/team-protocol/ui-block-vault-v1";
 import {
@@ -158,6 +161,7 @@ export interface RemoteTeamPeerActions {
   /** The platform reported that the network came back. A consumer that waits to retry can retry now. */
   onNetworkRestored?: () => Promise<void>;
   onTeamEvent: (hostId: string, event: AgentEvent | TeamRealtimeEvent) => Promise<void>;
+  onLiveVoice?: (hostId: string, event: VoiceLiveEvent) => Promise<void>;
 }
 interface ActionsRef {
   current: RemoteTeamPeerActions;
@@ -698,11 +702,15 @@ export function createRemoteTeamPeer(actions: ActionsRef, options: { hostProtoco
             status: frame.result.status,
             body: sideRoute
               ? yield* peerDecode(() =>
-                  sideRoute.response(pending.path, status, body, {
-                    historyExtent: true,
-                    channelAttention: true,
-                    agentTaskUiBlocks: true,
-                  }),
+                  withWireBlockExtensions(
+                    state,
+                    sideRoute.response(pending.path, status, body, {
+                      historyExtent: true,
+                      channelAttention: true,
+                      agentTaskUiBlocks: true,
+                    }),
+                    body,
+                  ),
                 )
               : yield* peerDecode(() =>
                   withWireBlockExtensions(
@@ -758,8 +766,25 @@ export function createRemoteTeamPeer(actions: ActionsRef, options: { hostProtoco
         if (sendsBlockExtensions(state)) {
           addUiBlockAutoAnswers(decoded.event, frame.payload);
           addUiBlockVaultRequests(decoded.event, frame.payload);
+          addSkillSuggestionNames(decoded.event, frame.payload);
+          addRoutineTaskReferences(decoded.event, frame.payload);
         }
-        yield* RemotePeerIO.use((io) => io.teamEvent(state.hostId, decoded.event));
+        const event = decoded.event;
+        if (event.type === "live-voice") {
+          const current: VoiceLiveEvent =
+            event.kind === "transcript"
+              ? {
+                  type: "transcript",
+                  sessionId: event.sessionId,
+                  role: event.role,
+                  text: event.text,
+                  final: event.final,
+                }
+              : { type: "ended", sessionId: event.sessionId, error: event.error };
+          yield* peerCall(async () => {
+            await actions.current.onLiveVoice?.(state.hostId, current);
+          });
+        } else yield* RemotePeerIO.use((io) => io.teamEvent(state.hostId, event));
       }
       yield* sendEventAckEffect(state);
     })();
@@ -1165,6 +1190,8 @@ function withWireBlockExtensions<T>(state: PeerState, decoded: T, wire: unknown)
   if (sendsBlockExtensions(state)) {
     addUiBlockAutoAnswers(decoded, wire);
     addUiBlockVaultRequests(decoded, wire);
+    addSkillSuggestionNames(decoded, wire);
+    addRoutineTaskReferences(decoded, wire);
   }
   return decoded;
 }

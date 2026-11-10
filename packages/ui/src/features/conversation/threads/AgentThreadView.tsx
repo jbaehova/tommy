@@ -10,12 +10,16 @@ import type {
 import type { AppTextKey } from "@tommy/i18n";
 import { isAgentTaskActive } from "@tommy/team-client/agent-tasks";
 import { createScrollFades } from "@tommy/ui/components/createScrollFades";
-import type { AgentMessage, AgentProfile, ComposerMcpServer } from "@tommy/ui/data";
+import type { AgentMessage, AgentProfile, ComposerBrowserTab, ComposerMcpServer, ComposerThread } from "@tommy/ui/data";
 import { AgentActivityIndicator, nextAgentActivityLabel } from "@tommy/ui/features/conversation/AgentActivity";
 import { type AgentStep, AgentStepsDisclosure, type AgentStepsFacts } from "@tommy/ui/features/conversation/AgentSteps";
 import type { AttachmentDownloads, AttachmentMediaSource } from "@tommy/ui/features/conversation/AttachmentCards";
 import { branchPointIds } from "@tommy/ui/features/conversation/branch-points";
-import { type ChatMessageAuthor, ChatMessageRow } from "@tommy/ui/features/conversation/ChatMessageRow";
+import {
+  type ChatMessageAuthor,
+  ChatMessageRow,
+  type MessageSkillLearning,
+} from "@tommy/ui/features/conversation/ChatMessageRow";
 import { ComposerAddMenu } from "@tommy/ui/features/conversation/ComposerAddMenu";
 import {
   ComposerAttachmentRow,
@@ -94,6 +98,13 @@ export interface AgentThreadVoice {
 }
 
 export interface AgentThreadViewProps {
+  onDeleteMessage?: ((message: AgentMessage) => void) | undefined;
+  canDeleteMessage?: ((message: AgentMessage) => boolean) | undefined;
+  deleteDisabled?: boolean | undefined;
+  browserTabs?: ComposerBrowserTab[] | undefined;
+  threads?: ComposerThread[] | undefined;
+  onOpenTag?: ((kind: "tab" | "thread", id: string) => void) | undefined;
+  skillLearning?: ((messageId: string) => MessageSkillLearning | undefined) | undefined;
   /** Null for a new thread: its first message starts it. */
   task: AgentTask | null;
   /** How many threads of the agent can run at the same time. */
@@ -333,6 +344,12 @@ export function AgentThreadView(props: AgentThreadViewProps) {
     return () => (
       <MessageMenu
         message={message}
+        onDelete={
+          props.onDeleteMessage && (props.canDeleteMessage?.(message) ?? true)
+            ? () => props.onDeleteMessage?.(message)
+            : undefined
+        }
+        deleteDisabled={props.deleteDisabled}
         authorName={author(message).name}
         reactions={false}
         onReact={() => undefined}
@@ -399,9 +416,11 @@ export function AgentThreadView(props: AgentThreadViewProps) {
                 </Show>
                 <ChatMessageRow
                   message={message()}
+                  skillLearning={props.skillLearning?.(message().id)}
                   author={author(message())}
                   agents={props.agents}
                   skills={props.skills}
+                  onOpenTag={props.onOpenTag}
                   onSelectAgent={() => undefined}
                   onOpenLink={props.onOpenLink}
                   onPreview={props.onPreview}
@@ -492,6 +511,7 @@ export function AgentThreadView(props: AgentThreadViewProps) {
                 pending={props.pendingImages}
                 removeDisabled={sending() || voicePhase() === "transcribing"}
                 onRemove={(attachment) => remove()(attachment)}
+                macWindowControls={props.macWindowControls}
               />
             )}
           </Show>
@@ -502,6 +522,9 @@ export function AgentThreadView(props: AgentThreadViewProps) {
               skills={props.skills}
               skillsLoadFailed={props.skillsLoadFailed}
               mcpServers={props.mcpServers}
+              browserTabs={props.browserTabs}
+              threads={props.threads}
+              onOpenTag={props.onOpenTag}
               attachments={props.draftAttachments}
               value={props.draft}
               placeholder={placeholder()}

@@ -265,3 +265,75 @@
   width: var(--tommy-icon-sm);
   height: var(--tommy-icon-sm);
 }
+
+/* Two-step codes: the live code of a login and the setup steps of its key. */
+
+.vault-two-step-digits {
+  font-family: var(--tommy-font-mono);
+  font-size: var(--tommy-text-lg);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: var(--tommy-text-primary);
+}
+
+.vault-two-step-timer.ui-radial-progress {
+  width: var(--tommy-icon-md);
+}
+
+.vault-two-step-code {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tommy-space-2);
+}
+
+.vault-two-step-code[data-size="lg"] {
+  gap: var(--tommy-space-3);
+  justify-content: center;
+  padding: var(--tommy-space-4) 0;
+}
+
+.vault-two-step-code[data-size="lg"] .vault-two-step-digits {
+  font-size: var(--tommy-text-3xl);
+}
+
+.vault-two-step-code[data-size="lg"] .vault-two-step-timer.ui-radial-progress {
+  width: var(--tommy-icon-lg, 20px);
+}
+
+/* The code in a list row sits above the row's hit area, as the ⋯ menu does. */
+.vault-two-step-row-code {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tommy-space-2);
+  height: auto;
+  border-radius: var(--tommy-radius-sm);
+  padding: var(--tommy-space-1) var(--tommy-space-2);
+  color: inherit;
+}
+
+.vault-two-step-setup {
+  display: grid;
+  gap: var(--tommy-space-3);
+}
+
+.vault-two-step-or {
+  display: flex;
+  align-items: center;
+  gap: var(--tommy-space-3);
+  color: var(--tommy-text-muted);
+  font-size: var(--tommy-text-sm);
+}
+
+.vault-two-step-or::before,
+.vault-two-step-or::after {
+  flex: 1;
+  height: 1px;
+  background: var(--tommy-border);
+  content: "";
+}
+
+.vault-two-step-check {
+  text-align: center;
+}

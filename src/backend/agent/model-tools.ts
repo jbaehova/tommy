@@ -39,10 +39,26 @@ export type ProviderAccountRows = (provider: AgentProvider) => ProviderAccountSt
 interface ProviderModels {
   provider: AgentProvider;
   defaultModel: string;
-  models: Pick<AgentModelOption, "id" | "name" | "defaultReasoningEffort" | "supportedReasoningEfforts">[];
+  models: ToolModel[];
   /** The number of models of the provider that the list leaves out. */
   omittedModels?: number;
-  accounts?: Pick<ProviderAccountStatus, "id" | "label" | "state">[];
+  accounts?: (Pick<ProviderAccountStatus, "id" | "label" | "state"> & { models?: ToolModel[] })[];
+}
+
+type ToolModel = Pick<AgentModelOption, "id" | "name"> &
+  Partial<Pick<AgentModelOption, "defaultReasoningEffort" | "supportedReasoningEfforts">>;
+
+function toolModel(model: AgentModelOption): ToolModel {
+  return {
+    id: model.id,
+    name: model.name,
+    ...(model.reasoningEffortConfigurable === false
+      ? {}
+      : {
+          defaultReasoningEffort: model.defaultReasoningEffort,
+          supportedReasoningEfforts: model.supportedReasoningEfforts,
+        }),
+  };
 }
 
 /** The models of each provider that a list with no query shows, before the models in use. */
@@ -112,20 +128,21 @@ export function listModelsPayload(
         {
           provider: id,
           defaultModel: fallback.id,
-          models: listed.map((model) => ({
-            id: model.id,
-            name: model.name,
-            defaultReasoningEffort: model.defaultReasoningEffort,
-            supportedReasoningEfforts: model.supportedReasoningEfforts,
-          })),
+          models: listed.map(toolModel),
           ...(omitted > 0 ? { omittedModels: omitted } : {}),
           ...(rows
             ? {
-                accounts: rows.map((account) => ({
-                  id: account.id,
-                  label: account.label,
-                  state: account.state,
-                })),
+                accounts: rows.map((account) => {
+                  const extra = (account.models ?? []).filter(
+                    (model) => words.length === 0 || matchesQuery(model, words),
+                  );
+                  return {
+                    id: account.id,
+                    label: account.label,
+                    state: account.state,
+                    ...(extra.length > 0 ? { models: extra.map(toolModel) } : {}),
+                  };
+                }),
               }
             : {}),
         },
@@ -160,20 +177,20 @@ export function agentAccountSetup(agent: AgentSummary) {
 
 /**
  * The backup models that an `update_profile` request names, checked against the models and accounts
- * of this computer, the ones the settings page offers. As the settings page writes it, the stored
+ * of this computer, the ones the settings page offers. `modelsOf` gives the models of one account,
+ * with the ones that only that account serves. As the settings page writes it, the stored
  * order omits the provider's own sign-in and the agent's own model, has each choice once, and an
  * order that asks first with no model is null.
  */
 export function requestedBackupModels(
   request: AgentBackupModels | null,
-  models: AgentModelOption[],
+  modelsOf: (choice: Pick<AgentModelChoice, "provider" | "providerAccountId">) => AgentModelOption[],
   accounts: ProviderAccountRows,
   own: AgentModelChoice,
 ): AgentBackupModels | null {
   if (request === null) return null;
   const order: AgentModelChoice[] = [];
   for (const { provider, model, providerAccountId } of request.order) {
-    requestedToolModel({ provider, model }, models);
     const accountId = providerAccountId ?? DEFAULT_PROVIDER_ACCOUNT_ID;
     const rows = accounts(provider);
     if (rows ? !rows.some((account) => account.id === accountId) : accountId !== DEFAULT_PROVIDER_ACCOUNT_ID) {
@@ -181,6 +198,7 @@ export function requestedBackupModels(
         sourceText("error.provider.accountNotFound", { provider: providerLabel(provider) }),
       );
     }
+    requestedToolModel({ provider, model }, modelsOf({ provider, providerAccountId }));
     const choice: AgentModelChoice = {
       provider,
       model,
@@ -257,12 +275,27 @@ export function requestedToolModel(request: ModelRequest, models: AgentModelOpti
 export function requireReasoningEffort(model: AgentModelOption, effort: AgentReasoningEffort): void {
   if (model.supportedReasoningEfforts.includes(effort)) return;
   throw new AgentSettingsRefused(
-    sourceText("error.agent.reasoningEffortUnsupported", {
-      model: model.id,
-      effort,
-      efforts: model.supportedReasoningEfforts.join(", "),
-    }),
+    // A model with no effort setting lists only a `medium` placeholder, which `list_models` hides (#6372).
+    model.reasoningEffortConfigurable === false
+      ? sourceText("error.agent.reasoningEffortNotConfigurable", { model: model.id })
+      : sourceText("error.agent.reasoningEffortUnsupported", {
+          model: model.id,
+          effort,
+          efforts: model.supportedReasoningEfforts.join(", "),
+        }),
   );
+}
+
+/**
+ * The effort of an agent as the agent tools report it. A model with no effort setting gets none:
+ * its stored effort never reaches the provider, and `list_models` shows no effort for it (#6372).
+ */
+export function agentReasoningEffort(
+  agent: Pick<AgentSummary, "provider" | "model" | "reasoningEffort">,
+  models: AgentModelOption[],
+): { reasoningEffort?: AgentReasoningEffort } {
+  const model = models.find((candidate) => candidate.provider === agent.provider && candidate.id === agent.model);
+  return model?.reasoningEffortConfigurable === false ? {} : { reasoningEffort: agent.reasoningEffort };
 }
 
 /**

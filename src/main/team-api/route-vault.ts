@@ -11,6 +11,12 @@ import {
   VAULT_V2_WIRE_ITEM_LIMIT,
   VAULT_V2_WIRE_NAME_LIMIT,
 } from "@tommy/contracts/team-protocol/vault-v2";
+import {
+  VAULT_V3_CAPABILITY,
+  VAULT_V3_ROUTES,
+  VAULT_V3_WIRE_ITEM_LIMIT,
+  VAULT_V3_WIRE_NAME_LIMIT,
+} from "@tommy/contracts/team-protocol/vault-v3";
 import { isFixedSourceText, sourceText } from "@tommy/i18n/source";
 import { runCauseEffect } from "../../backend/effect-boundary";
 import { decodeVaultSaveInput, decodeVaultSecretRequest } from "../vault-inputs";
@@ -21,18 +27,19 @@ import { readJson, requireAdmin, stringField } from "./request-helpers";
 
 const V1_ROUTES: ReadonlySet<string> = new Set(Object.values(VAULT_ROUTES));
 const V2_ROUTES: ReadonlySet<string> = new Set(Object.values(VAULT_V2_ROUTES));
+const V3_ROUTES: ReadonlySet<string> = new Set(Object.values(VAULT_V3_ROUTES));
 
 /**
  * The wire list, cut to the codec's bounds, so one long agent name cannot fail the list. `vault-v1`
  * has no API keys: its closed item list would refuse the whole answer.
  */
-function wireState(state: VaultState, v2: boolean): VaultState {
-  const nameLimit = v2 ? VAULT_V2_WIRE_NAME_LIMIT : VAULT_WIRE_NAME_LIMIT;
+function wireState(state: VaultState, v2: boolean, v3 = false): VaultState {
+  const nameLimit = v3 ? VAULT_V3_WIRE_NAME_LIMIT : v2 ? VAULT_V2_WIRE_NAME_LIMIT : VAULT_WIRE_NAME_LIMIT;
   return {
     status: state.status,
     items: state.items
       .filter((item) => v2 || item.kind !== "apiKey")
-      .slice(0, v2 ? VAULT_V2_WIRE_ITEM_LIMIT : VAULT_WIRE_ITEM_LIMIT)
+      .slice(0, v3 ? VAULT_V3_WIRE_ITEM_LIMIT : v2 ? VAULT_V2_WIRE_ITEM_LIMIT : VAULT_WIRE_ITEM_LIMIT)
       .map((item) => (item.addedBy === undefined ? item : { ...item, addedBy: item.addedBy.slice(0, nameLimit) })),
   };
 }
@@ -50,16 +57,18 @@ export async function routeVault(
 ): Promise<RouteOutcome> {
   const { method, url, capabilities, member, request, json } = context;
   if (method !== "POST") return "unmatched";
-  const v2 = V2_ROUTES.has(url.pathname);
+  const v3 = V3_ROUTES.has(url.pathname);
+  const v2 = v3 || V2_ROUTES.has(url.pathname);
   if (!v2 && !V1_ROUTES.has(url.pathname)) return "unmatched";
-  if (!vault || !capabilities.has(v2 ? VAULT_V2_CAPABILITY : VAULT_CAPABILITY))
+  if (!vault || !capabilities.has(v3 ? VAULT_V3_CAPABILITY : v2 ? VAULT_V2_CAPABILITY : VAULT_CAPABILITY))
     throw new HttpError(400, sourceText("error.team.vaultUnsupported"));
   requireAdmin(member);
   // `readJson` has already run the body through the codec of the route's version.
   const body = await readJson(request);
-  const routes = v2 ? VAULT_V2_ROUTES : VAULT_ROUTES;
-  const answer = (state: VaultState) => json(200, wireState(state, v2));
+  const routes = v3 ? VAULT_V3_ROUTES : v2 ? VAULT_V2_ROUTES : VAULT_ROUTES;
+  const answer = (state: VaultState) => json(200, wireState(state, v2, v3));
   try {
+    if (v3 && url.pathname === VAULT_V3_ROUTES.codes) return json(200, await runCauseEffect(vault.codes()));
     switch (url.pathname) {
       case routes.save:
         return answer(await runCauseEffect(vault.save(parse(() => decodeVaultSaveInput(body)))));

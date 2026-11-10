@@ -40,7 +40,7 @@ export function messagesFromThreadItems(
         .map((part) => part.text)
         .join("\n");
       const delivery = item.clientId ? findDelivery(item.clientId) : null;
-      if (!text) continue;
+      if (!text || (!delivery && text.trimStart().startsWith("<realtime_delegation>"))) continue;
       const row = { id: item.id, turnId: turn.id, text, createdAt };
       if (delivery) messages.push(promptMessage(delivery, row));
       else {

@@ -138,9 +138,17 @@ export const FALLBACK_MODELS: AgentModelOption[] = [
  * The tier that Codex names "Fast". Codex lists it in `serviceTiers` (`priority` in 0.163); an older
  * release lists only the deprecated `additionalSpeedTiers`, where it is `fast`.
  */
-export function codexFastServiceTier(server: ModelListResponse["data"][number]): { fastServiceTier?: string } {
-  const tier =
-    server.serviceTiers?.find((candidate) => candidate.name?.trim().toLowerCase() === "fast")?.id ??
-    (server.additionalSpeedTiers?.includes("fast") ? "fast" : undefined);
-  return tier && tier.length <= INPUT_LIMITS.serviceTier ? { fastServiceTier: tier } : {};
+export function serviceTierFields(server: ModelListResponse["data"][number]): {
+  fastServiceTier?: string;
+  ultrafastServiceTier?: string;
+} {
+  const named = (name: string) =>
+    server.serviceTiers?.find((candidate) => candidate.name?.trim().toLowerCase() === name)?.id;
+  const usable = (tier: string | undefined): tier is string =>
+    tier !== undefined && tier.length <= INPUT_LIMITS.serviceTier;
+  const fast = named("fast") ?? (server.additionalSpeedTiers?.includes("fast") ? "fast" : undefined);
+  const ultrafast = named("ultrafast");
+  // Ultrafast is a choice beside Fast; a model without a Fast tier does not show a speed control.
+  if (!usable(fast)) return {};
+  return { fastServiceTier: fast, ...(usable(ultrafast) ? { ultrafastServiceTier: ultrafast } : {}) };
 }

@@ -1,3 +1,4 @@
+import { type LiveVoiceIpcService, voiceLiveIpcHandlers } from "./voice-live-handlers";
 // Dictation. The host holds the OpenAI API key and the stream to OpenAI, so each call goes to the host.
 
 import { HOST_VOICE_ROUTES, HostVoiceStatus, HostVoiceStream, HostVoiceText } from "@tommy/contracts/host-voice";
@@ -21,12 +22,14 @@ const decodeStream = Schema.decodeUnknownSync(HostVoiceStream);
 const decodeText = Schema.decodeUnknownSync(HostVoiceText);
 
 export interface VoiceIpcDependencies {
-  remoteServers: Pick<RemoteServerManager, "activeServerId" | "request">;
+  remoteServers: Pick<RemoteServerManager, "activeServerId" | "request" | "supportsCapability">;
+  liveVoice: LiveVoiceIpcService;
   forwardTranscript: (transcript: VoiceStreamTranscript) => void;
 }
 
 export function voiceIpcHandlers({
   remoteServers,
+  liveVoice,
   forwardTranscript,
 }: VoiceIpcDependencies): Pick<IpcGroupHandlers, "voice"> {
   const post = <T>(path: string, decode: (value: unknown) => T, body: unknown): Promise<T> =>
@@ -40,6 +43,7 @@ export function voiceIpcHandlers({
   const readStatus = async () => status((await post(HOST_VOICE_ROUTES.status, decodeStatus, {})).keySaved);
   return {
     voice: {
+      ...voiceLiveIpcHandlers({ liveVoice, remoteServers }),
       getModelStatus: handler(readStatus),
       prepareModel: handler(readStatus),
       getSettings: handler((): VoiceSettings => DEFAULT_VOICE_SETTINGS),

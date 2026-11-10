@@ -16,6 +16,7 @@ import {
   routineRunConversationEvent,
   skillConversationEvent,
 } from "@tommy/contracts/ipc";
+import { skillSuggestionEvent } from "@tommy/contracts/ipc-skill-learning";
 import { markdownPreviewText } from "@tommy/contracts/markdown-preview-text";
 import { cleanAgentMessageText } from "@tommy/team-client/agent-message-text";
 import type {
@@ -47,6 +48,7 @@ export function toAgentProfile(stored: ClientAgentSummary): AgentProfile {
     ...(stored.allowNewChat === undefined ? {} : { allowNewChat: stored.allowNewChat }),
     ...(stored.quickAcknowledgement === undefined ? {} : { quickAcknowledgement: stored.quickAcknowledgement }),
     ...(stored.fastMode === undefined ? {} : { fastMode: stored.fastMode }),
+    ...(stored.ultrafast === undefined ? {} : { ultrafast: stored.ultrafast }),
     ...(stored.ownBrowserSession === undefined ? {} : { ownBrowserSession: stored.ownBrowserSession }),
     ...(stored.browserProfileId === undefined ? {} : { browserProfileId: stored.browserProfileId }),
     ...(stored.busyMessageMode === undefined ? {} : { busyMessageMode: stored.busyMessageMode }),
@@ -74,6 +76,7 @@ export function toAgentMessage(message: ConversationMessage, ownerAgentId?: stri
   const routineRunEvent = routineRunConversationEvent(message);
   const actionMarker = chatActionMarker(message, ownerAgentId, routineEvent, routineRunEvent);
   const plan = messagePlan(message);
+  const skillSuggestion = skillSuggestionEvent(message);
   const subagents = message.itemType === CONVERSATION_SUBAGENTS_ITEM_TYPE ? message.subagents : undefined;
   const memoryChanges = message.author === "system" && message.itemType === CONVERSATION_MEMORY_CHANGES_ITEM_TYPE;
   const senderMember = message.author === "user" ? message.senderMember : undefined;
@@ -116,6 +119,7 @@ export function toAgentMessage(message: ConversationMessage, ownerAgentId?: stri
     ...(message.voiceRecording === undefined ? {} : { voiceRecording: message.voiceRecording }),
     ...(message.imageGeneration === undefined ? {} : { imageGeneration: message.imageGeneration }),
     ...(message.questionPrompt === undefined ? {} : { questionPrompt: message.questionPrompt }),
+    ...(skillSuggestion ? { skillSuggestion } : {}),
     ...(message.uiBlock ? { uiBlock: message.uiBlock } : {}),
     ...(message.exchange === undefined ? {} : { exchange: message.exchange }),
     ...(message.reaction === undefined ? {} : { reaction: message.reaction }),
@@ -294,6 +298,7 @@ export function agentMessagesEqual(left: AgentMessage, right: AgentMessage): boo
     JSON.stringify(left.reactionSummary) === JSON.stringify(right.reactionSummary) &&
     JSON.stringify(left.attachments) === JSON.stringify(right.attachments) &&
     JSON.stringify(left.questionPrompt) === JSON.stringify(right.questionPrompt) &&
+    JSON.stringify(left.skillSuggestion) === JSON.stringify(right.skillSuggestion) &&
     JSON.stringify(left.exchange) === JSON.stringify(right.exchange) &&
     JSON.stringify(left.routine) === JSON.stringify(right.routine) &&
     JSON.stringify(left.actionMarker) === JSON.stringify(right.actionMarker) &&

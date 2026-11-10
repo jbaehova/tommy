@@ -6,6 +6,7 @@ import type { ConversationQueries } from "./conversation-queries";
 import { activityTurnId } from "./conversation-writer";
 import { type DatabaseCore, deleteThreadAttachments } from "./database-core";
 import { databaseRows, decodeThreadAgentRow, objectValue, requiredEventRow } from "./database-rows";
+import { withoutDeletedConversationMessages } from "./deleted-thread-messages";
 import { currentConversationMessage } from "./legacy-conversation-message";
 import type { ProviderSession } from "./provider-sessions";
 import { refreshThreadOrder } from "./thread-message-order";
@@ -83,6 +84,11 @@ export class ThreadReplay {
       } else if (event.event_type === "thread.summary-created") {
         const summary = summaryValue(record);
         if (summary) summaries.push({ ...summary, sequence: event.sequence });
+      } else if (event.event_type === "conversation.history-deleted") {
+        for (const current of sessions.values()) {
+          current.state = "inactive";
+          current.resumeCursor = null;
+        }
       }
       const snapshot = conversationSnapshotValue(objectValue(record?.snapshot));
       const appendedMessage = currentConversationMessage(record?.appendedMessage);
@@ -164,6 +170,7 @@ export class ThreadReplay {
       }
     }
     if (!latest) throw new Error(`Thread ${threadId} has no conversation events to replay.`);
+    latest.messages = withoutDeletedConversationMessages(db, threadId, latest.messages);
 
     db.exec("BEGIN IMMEDIATE");
     try {

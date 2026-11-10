@@ -1,4 +1,4 @@
-import { isSpeechVoice, type SpeechVoice } from "@tommy/contracts/ipc";
+import { type CodexLiveVoice, isCodexLiveVoice, isSpeechVoice, type SpeechVoice } from "@tommy/contracts/ipc";
 import { isDynamicRecord } from "@tommy/contracts/runtime-values";
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
@@ -14,12 +14,18 @@ const RECOGNITION_ENGINES: readonly RecognitionEngine[] = ["system", "parakeet",
 const isRecognitionEngine = (value: unknown): value is RecognitionEngine =>
   RECOGNITION_ENGINES.some((engine) => engine === value);
 
+export type ConversationVoiceMode = "phone" | "gpt";
+
 interface VoiceSettings {
+  conversation: ConversationVoiceMode;
+  liveVoice: CodexLiveVoice | null;
   recognition: RecognitionEngine;
   supertonicVoice: SpeechVoice;
 }
 
 const DEFAULT_SETTINGS: VoiceSettings = {
+  conversation: "phone",
+  liveVoice: null,
   recognition: "host",
   supertonicVoice: "F1",
 };
@@ -44,6 +50,8 @@ function decodeSettings(raw: string | null): VoiceSettings {
   }
   if (!isDynamicRecord(value)) return DEFAULT_SETTINGS;
   return {
+    conversation: value.conversation === "gpt" ? "gpt" : "phone",
+    liveVoice: isCodexLiveVoice(value.liveVoice) ? value.liveVoice : null,
     recognition: isRecognitionEngine(value.recognition) ? value.recognition : DEFAULT_SETTINGS.recognition,
     supertonicVoice: isSpeechVoice(value.supertonicVoice) ? value.supertonicVoice : DEFAULT_SETTINGS.supertonicVoice,
   };
@@ -63,7 +71,8 @@ export async function loadVoiceSettings(): Promise<void> {
 
 /** Applies at once, also when storage fails; the caller reports the failure. */
 export async function saveVoiceSettings(change: Partial<VoiceSettings>): Promise<void> {
-  const { recognition, supertonicVoice } = { ...useVoiceSettings.getState(), ...change };
-  useVoiceSettings.setState({ recognition, supertonicVoice });
-  await SecureStore.setItemAsync(SETTINGS_KEY, JSON.stringify({ recognition, supertonicVoice }));
+  const { recognition, supertonicVoice, conversation, liveVoice } = { ...useVoiceSettings.getState(), ...change };
+  const settings = { recognition, supertonicVoice, conversation, liveVoice };
+  useVoiceSettings.setState(settings);
+  await SecureStore.setItemAsync(SETTINGS_KEY, JSON.stringify(settings));
 }

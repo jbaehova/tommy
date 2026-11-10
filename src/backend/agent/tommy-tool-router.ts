@@ -54,7 +54,14 @@ import {
   requestApiKeyToolSchema,
   routineReportFailureToolSchema,
   sendToChannelToolSchema,
+  webSearchToolSchema,
 } from "../tommy-tools";
+import {
+  handleWorkflowTool,
+  WORKFLOW_CHANGE_TOOL_NAMES,
+  WORKFLOW_TOOL_NAMES,
+  type WorkflowTools,
+} from "../workflows/workflow-tools";
 import { AgentInterruptTool } from "./agent-interrupt-tool";
 import type { AgentMemories } from "./agent-memories";
 import { type ApprovalAutomationPolicy, NO_APPROVAL_AUTOMATION } from "./approval-automation";
@@ -67,11 +74,12 @@ import type { ConversationRuntime } from "./conversation-runtime";
 import { handleDataTool } from "./data-tools";
 import { responseAttachmentMessageId, visualReplyFileName, visualReplyMessageId } from "./delivery-content";
 import type { DrainScheduler } from "./drain-scheduler";
-import { HistoryTools } from "./history-tools";
+import { HistoryTools, historyTaskThreadId } from "./history-tools";
 import type { MailboxSync } from "./mailbox-sync";
 import { type AgentMcpServers, handleMcpServerTool, isMcpServerTool, searchSignIns } from "./mcp-tools";
 import {
   agentAccountSetup,
+  agentReasoningEffort,
   listModelsPayload,
   modelList,
   type ProviderAccountRows,
@@ -105,7 +113,14 @@ import { type AgentSidebar, handleSidebarTool } from "./sidebar-tools";
 import { LOCAL_SKILL_TOOL_DEFINITIONS, type LocalSkillTools, runLocalSkillTool } from "./skill-tools";
 import { isDynamicToolCall } from "./thread-items";
 import { toolCallIdempotencyKey } from "./tool-call-idempotency";
-import { CODEX_DEFERRED_MCP_NOTE, discoverTools, namesInSearch, resolveDeferredTool } from "./tool-catalog";
+import {
+  CODEX_DEFERRED_MCP_NOTE,
+  deferredCallArgumentsError,
+  discoverTools,
+  namesInSearch,
+  providerNeedsWebSearch,
+  resolveDeferredTool,
+} from "./tool-catalog";
 import { ToolOperationFailed, toolStep, toToolOperationFailed } from "./tool-operation";
 import type { AgentBrowserHost } from "./turn-lifecycle";
 import { handleUpdateAgentsTool } from "./update-agents-tool";
@@ -138,6 +153,8 @@ function captureFailure(failure: ScreenCaptureFailed) {
 export interface TommyToolRouterHooks {
   listAgents(): AgentSummary[];
   listModels(): AgentModelOption[];
+  searchWeb(agentId: string, query: string): Effect.Effect<string, ToolOperationFailed>;
+  agentModels(choice: Pick<AgentSummary, "provider" | "providerAccountId">): AgentModelOption[];
   /** The accounts of a signed-in provider, as the settings page lists them. */
   providerAccounts: ProviderAccountRows;
   preferredProvider(): AgentProvider;
@@ -192,6 +209,7 @@ export interface TommyToolRouterOptions {
   sidebarLayout: AgentSidebar | null;
   localSkillTools?: (() => LocalSkillTools) | undefined;
   routineFlowTools?: (() => RoutineFlowTools) | undefined;
+  workflowTools?: (() => WorkflowTools) | undefined;
   approvalAutomation?: ApprovalAutomationPolicy | undefined;
   /** Draws pages for `html_preview`; null where no window can draw one. */
   visualPreview?: ChatVisualPreviewHost | null | undefined;
@@ -232,6 +250,7 @@ export class TommyToolRouter {
   readonly #sidebarLayout: AgentSidebar | null;
   readonly #localSkillTools: (() => LocalSkillTools) | undefined;
   readonly #routineFlowTools: (() => RoutineFlowTools) | undefined;
+  readonly #workflowTools: (() => WorkflowTools) | undefined;
   readonly #approvalAutomation: ApprovalAutomationPolicy;
   readonly #visualPreview: ChatVisualPreviewHost | null;
   readonly #screenCapture: ScreenCaptureHost | null;
@@ -264,6 +283,7 @@ export class TommyToolRouter {
     this.#sidebarLayout = options.sidebarLayout;
     this.#localSkillTools = options.localSkillTools;
     this.#routineFlowTools = options.routineFlowTools;
+    this.#workflowTools = options.workflowTools;
     this.#approvalAutomation = options.approvalAutomation ?? NO_APPROVAL_AUTOMATION;
     this.#visualPreview = options.visualPreview ?? null;
     this.#screenCapture = options.screenCapture ?? null;
@@ -333,7 +353,7 @@ export class TommyToolRouter {
               let result: ReturnType<typeof discoverTools>;
               try {
                 this.#requireAgent(agentId);
-                result = discoverTools(params);
+                result = discoverTools(params, client.provider);
               } catch {
                 client.respond(request.id, tommyToolFailure(invalid));
                 return;
@@ -349,9 +369,9 @@ export class TommyToolRouter {
               return;
             }
             if (params.tool === "tool_call") {
-              const resolved = resolveDeferredTool(params);
+              const resolved = resolveDeferredTool(params, client.provider);
               if (!resolved) {
-                client.respond(request.id, tommyToolFailure(invalid));
+                client.respond(request.id, tommyToolFailure(deferredCallArgumentsError(params) ?? invalid));
                 return;
               }
               params = resolved;
@@ -363,15 +383,41 @@ export class TommyToolRouter {
               client.respond(request.id, tommyToolFailure(sourceText("error.agent.historyUnavailable")));
               return;
             }
-            const result = yield* this.#history.call(scope.agentId, scope.threadId, params.tool, params.arguments).pipe(
-              Effect.catch(() => Effect.succeed(tommyToolFailure(sourceText("error.agent.historyUnavailable")))),
-              Effect.catchDefect(() => Effect.succeed(tommyToolFailure(sourceText("error.agent.historyUnavailable")))),
+            const targetThreadId = historyTaskThreadId(scope.agentId, scope.threadId, params.arguments, this.#tasks);
+            if (!targetThreadId) {
+              client.respond(request.id, tommyToolFailure(sourceText("error.backend.threadNotFound")));
+              return;
+            }
+            if (targetThreadId !== scope.threadId && this.#fromRemoteMember(scope.agentId, params.turnId)) {
+              client.respond(request.id, tommyToolFailure(sourceText("error.agent.historyUnavailable")));
+              return;
+            }
+            const result = yield* this.#history.call(scope.agentId, targetThreadId, params.tool, params.arguments).pipe(
+              Effect.catch((failure) =>
+                Effect.succeed(
+                  tommyToolFailure(
+                    failure.cause instanceof z.ZodError
+                      ? this.#hooks.redactMcp(profileToolErrorMessage(failure.cause))
+                      : sourceText("error.agent.historyUnavailable"),
+                  ),
+                ),
+              ),
+              Effect.catchDefect((defect) =>
+                Effect.succeed(
+                  tommyToolFailure(
+                    defect instanceof z.ZodError
+                      ? this.#hooks.redactMcp(profileToolErrorMessage(defect))
+                      : sourceText("error.agent.historyUnavailable"),
+                  ),
+                ),
+              ),
             );
             const currentScope = this.#conversation.historyScope(params.threadId, client);
             if (!request.signal?.aborted && client.running)
               client.respond(
                 request.id,
-                currentScope?.threadId === scope.threadId
+                currentScope?.threadId === scope.threadId &&
+                  historyTaskThreadId(scope.agentId, scope.threadId, params.arguments, this.#tasks) === targetThreadId
                   ? result
                   : tommyToolFailure(sourceText("error.agent.historyUnavailable")),
               );
@@ -485,15 +531,37 @@ export class TommyToolRouter {
             const correctableFailure = (error: unknown) =>
               Effect.sync(() => {
                 const message = this.#hooks.redactMcp(profileToolErrorMessage(error));
-                if (!(error instanceof z.ZodError)) logger.warn("An Tommy tool failed.", { tool, error: message });
+                if (!(error instanceof z.ZodError)) logger.warn("A Tommy tool failed.", { tool, error: message });
                 return tommyToolFailure(message);
               });
-            const correctable = PROFILE_TOOL_NAMES.has(tool) || tool === "attach_files_to_response";
-            const response = this.#handleTommyTool(toolRequest.params).pipe(
+            const correctable =
+              PROFILE_TOOL_NAMES.has(tool) ||
+              tool === "attach_files_to_response" ||
+              tool.startsWith("channel_") ||
+              tool === "list_channels" ||
+              tool === "send_message" ||
+              WORKFLOW_TOOL_NAMES.has(tool) ||
+              tool === "web_search";
+            const response = this.#handleTommyTool(toolRequest.params, client, toolRequest).pipe(
               Effect.catch((failure) => (correctable ? correctableFailure(failure.cause) : Effect.fail(failure))),
               Effect.catchDefect((defect) => (correctable ? correctableFailure(defect) : Effect.die(defect))),
-              Effect.tap((result) => Effect.sync(() => client.respond(toolRequest.id, result))),
+              Effect.tap((result) =>
+                Effect.sync(() => {
+                  if (!toolRequest.signal?.aborted && client.running) client.respond(toolRequest.id, result);
+                }),
+              ),
             );
+            if (tool === "web_search") {
+              const signal = toolRequest.signal;
+              const aborted = Effect.callback<never>((resume) => {
+                const abort = () => resume(Effect.interrupt);
+                if (signal?.aborted) abort();
+                else signal?.addEventListener("abort", abort, { once: true });
+                return Effect.sync(() => signal?.removeEventListener("abort", abort));
+              });
+              yield* response.pipe(Effect.raceFirst(aborted));
+              return;
+            }
             // Both store a file and then add the message that names it.
             yield* tool === "attach_files_to_response" || tool === "html_render"
               ? Effect.uninterruptible(response)
@@ -695,7 +763,7 @@ export class TommyToolRouter {
       description: agent.description,
       provider: agent.provider,
       model: agent.model,
-      reasoningEffort: agent.reasoningEffort,
+      ...agentReasoningEffort(agent, this.#hooks.agentModels(agent)),
       ...agentAccountSetup(agent),
       access: workspaceAccessEnforced(agent) ? "workspace" : "full",
       notifications: agent.notifications,
@@ -718,9 +786,18 @@ export class TommyToolRouter {
   readonly #handleTommyTool = Effect.fn("TommyToolRouter.handleTommyTool")(function* (
     this: TommyToolRouter,
     params: DynamicToolCallParams,
+    client: AgentClient,
+    request: AppServerRequest,
   ) {
     const senderAgentId = this.#conversation.agentForThread(params.threadId);
     if (!senderAgentId) throw new Error("The sending Tommy agent is unknown.");
+
+    if (params.tool === "web_search") {
+      if (!providerNeedsWebSearch(client.provider))
+        return tommyToolFailure(sourceText("error.agent.toolRequestInvalid"));
+      const { query } = webSearchToolSchema.parse(params.arguments);
+      return tommyToolResult(yield* this.#hooks.searchWeb(senderAgentId, query));
+    }
 
     if (LOCAL_SKILL_TOOL_DEFINITIONS.some((tool) => tool.name === params.tool)) {
       const reportFailure = (error: unknown) =>
@@ -968,6 +1045,55 @@ export class TommyToolRouter {
     );
     if (flowResult) return flowResult;
 
+    if (WORKFLOW_TOOL_NAMES.has(params.tool)) {
+      // Channel assignments do not carry a person grant, so their reads cannot expose host-only graphs.
+      if (channelId)
+        return tommyToolFailure(
+          "Workflow tools are not available in a channel. Ask the owner to use their own Tommy chat or Workflows.",
+        );
+      if (this.#fromRemoteMember(senderAgentId, params.turnId))
+        return tommyToolFailure("A team member's message cannot use workflow tools. Ask the member to use Workflows.");
+      if (
+        WORKFLOW_CHANGE_TOOL_NAMES.has(params.tool) &&
+        !this.#requestedByPerson(senderAgentId, params.turnId, executionThreadId)
+      )
+        return tommyToolFailure(
+          "Only a person's message in your Tommy chat or a thread they opened can change, delete or run a workflow. Ask the user to request it there.",
+        );
+      const result = yield* handleWorkflowTool(
+        params.tool,
+        params.arguments,
+        this.#workflowTools?.() ?? null,
+        senderAgentId,
+        toolCallIdempotencyKey(params),
+        new Set(this.#hooks.listAgents().map((agent) => agent.id)),
+        (title) =>
+          this.#attention
+            .awaitToolApproval(
+              client,
+              request,
+              {
+                requestId: request.id,
+                agentId: senderAgentId,
+                threadId: executionThreadId,
+                turnId: params.turnId,
+                kind: "permissions",
+                command: null,
+                cwd: null,
+                reason: sourceText("status.agent.workflowDelete", { title }),
+                grantRoot: null,
+                permissions: null,
+              },
+              { alwaysAsk: true, ownerOnly: true },
+            )
+            .pipe(
+              Effect.map((decision) => decision === "accept"),
+              toToolOperationFailed,
+            ),
+      );
+      if (result) return result;
+    }
+
     // An isolated channel keeps what its members learn in it. The fact becomes a channel
     // memory, which only the packets of this channel show, so the agent's own chats do not get it.
     // Its other memory tools still change its own memories, which reach every chat.
@@ -1004,11 +1130,12 @@ export class TommyToolRouter {
     const memoryResult = this.#memories.handleTool(params, senderAgentId, this.#hooks.redactMcp);
     if (memoryResult) return memoryResult;
 
+    const callerTaskId = this.#tasks.taskForThread(executionThreadId);
     const caller = {
       agentId: senderAgentId,
-      inExecutionThread: this.#conversation.isExecutionThread(
-        this.#conversation.publicThreadId(senderAgentId, params.threadId),
-      ),
+      inExecutionThread:
+        this.#conversation.isExecutionThread(executionThreadId) &&
+        !(callerTaskId !== null && this.#tasks.isRoutineThread(callerTaskId)),
     };
     const waitResult = this.#waits.handleTool(params, caller);
     if (waitResult) return waitResult;
@@ -1023,6 +1150,27 @@ export class TommyToolRouter {
 
     return yield* this.#sendMessage(params, senderAgentId);
   });
+
+  #remoteMember(messageId: string): boolean {
+    const member = this.#mailbox.senderMember(messageId);
+    return member !== undefined && (this.#channels.hooks.remotePerson?.(member.id) ?? false);
+  }
+
+  #fromRemoteMember(agentId: string, turnId: string): boolean {
+    return this.#mailbox
+      .findDeliveriesByTurn(agentId, turnId)
+      .some(({ delivery }) => this.#remoteMember(delivery.messageId));
+  }
+
+  #requestedByPerson(agentId: string, turnId: string, threadId: string): boolean {
+    const deliveries = this.#mailbox.findDeliveriesByTurn(agentId, turnId);
+    return (
+      deliveries.length > 0 &&
+      deliveries.every(({ delivery }) => delivery.sender.kind === "user" && !this.#remoteMember(delivery.messageId)) &&
+      this.#channels.store.channelForThread(threadId) === null &&
+      (!this.#conversation.isExecutionThread(threadId) || this.#tasks.isPersonThread(agentId, threadId))
+    );
+  }
 
   /**
    * `html_render`: stores the page as an HTML attachment and adds a visual reply message, which the
@@ -1427,7 +1575,7 @@ export class TommyToolRouter {
       const args = createAgentToolSchema.parse(params.arguments, { reportInput: true });
       const hue = args.avatarHue ?? null;
       const caller = this.#requireAgent(senderAgentId);
-      const listed = this.#hooks.listModels();
+      const listed = args.provider ? this.#hooks.agentModels({ provider: args.provider }) : this.#hooks.listModels();
       // Checked before the agent exists: a named model the provider does not list, or an effort the
       // model does not support, is an error the calling agent can correct, never a silent default.
       const named = requestedToolModel(args, listed);
@@ -1551,7 +1699,16 @@ export class TommyToolRouter {
       }
       // Checked before anything is written, so a model the provider does not list leaves the name
       // and every other field of the same call unchanged.
-      const runtime = requestedRuntime(target, runtimeRequest, this.#hooks.listModels());
+      const accountChoice = {
+        provider: provider ?? target.provider,
+        providerAccountId:
+          providerAccountId !== undefined
+            ? (providerAccountId ?? undefined)
+            : provider === undefined || provider === target.provider
+              ? target.providerAccountId
+              : undefined,
+      };
+      const runtime = requestedRuntime(target, runtimeRequest, this.#hooks.agentModels(accountChoice));
       // The model and account the agent has after this call. A provider change without an account
       // moves the agent to the new provider's own sign-in.
       const ownProvider = runtime.provider ?? target.provider;
@@ -1568,7 +1725,7 @@ export class TommyToolRouter {
       const backups =
         backupModels === undefined
           ? undefined
-          : requestedBackupModels(backupModels, this.#hooks.listModels(), this.#hooks.providerAccounts, own);
+          : requestedBackupModels(backupModels, this.#hooks.agentModels, this.#hooks.providerAccounts, own);
       const image =
         avatarPath === undefined
           ? undefined

@@ -138,4 +138,15 @@ export const messages = defineMessages("error.agent", {
   "error.agent.screenCapturePermissionMissing":
     "Tommy does not have the Screen Recording permission. Ask the user to open System Settings > Privacy & Security > Screen & System Audio Recording, turn on Tommy, then quit and open Tommy again.",
   "error.agent.screenCaptureFailed": "The screen capture failed. Try again.",
+  "error.agent.reasoningEffortNotConfigurable":
+    'Model "{model}" has no reasoning effort setting, so you cannot change its effort.',
+  "error.agent.compactionConnectionLost":
+    "The connection stopped while the agent compacted its context, so the task stopped. Check your internet connection, then send a message to continue.",
+  "error.agent.toolCallArgumentsNotObject":
+    "The tool did not run. In tool_call, arguments must be a JSON object, not text. Send the call again with arguments as an object.",
+  "error.agent.historyReadArguments":
+    "Use messageId or before, not both. offset needs messageId; workStepsOffset needs messageId and includeWorkSteps.",
+  "error.agent.webSearchSignIn": "Web search needs a Codex sign-in with a ChatGPT account.",
+  "error.agent.webSearchBusy": "Too many searches and side questions are running. Try again shortly.",
+  "error.agent.webSearchFailed": "The web search did not finish. Try again.",
 });

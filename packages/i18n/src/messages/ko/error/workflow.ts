@@ -26,7 +26,7 @@ export const messages = {
   "error.workflow.noDecision": "이 단계는 결정을 기다리고 있지 않아요.",
   "error.workflow.outputPlaceMissing": "이 출력의 메시징 위치를 선택하세요.",
   "error.workflow.discordNoMessage":
-    "이 출력은 실행을 시작한 Discord 메시지에 작동합니다. Discord 멘션으로 실행을 시작하거나 채널에 게시를 선택하세요.",
+    "이 출력은 실행을 시작한 Discord 메시지에 작동해요. Discord 멘션으로 실행을 시작하거나 채널에 게시를 선택하세요.",
   "error.workflow.outputConnectionOff": "이 출력의 메시징 연결이 꺼져 있거나 삭제됐어요. 위치를 다시 선택하세요.",
   "error.workflow.outputNotRunning": "메시징 연결이 지금 실행되고 있지 않아요. 실행될 때 다시 시도해 주세요.",
   "error.workflow.outputRefused": "위치에서 게시를 거부했어요. Tommy가 그곳에 게시할 수 있는지 확인하세요.",
@@ -51,4 +51,10 @@ export const messages = {
   "error.workflow.githubUncertain":
     "변경이 도중에 멈췄어요. GitHub에 이미 반영됐을 수 있어요. 단계를 다시 실행하기 전에 GitHub를 확인하세요.",
   "error.workflow.githubNoEvent": "이 트리거가 시작할 이슈나 풀 리퀘스트가 GitHub에 없어요.",
+  "error.workflow.outputChannelMissing": "이 출력의 채널을 선택하세요.",
+  "error.workflow.outputChannelFailed": "Tommy가 결과를 채널에 게시하지 못했어요. 단계를 다시 실행하세요.",
+  "error.workflow.slackNoMessage":
+    "이 출력은 실행을 시작한 Slack 메시지에 작동해요. Slack 멘션으로 실행을 시작하거나 채널에 게시를 선택하세요.",
+  "error.workflow.telegramNoMessage":
+    "이 출력은 실행을 시작한 Telegram 메시지에 작동해요. Telegram 멘션으로 실행을 시작하거나 채팅에 게시를 선택하세요.",
 } as const satisfies PartialTranslation<typeof source>;

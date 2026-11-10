@@ -30,3 +30,22 @@ export function useAgentViewOnly(serverId: string, agentId: string): boolean {
   });
   return !canAdministerServer(role) && access.data?.mine[agentId] === "view";
 }
+
+/** A destructive history action needs explicit manage access. Unknown member access fails closed. */
+export function useAgentCanManage(serverId: string, agentId: string | null): boolean {
+  const limited = useMobileWorkspaceSelector(
+    (workspace) => Boolean(agentId) && workspace.hasAgentAccessLimits(serverId),
+  );
+  const role = useMobileWorkspaceSelector(
+    (workspace) => workspace.servers.find((server) => server.id === serverId)?.role,
+  );
+  const { loadServerRoles } = useMobileWorkspaceActions();
+  const queryScope = useQueryScope();
+  const access = useQuery({
+    queryKey: queryKeys.serverRoles(queryScope, serverId),
+    enabled: limited,
+    gcTime: Number.POSITIVE_INFINITY,
+    queryFn: () => loadServerRoles(serverId),
+  });
+  return canAdministerServer(role) || Boolean(agentId && access.data?.mine[agentId] === "manage");
+}

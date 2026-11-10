@@ -9,6 +9,8 @@
 @import "./styles/routine-schedule.css";
 @import "./styles/routine-calendar.css";
 @import "./styles/chat-action-card.css";
+@import "./styles/skill-suggestion.css";
+@import "./styles/live-voice.css";
 @import "./styles/marketplace-suggestion.css";
 @import "./styles/backup-models.css";
 @import "./styles/task-list.css";

@@ -122,8 +122,31 @@ const VALUE_MARKER = "__tommy_registered_value__";
 const LABEL_MARKER = "__tommy_registered_secret_authorization";
 const MARKERS = new RegExp(`${VALUE_MARKER}|${LABEL_MARKER}`, "gu");
 const registeredSecrets = new Set<string>();
+// One-time codes have a finite lifetime. Polling a Vault must not grow the permanent set.
+const expiringSecrets = new Map<string, number>();
+let nextSecretExpiry = Number.POSITIVE_INFINITY;
 // One alternation, longest first, so a secret that contains another one is masked whole.
 let registeredSecretPattern: RegExp | null = null;
+
+function rebuildRegisteredSecretPattern(): void {
+  const alternatives = [...new Set([...registeredSecrets, ...expiringSecrets.keys()])]
+    .sort((left, right) => right.length - left.length)
+    .map((secret) => secret.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"));
+  registeredSecretPattern = alternatives.length ? new RegExp(alternatives.join("|"), "gu") : null;
+}
+
+function removeExpiredSecrets(now: number): boolean {
+  if (now < nextSecretExpiry) return false;
+  let removed = false;
+  nextSecretExpiry = Number.POSITIVE_INFINITY;
+  for (const [secret, expiry] of expiringSecrets) {
+    if (expiry <= now) {
+      expiringSecrets.delete(secret);
+      removed = true;
+    } else nextSecretExpiry = Math.min(nextSecretExpiry, expiry);
+  }
+  return removed;
+}
 
 /**
  * Masks `value` in every later log line, export and trace, in its raw, JSON-escaped and
@@ -144,10 +167,27 @@ export function registerSecretValues(values: Iterable<string>, options: { allowS
     }
   }
   if (registeredSecrets.size === size) return;
-  const alternatives = [...registeredSecrets]
-    .sort((left, right) => right.length - left.length)
-    .map((secret) => secret.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"));
-  registeredSecretPattern = new RegExp(alternatives.join("|"), "gu");
+  rebuildRegisteredSecretPattern();
+}
+
+/** Masks short-lived codes until their validity and the caller's delivery/log grace period end. */
+export function registerExpiringSecretValues(values: Iterable<string>, expiresAt: number): void {
+  const now = Date.now();
+  let changed = removeExpiredSecrets(now);
+  if (Number.isFinite(expiresAt) && expiresAt > now) {
+    for (const value of values) {
+      if (!value) continue;
+      for (const form of [value, JSON.stringify(value).slice(1, -1), uriEncoded(value)]) {
+        if (form === null || registeredSecrets.has(form)) continue;
+        const previous = expiringSecrets.get(form);
+        if (previous === undefined) changed = true;
+        const expiry = Math.max(previous ?? expiresAt, expiresAt);
+        expiringSecrets.set(form, expiry);
+        nextSecretExpiry = Math.min(nextSecretExpiry, expiry);
+      }
+    }
+  }
+  if (changed) rebuildRegisteredSecretPattern();
 }
 
 // A lone surrogate cannot be URL-encoded. Such a value cannot appear in a URL either, and a
@@ -174,6 +214,7 @@ export function redactText(value: string): string {
 // Every exact match is found before any grows, so a match inside the token an earlier one grew to
 // still extends the range past it. Ranges that overlap or touch become one token.
 function markRegisteredSecrets(value: string): string {
+  if (removeExpiredSecrets(Date.now())) rebuildRegisteredSecretPattern();
   const pattern = registeredSecretPattern;
   if (!pattern) return value;
   pattern.lastIndex = 0;

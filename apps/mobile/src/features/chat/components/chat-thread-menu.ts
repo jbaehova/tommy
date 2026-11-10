@@ -59,7 +59,7 @@ export function useChatThreadMenu(
     const unread = (taskId: string) => taskId !== activeId && (reads.get(taskId)?.unreadCount ?? 0) > 0;
     const openThread = (taskId: string) => {
       // A thread replaces the thread on the screen, so Back still returns to the agent's chat.
-      if (inThread) router.setParams<"/task/[taskId]">({ taskId });
+      if (inThread) router.setParams<"/task/[taskId]">({ taskId, messageId: undefined });
       else router.push({ pathname: "/task/[taskId]", params: { serverId: agent.serverId, agentId: agent.id, taskId } });
     };
     const actions: MenuAction[] = [

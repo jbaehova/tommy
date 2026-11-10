@@ -1,4 +1,16 @@
+import { decodeBrowserProfileProxyInput, parseBrowserProfileProxy } from "@tommy/contracts/browser-profile-proxy";
+import { parseUpdateAgentSpeedInput } from "@tommy/contracts/ipc-agent-speed";
+import { AGENT_SPEED_CAPABILITY, AGENT_SPEED_ROUTES } from "@tommy/contracts/team-protocol/agent-speed-v1";
+import {
+  BROWSER_PROFILE_PROXY_CAPABILITY,
+  BROWSER_PROFILE_PROXY_ROUTES,
+} from "@tommy/contracts/team-protocol/browser-profile-proxy-v1";
 import type { Effect } from "effect";
+import {
+  decodeAgentSpeedModelsFromHost,
+  decodeAgentSpeedSettingsFromHost,
+  decodeBrowserProfileProxyFromHost,
+} from "../remote-extension-decoding";
 import type { RemoteWorkflowError } from "../remote-service-effects";
 // Access, auto-approve and skills of one agent, and adding an agent from the marketplace or a
 // shared template. On a joined server they belong to the host, so the request goes there, and the
@@ -52,6 +64,7 @@ import {
 import type { TeamCurrentCapability } from "@tommy/contracts/team-protocol/current";
 import { SKILLS_ADMIN_CAPABILITY, SKILLS_ADMIN_ROUTES } from "@tommy/contracts/team-protocol/skills-admin-v1";
 import { sourceText } from "@tommy/i18n/source";
+import { registerSecretValues } from "@tommy/logging";
 import { runCauseEffect } from "../../backend/effect-boundary";
 import type { AgentAdminSettingsService } from "../agent-admin-settings";
 import type { AgentHostSettingsService } from "../agent-host-settings";
@@ -114,6 +127,43 @@ export function agentAdminIpcHandlers({
 
   return {
     agentAdmin: {
+      getAgentSpeedModels: scopedQueryHandler({
+        local: () => hostSettings.listSpeedModels(),
+        remote: (serverId) => {
+          if (!remoteServers.supportsCapability(serverId, AGENT_SPEED_CAPABILITY))
+            throw new Error(sourceText("error.team.agentSettingsUnsupported"));
+          return runCauseEffect(
+            remoteServers.request(serverId, AGENT_SPEED_ROUTES.models, decodeAgentSpeedModelsFromHost, {
+              method: "POST",
+              body: {},
+            }),
+          );
+        },
+      }),
+      getAgentSpeed: scopedHandler((value) => requireString(value, "agentId"), {
+        local: (agentId) => hostSettings.readSpeed(agentId),
+        remote: (agentId, serverId) => remoteSpeed(serverId, AGENT_SPEED_ROUTES.settings, { agentId }),
+      }),
+      updateAgentSpeed: scopedHandler(parseUpdateAgentSpeedInput, {
+        local: (input) => runCauseEffect(hostSettings.updateSpeed(input)),
+        remote: (input, serverId) => remoteSpeed(serverId, AGENT_SPEED_ROUTES.update, input),
+      }),
+      getBrowserProfileProxy: scopedHandler(parseBrowserProfileId, {
+        local: (profileId) => runCauseEffect(browserProfiles.proxy(profileId)),
+        remote: (profileId, serverId) => remoteProxy(serverId, BROWSER_PROFILE_PROXY_ROUTES.read, { profileId }),
+      }),
+      setBrowserProfileProxy: scopedHandler(decodeBrowserProfileProxyInput, {
+        local: (input) => runCauseEffect(browserProfiles.setProxy(input)),
+        remote: (input, serverId) => {
+          const proxy = input.address ? parseBrowserProfileProxy(input.address) : null;
+          if (proxy?.password)
+            registerSecretValues(
+              [...(input.address ? [input.address] : []), proxy.password, encodeURIComponent(proxy.password)],
+              { allowShort: true },
+            );
+          return remoteProxy(serverId, BROWSER_PROFILE_PROXY_ROUTES.save, input);
+        },
+      }),
       getAgentHostSettings: scopedHandler((value) => requireString(value, "agentId"), {
         local: (agentId) => hostSettings.read(agentId),
         remote: (agentId, serverId) => remoteHostSettings(serverId, AGENT_HOST_SETTINGS_ROUTES.settings, { agentId }),
@@ -233,6 +283,22 @@ export function agentAdminIpcHandlers({
       }),
     },
   };
+
+  function remoteSpeed(serverId: string, path: string, body: unknown) {
+    if (!remoteServers.supportsCapability(serverId, AGENT_SPEED_CAPABILITY))
+      throw new Error(sourceText("error.team.agentSettingsUnsupported"));
+    return runCauseEffect(
+      remoteServers.request(serverId, path, decodeAgentSpeedSettingsFromHost, { method: "POST", body }),
+    );
+  }
+
+  function remoteProxy(serverId: string, path: string, body: unknown) {
+    if (!remoteServers.supportsCapability(serverId, BROWSER_PROFILE_PROXY_CAPABILITY))
+      throw new Error(sourceText("error.team.agentSettingsUnsupported"));
+    return runCauseEffect(
+      remoteServers.request(serverId, path, decodeBrowserProfileProxyFromHost, { method: "POST", body }),
+    );
+  }
 
   function remoteHostSettings(serverId: string, path: string, body: unknown) {
     if (!remoteServers.supportsCapability(serverId, AGENT_HOST_SETTINGS_CAPABILITY))

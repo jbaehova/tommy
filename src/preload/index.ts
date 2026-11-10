@@ -71,9 +71,7 @@ import {
 import {
   decodeEventActivity,
   decodeEventRoutineRuns,
-  decodeEventRoutines,
   decodeEventStatus,
-  decodeSaveEventRoutineResult,
   decodeWebhookSecret,
   decodeWebhookTestResult,
 } from "@tommy/contracts/ipc-events";
@@ -102,18 +100,24 @@ import {
   decodeProviderCodeLoginStart,
   decodeProviderUsageResetOutcomeFromMain,
   decodeProviderUsageResetsFromMain,
-  decodeRoutine,
   decodeRoutineCalendar,
   decodeRoutineFeed,
   decodeRoutineRun,
   decodeRoutineRuns,
-  decodeRoutines,
+  decodeRunPlaceRoutineFromMain,
+  decodeRunPlaceRoutinesFromMain,
   decodeSidebarLayout,
   decodeSidebarPinsFromMain,
   decodeSideQuestionAnswer,
   decodeTables,
 } from "./agent-decoding";
 import { decodeScopedAgentEvent } from "./agent-event-decoding";
+import {
+  decodeAgentSpeedModelsFromMain,
+  decodeAgentSpeedSettingsFromMain,
+  decodeBoolean,
+  decodeBrowserProfileProxyFromMain,
+} from "./agent-extensions-decoding";
 import {
   decodeAgentDefaults,
   decodeAgentMemoryLimitPreference,
@@ -187,8 +191,10 @@ import {
   decodeDynamicIslandPreference,
   decodeDynamicIslandPresentation,
 } from "./dynamic-island-decoding";
+import { decodeEventRoutinesFromMain, decodeSavedEventRoutineFromMain } from "./event-routine-decoding";
 import { decodeHostReleaseStatusFromMain } from "./host-release-decoding";
 import { decodeMacAutomationResults } from "./mac-automation-decoding";
+import { decodeHistoryDeleteResultFromMain, decodeMessageDeleteResultFromMain } from "./message-deletion-decoding";
 import { decodeProviderRuntimeSnapshot } from "./provider-runtime";
 import { decodeRoutineFlowCanvas, decodeRoutineFlowLink } from "./routine-flow-decoding";
 import {
@@ -196,6 +202,13 @@ import {
   decodeRoutineResultDestination,
   decodeRoutineResultOptions,
 } from "./routine-result-decoding";
+import {
+  decodeLearnedSkillFromMain,
+  decodeLearnedSkillsFromMain,
+  decodeRestoredLearnedSkillFromMain,
+  decodeSavedSkillSuggestionFromMain,
+  decodeSkillLearningFromMain,
+} from "./skill-learning-decoding";
 import {
   decodeInstalledSkill,
   decodeInstalledSkillsFromMain,
@@ -215,13 +228,20 @@ import {
   decodeTeamPresenceSnapshot,
   decodeTeamSessions,
 } from "./team-decoding";
-import { decodeVaultImportResult, decodeVaultSecret, decodeVaultState } from "./vault-decoding";
+import {
+  decodeVaultCodesFromMain,
+  decodeVaultImportResult,
+  decodeVaultSecret,
+  decodeVaultState,
+} from "./vault-decoding";
+import { decodeScopedVoiceLiveEventFromMain, decodeVoiceLiveSessionFromMain } from "./voice-live-decoding";
 import {
   decodeWorkflowDetail,
   decodeWorkflowGitHubCatalog,
   decodeWorkflowGitHubHistory,
   decodeWorkflowGitHubOptions,
   decodeWorkflowGraph,
+  decodeWorkflowIntegrationCatalogFromMain,
   decodeWorkflowRunDetail,
   decodeWorkflowRunPage,
   decodeWorkflowSaveResult,
@@ -632,6 +652,8 @@ const tommyApi: TommyDesktopApi = {
     updateLink: decodeRoutineFlowLink,
   }),
   workflows: bridgeGroup(IPC_ENDPOINTS.workflows, {
+    setSenderSecret: decodeVoid,
+    integrationCatalog: decodeWorkflowIntegrationCatalogFromMain,
     list: decodeWorkflowSummaries,
     get: decodeWorkflowDetail,
     create: decodeWorkflowDetail,
@@ -663,6 +685,10 @@ const tommyApi: TommyDesktopApi = {
     resend: decodeVoid,
   }),
   voice: bridgeGroup(IPC_ENDPOINTS.voice, {
+    startLive: decodeVoiceLiveSessionFromMain,
+    cancelLive: decodeVoid,
+    stopLive: decodeVoid,
+    liveEvent: decodeScopedVoiceLiveEventFromMain,
     getModelStatus: decodeVoiceModelStatus,
     prepareModel: decodeVoiceModelStatus,
     getSettings: decodeVoiceSettings,
@@ -697,7 +723,17 @@ const tommyApi: TommyDesktopApi = {
     uninstall: decodeVoid,
     setEnabled: decodeInstalledSkill,
   }),
+  skillLearning: bridgeGroup(IPC_ENDPOINTS.skillLearning, {
+    listLocal: decodeLearnedSkillsFromMain,
+    readLocal: decodeLearnedSkillFromMain,
+    get: decodeSkillLearningFromMain,
+    set: decodeSkillLearningFromMain,
+    save: decodeSavedSkillSuggestionFromMain,
+    restore: decodeRestoredLearnedSkillFromMain,
+  }),
   vault: bridgeGroup(IPC_ENDPOINTS.vault, {
+    codes: decodeVaultCodesFromMain,
+    hostCodes: decodeVaultCodesFromMain,
     list: decodeVaultState,
     save: decodeVaultState,
     delete: decodeVaultState,
@@ -799,9 +835,9 @@ const tommyApi: TommyDesktopApi = {
       deleteTable: decodeVoid,
     }),
     ...bridgeGroup(IPC_ENDPOINTS.agentRoutines, {
-      listRoutines: decodeRoutines,
-      createRoutine: decodeRoutine,
-      updateRoutine: decodeRoutine,
+      listRoutines: decodeRunPlaceRoutinesFromMain,
+      createRoutine: decodeRunPlaceRoutineFromMain,
+      updateRoutine: decodeRunPlaceRoutineFromMain,
       deleteRoutine: decodeVoid,
       testRoutine: decodeRoutineRun,
       listRoutineRuns: decodeRoutineRuns,
@@ -841,7 +877,19 @@ const tommyApi: TommyDesktopApi = {
       saveMcpSignInApp: decodeMcpSignInAppState,
       removeMcpSignInApp: decodeMcpSignInAppState,
     }),
+    ...bridgeGroup(IPC_ENDPOINTS.messageDeletion, {
+      deleteMessage: decodeMessageDeleteResultFromMain,
+      deleteTaskMessage: decodeMessageDeleteResultFromMain,
+      deleteChannelMessage: decodeMessageDeleteResultFromMain,
+      deleteAgentHistory: decodeHistoryDeleteResultFromMain,
+      deleteChannelHistory: decodeHistoryDeleteResultFromMain,
+    }),
     ...bridgeGroup(IPC_ENDPOINTS.agentAdmin, {
+      getAgentSpeedModels: decodeAgentSpeedModelsFromMain,
+      getAgentSpeed: decodeAgentSpeedSettingsFromMain,
+      updateAgentSpeed: decodeAgentSpeedSettingsFromMain,
+      getBrowserProfileProxy: decodeBrowserProfileProxyFromMain,
+      setBrowserProfileProxy: decodeBrowserProfileProxyFromMain,
       getAgentAdminSettings: decodeAgentAdminSettings,
       getAgentHostSettings: decodeAgentHostSettingsFromMain,
       updateAgentHostSettings: decodeAgentHostSettingsFromMain,
@@ -981,9 +1029,10 @@ const tommyApi: TommyDesktopApi = {
   // The shared strict contract decoders, as MCP does: main decodes a remote answer with the same
   // decoder before it reaches this point.
   events: bridgeGroup(IPC_ENDPOINTS.events, {
+    setSenderSecret: decodeVoid,
     getStatus: decodeEventStatus,
-    listRoutines: decodeEventRoutines,
-    saveRoutine: decodeSaveEventRoutineResult,
+    listRoutines: decodeEventRoutinesFromMain,
+    saveRoutine: decodeSavedEventRoutineFromMain,
     deleteRoutine: decodeVoid,
     testRoutine: decodeVoid,
     rotateSecret: decodeWebhookSecret,
@@ -994,6 +1043,7 @@ const tommyApi: TommyDesktopApi = {
   // The shared contract decoder, as MCP does: it already bounds every row, and a remote answer was
   // decoded in main before it reached this point.
   storage: bridgeGroup(IPC_ENDPOINTS.storage, {
+    saveFile: decodeBoolean,
     getUsage: decodeOptionalStorageUsage,
     getDisk: decodeOptionalStorageDisk,
     getMachineMetrics: decodeOptionalMachineMetrics,

@@ -24,4 +24,5 @@ export const messages = {
   "menu.pasteAndMatchStyle": "붙여넣고 스타일 일치시키기",
   "menu.delete": "삭제",
   "menu.selectAll": "모두 선택",
+  "menu.copyImage": "이미지 복사",
 } as const satisfies PartialTranslation<typeof source>;

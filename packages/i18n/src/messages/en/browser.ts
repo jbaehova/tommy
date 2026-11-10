@@ -172,4 +172,14 @@ export const messages = defineMessages("browser", {
   "browser.profiles.loadFailed": "Tommy could not load the browser profiles.",
   "browser.profiles.tabLabel": "Profile: {name}",
   "browser.profiles.agentTabLabel": "Own profile of the agent",
+  "browser.profiles.proxy.menu": "Proxy settings",
+  "browser.profiles.proxy.title": "Profile proxy",
+  "browser.profiles.proxy.description":
+    "This profile uses the proxy on the host computer. Saving a proxy or restoring the system proxy closes every tab in this profile.",
+  "browser.profiles.proxy.address": "Proxy address",
+  "browser.profiles.proxy.placeholder": "socks5://user:password@proxy.example.com:1080",
+  "browser.profiles.proxy.keepPassword": "Keep the saved password",
+  "browser.profiles.proxy.system": "Use system proxy",
+  "browser.profiles.proxy.failed": "Could not update the profile proxy.",
+  "browser.profiles.proxy.invalid": "Enter an HTTP, HTTPS or SOCKS5 proxy address.",
 });

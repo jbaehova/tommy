@@ -1,5 +1,4 @@
 import emojiRegex from "emoji-regex";
-
 import { INPUT_LIMITS } from "./input-limits";
 import { type AgentInstructionsChange, isAgentInstructionsChange } from "./ipc-agent-instructions";
 import { type AttachmentSummary, isAttachmentSummary } from "./ipc-attachments";
@@ -13,6 +12,7 @@ import {
 } from "./ipc-conversation-subagents";
 import { type ConversationTurnTrace, isConversationTurnTrace } from "./ipc-conversation-trace";
 import { QUEUE_DELIVERY_STATUSES, type QueueDelivery } from "./ipc-queue";
+import { type ConversationSkillSuggestion, isConversationSkillSuggestion } from "./ipc-skill-learning";
 import { isBoolean, isDynamicRecord, isNumber, isOneOf, isString } from "./runtime-values";
 import { type ConversationUiBlock, isConversationUiBlock } from "./ui-blocks";
 
@@ -245,6 +245,8 @@ export interface ConversationMessage {
    * `ipc-conversation-trace.ts`). It stays on this computer: the Team API projections drop it.
    */
   trace?: ConversationTurnTrace | undefined;
+  /** A reusable-skill proposal name. The question stays in text for older clients. */
+  skillSuggestion?: ConversationSkillSuggestion | undefined;
 }
 
 export function isConversationMessage(value: unknown): value is ConversationMessage {
@@ -293,7 +295,8 @@ export function isConversationMessage(value: unknown): value is ConversationMess
     (value.memoryChanges === undefined || isConversationMemoryChanges(value.memoryChanges)) &&
     (value.instructionsChange === undefined || isAgentInstructionsChange(value.instructionsChange)) &&
     (value.uiBlock === undefined || isConversationUiBlock(value.uiBlock)) &&
-    (value.trace === undefined || isConversationTurnTrace(value.trace))
+    (value.trace === undefined || isConversationTurnTrace(value.trace)) &&
+    (value.skillSuggestion === undefined || isConversationSkillSuggestion(value.skillSuggestion))
   );
 }
 

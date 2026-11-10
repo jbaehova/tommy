@@ -10,6 +10,7 @@ import {
 import { cleanAgentMessageText } from "@tommy/team-client/agent-message-text";
 import type { AgentMessage } from "@tommy/ui/data";
 import { currentText } from "@tommy/ui/text";
+import { errorReference } from "@tommy/user-errors";
 import { createEffect, createMemo, createStore, onCleanup, untrack } from "solid-js";
 import {
   agentMessagesEqual,
@@ -76,6 +77,7 @@ function trimToLatestPage(conversation: ConversationState): void {
 }
 
 interface ConversationState {
+  threadId?: string | null;
   messages: AgentMessage[];
   loaded?: boolean;
   loading?: boolean;
@@ -140,6 +142,42 @@ const Conversation = createSimpleContext({
 
     const [conversations, setConversations] = createStore<Record<string, ConversationState>>({});
     const rawAgentMessageBodies = new Map<string, string>();
+    const deletedMessageIds = new Map<string, Set<string>>();
+    const [deletedSearchMessageIds, setDeletedSearchMessageIds] = createStore<Record<string, string[]>>({});
+    const deletionKey = (agentId: string, threadId: string | null) => JSON.stringify([agentId, threadId]);
+    const deletedFor = (agentId: string, threadId: string | null) =>
+      deletedMessageIds.get(deletionKey(agentId, threadId));
+    function withoutDeletedSnapshot(snapshot: ConversationSnapshot): ConversationSnapshot {
+      const deleted = deletedFor(snapshot.agentId, snapshot.threadId);
+      return deleted
+        ? { ...snapshot, messages: snapshot.messages.filter((message) => !deleted.has(message.id)) }
+        : snapshot;
+    }
+    function removeConversationMessages(agentId: string, threadId: string, ids: readonly string[]): void {
+      const key = deletionKey(agentId, threadId);
+      const deleted = deletedMessageIds.get(key) ?? new Set<string>();
+      for (const id of ids) deleted.add(id);
+      deletedMessageIds.set(key, deleted);
+      setDeletedSearchMessageIds((draft) => {
+        draft[agentId] = [...new Set([...(draft[agentId] ?? []), ...ids])];
+      });
+      const pending = pendingConversationSnapshots.get(agentId);
+      if (pending?.threadId === threadId) pendingConversationSnapshots.set(agentId, withoutDeletedSnapshot(pending));
+      const currentThread =
+        conversations[agentId]?.threadId ?? agentList().find((agent) => agent.id === agentId)?.threadId;
+      if (currentThread !== threadId) return;
+      for (const id of ids) rawAgentMessageBodies.delete(agentMessageKey(agentId, id));
+      if (!conversations[agentId]) return;
+      updateConversation(agentId, (conversation) => {
+        conversation.messages = conversation.messages.filter((message) => !deleted.has(message.id));
+        conversation.references = Object.fromEntries(
+          Object.entries(conversation.references ?? {}).filter(([id]) => !deleted.has(id)),
+        );
+        conversation.missingReferences ??= {};
+        for (const id of ids) conversation.missingReferences[id] = true;
+        conversation.olderLoading = false;
+      });
+    }
 
     function updateConversation(agentId: string, update: (conversation: ConversationState) => void): void {
       setConversations((current) => {
@@ -284,6 +322,13 @@ const Conversation = createSimpleContext({
     // Main adds text to a message before it sends the buffered delta, so the preview can hold text
     // that the first delta also holds. A message added from the preview starts with an empty raw body.
     function applyRuntimeMessages(messages: AgentRuntimeSnapshot["latestMessages"]): void {
+      messages = messages.filter(
+        (message) =>
+          !deletedFor(
+            message.agentId,
+            agentList().find((agent) => agent.id === message.agentId)?.threadId ?? null,
+          )?.has(message.id),
+      );
       const agentIds = new Set(messages.map((message) => message.agentId));
       // The draft includes pending page writes from this event batch. Outside
       // the setter, store keys can precede their committed conversation values.
@@ -343,6 +388,7 @@ const Conversation = createSimpleContext({
     }
 
     function scheduleConversation(snapshot: ConversationSnapshot) {
+      snapshot = withoutDeletedSnapshot(snapshot);
       const agentId = snapshot.agentId;
       const appliedRevision = conversations[agentId]?.revision ?? -1;
       const pending = pendingConversationSnapshots.get(agentId);
@@ -485,6 +531,7 @@ const Conversation = createSimpleContext({
     }
 
     function applyConversationDelta(event: Extract<AgentEvent, { type: "conversation-delta" }>) {
+      if (deletedFor(event.agentId, event.threadId)?.has(event.messageId)) return;
       if (event.revision <= (conversations[event.agentId]?.revision ?? -1)) return;
       const pendingSnapshot = pendingConversationSnapshots.get(event.agentId);
       if (pendingSnapshot) {
@@ -555,6 +602,7 @@ const Conversation = createSimpleContext({
     }
 
     function applyConversation(snapshot: ConversationSnapshot, markNewMessagesRead = false) {
+      snapshot = withoutDeletedSnapshot(snapshot);
       const agentId = snapshot.agentId;
       if (snapshot.revision < (conversations[agentId]?.revision ?? -1)) return;
       const initialLoad = conversations[agentId]?.loaded !== true;
@@ -569,6 +617,7 @@ const Conversation = createSimpleContext({
           : snapshot.messages;
       updateConversation(agentId, (conversation) => {
         conversation.revision = snapshot.revision;
+        conversation.threadId = snapshot.threadId;
         conversation.loaded = true;
         const previous = conversation.messages;
         const previousById = new Map(previous.map((message) => [message.id, message]));
@@ -650,6 +699,13 @@ const Conversation = createSimpleContext({
       merge: "replace" | "older" | "latest",
       windowMode?: "latest" | "around",
     ): boolean {
+      const deleted = deletedFor(page.agentId, page.threadId);
+      if (deleted)
+        page = {
+          ...page,
+          messages: page.messages.filter((message) => !deleted.has(message.id)),
+          references: Object.fromEntries(Object.entries(page.references).filter(([id]) => !deleted.has(id))),
+        };
       if (page.revision < (conversations[page.agentId]?.revision ?? -1)) return false;
       for (const message of page.messages) {
         const key = agentMessageKey(page.agentId, message.id);
@@ -658,6 +714,7 @@ const Conversation = createSimpleContext({
       }
       const mapped = toAgentMessages(page.messages, page.agentId);
       updateConversation(page.agentId, (conversation) => {
+        conversation.threadId = page.threadId;
         const currentMessages = conversation.messages;
         const currentById = new Map(currentMessages.map((message) => [message.id, message]));
         const pageMessages = mapped.map((message) => {
@@ -745,7 +802,12 @@ const Conversation = createSimpleContext({
     ): Promise<{ messageIds: string[]; total: number }> {
       try {
         const page = await conversationPort().agent.searchConversationMessages({ query, agentId, limit: 100 });
-        return { messageIds: page.results.map((result) => result.message.id), total: page.total };
+        const deleted = deletedFor(agentId, agentList().find((agent) => agent.id === agentId)?.threadId ?? null);
+        const results = page.results.filter((result) => !deleted?.has(result.message.id));
+        return {
+          messageIds: results.map((result) => result.message.id),
+          total: Math.max(0, page.total - (page.results.length - results.length)),
+        };
       } catch (error) {
         throw error;
       }
@@ -875,7 +937,7 @@ const Conversation = createSimpleContext({
         return { messageId };
       } catch (error) {
         const { t, errorMessage } = currentText();
-        return { error: errorMessage(error, t("chat.errorStatus.send")) };
+        return { error: errorMessage(error, t("chat.errorStatus.send")), reference: errorReference(error) };
       }
     }
 
@@ -1043,6 +1105,8 @@ const Conversation = createSimpleContext({
       agentChatsToRetryRead,
       initializeConversation,
       removeConversation,
+      removeConversationMessages,
+      deletedSearchMessageIds,
       applyRuntimeMessages,
       requestConversationRead,
       clearRecentReplies,

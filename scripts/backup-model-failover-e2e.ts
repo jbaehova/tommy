@@ -365,6 +365,9 @@ const report: {
 
 const unused = () => Effect.die(new Error("Not used by this check."));
 const browser: AgentBrowserHost = {
+  shareTab: () => {},
+  unshareThread: () => {},
+  agentTab: () => null,
   listTabs: () => [],
   beginTakeover: unused,
   endTakeover: () => {},

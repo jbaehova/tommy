@@ -53,7 +53,6 @@ export const messages = defineMessages("error.backend", {
     "This request exceeds the routing context limit. Select a member or send a shorter request.",
   "error.backend.channelTaskMemberRequired": "Choose a member for this task.",
   "error.backend.channelTaskStopped": "Stopped. Continue or reassign this task.",
-  "error.backend.channelRoutingUnreadable": "The lead could not route this message. Reassign it to a member.",
   "error.backend.channelRoutingFailed": "Routing failed. Choose a member or try again.",
   "error.backend.channelLeadTimedOut": "The channel lead did not answer in time. Choose a member or try again.",
   "error.backend.channelLeadFailed": "The channel lead could not route this message. Choose a member or try again.",
@@ -329,4 +328,17 @@ export const messages = defineMessages("error.backend", {
     "This agent has {count} open tasks. Close a task, then start or open another one.",
   "error.backend.taskRemoteUnsupported": "Tasks are only available for agents on this computer.",
   "error.backend.taskStartFailed": "Tommy could not start the task. Do the work in this turn instead.",
+  "error.backend.browserCertificateUntrusted":
+    "The security certificate of this site is not trusted, so the page did not open.",
+  "error.backend.mcpSignInAnswerUnreadable":
+    "The sign-in server sent an answer that Tommy cannot read. If the service gives you an API key or a token, add it to the settings of this server, then test the connection again.",
+  "error.backend.messageDeleteBusy": "This message is part of a running turn. Delete it when the turn ends.",
+  "error.backend.messageDeleteForbidden": "You can delete only the messages that you sent.",
+  "error.backend.messageDeleteNotFound": "This message is not in the chat.",
+
+  "error.backend.browserProxySavedUnreadable": "The saved browser proxy cannot be read.",
+  "error.backend.browserProxyAddressInvalid": "Invalid browser profile proxy address.",
+  "error.backend.browserProxyPasswordChanged": "The browser proxy changed. Enter its password again.",
+  "error.backend.browserProxyPasswordConflict": "Conflicting browser proxy password input.",
+  "error.backend.browserProfileInUse": "The browser profile is in use.",
 });

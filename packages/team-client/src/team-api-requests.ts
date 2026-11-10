@@ -1,3 +1,22 @@
+import {
+  decodeAgentSpeedModelsFromHost,
+  decodeAgentSpeedSettingsFromHost,
+  type UpdateAgentSpeedInput,
+} from "@tommy/contracts/ipc-agent-speed";
+import {
+  type ChannelHistoryDeleteInput,
+  type ChannelMessageDeleteInput,
+  decodeHistoryDeleteResult,
+  decodeMessageDeleteResult,
+  type HistoryDeleteInput,
+  type MessageDeleteInput,
+  type TaskMessageDeleteInput,
+} from "@tommy/contracts/ipc-message-deletion";
+import type { VoiceLiveCancel, VoiceLiveStart, VoiceLiveStop } from "@tommy/contracts/ipc-voice";
+import { AGENT_SPEED_ROUTES } from "@tommy/contracts/team-protocol/agent-speed-v1";
+import { CHAT_HISTORY_ROUTES } from "@tommy/contracts/team-protocol/chat-history-v1";
+import { decodeLiveVoiceSessionResponse, LIVE_VOICE_ROUTES } from "@tommy/contracts/team-protocol/live-voice-v1";
+import { MESSAGE_DELETE_ROUTES } from "@tommy/contracts/team-protocol/message-delete-v1";
 import { Effect, Schema } from "effect";
 // Team API requests that the web client and the mobile app send in the same way.
 //
@@ -563,4 +582,82 @@ export const setAgentMemoryInclusion = Effect.fn("TeamClient.setAgentMemoryInclu
   const state = yield* readAgentMemorySelection(request, input.agentId, true);
   if (state === null) throw new Error("The host returned no memory selection.");
   return state;
+});
+
+/** Optional message deletion uses stable request ids and the host's access checks. */
+export const deleteAgentMessage = Effect.fn("TeamClient.deleteAgentMessage")(function* (
+  request: TeamApiRequest,
+  input: MessageDeleteInput,
+) {
+  return yield* teamCall(() => request("POST", MESSAGE_DELETE_ROUTES.agent, decodeMessageDeleteResult, { ...input }));
+});
+export const deleteTaskMessage = Effect.fn("TeamClient.deleteTaskMessage")(function* (
+  request: TeamApiRequest,
+  input: TaskMessageDeleteInput,
+) {
+  return yield* teamCall(() => request("POST", MESSAGE_DELETE_ROUTES.task, decodeMessageDeleteResult, { ...input }));
+});
+export const deleteChannelMessage = Effect.fn("TeamClient.deleteChannelMessage")(function* (
+  request: TeamApiRequest,
+  input: ChannelMessageDeleteInput,
+) {
+  return yield* teamCall(() => request("POST", MESSAGE_DELETE_ROUTES.channel, decodeMessageDeleteResult, { ...input }));
+});
+export const deleteAgentHistory = Effect.fn("TeamClient.deleteAgentHistory")(function* (
+  request: TeamApiRequest,
+  input: HistoryDeleteInput,
+) {
+  return yield* teamCall(() =>
+    request("POST", CHAT_HISTORY_ROUTES.agentDelete, decodeHistoryDeleteResult, { ...input }),
+  );
+});
+export const deleteChannelHistory = Effect.fn("TeamClient.deleteChannelHistory")(function* (
+  request: TeamApiRequest,
+  input: ChannelHistoryDeleteInput,
+) {
+  return yield* teamCall(() =>
+    request("POST", CHAT_HISTORY_ROUTES.channelDelete, decodeHistoryDeleteResult, { ...input }),
+  );
+});
+
+/** Optional speed controls preserve the legacy Fast routes for peers without this capability. */
+export const getAgentSpeed = Effect.fn("TeamClient.getAgentSpeed")(function* (
+  request: TeamApiRequest,
+  agentId: string,
+) {
+  return yield* teamCall(() =>
+    request("POST", AGENT_SPEED_ROUTES.settings, decodeAgentSpeedSettingsFromHost, { agentId }),
+  );
+});
+export const updateAgentSpeed = Effect.fn("TeamClient.updateAgentSpeed")(function* (
+  request: TeamApiRequest,
+  input: UpdateAgentSpeedInput,
+) {
+  return yield* teamCall(() =>
+    request("POST", AGENT_SPEED_ROUTES.update, decodeAgentSpeedSettingsFromHost, { ...input }),
+  );
+});
+export const getAgentSpeedModels = Effect.fn("TeamClient.getAgentSpeedModels")(function* (request: TeamApiRequest) {
+  return yield* teamCall(() => request("POST", AGENT_SPEED_ROUTES.models, decodeAgentSpeedModelsFromHost, {}));
+});
+
+/** Credentials stay on the host; only the SDP crosses the authenticated connection. */
+export const startLiveVoice = Effect.fn("TeamClient.startLiveVoice")(function* (
+  request: TeamApiRequest,
+  input: VoiceLiveStart,
+) {
+  return yield* teamCall(() => request("POST", LIVE_VOICE_ROUTES.start, decodeLiveVoiceSessionResponse, { ...input }));
+});
+export const stopLiveVoice = Effect.fn("TeamClient.stopLiveVoice")(function* (
+  request: TeamApiRequest,
+  input: VoiceLiveStop,
+) {
+  return yield* teamCall(() => request("POST", LIVE_VOICE_ROUTES.stop, ignoreResponse, { ...input }));
+});
+
+export const cancelLiveVoice = Effect.fn("TeamClient.cancelLiveVoice")(function* (
+  request: TeamApiRequest,
+  input: VoiceLiveCancel,
+) {
+  return yield* teamCall(() => request("POST", LIVE_VOICE_ROUTES.cancel, ignoreResponse, { ...input }));
 });

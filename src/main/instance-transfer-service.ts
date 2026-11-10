@@ -11,10 +11,10 @@
 // here and never replace an MCP server, provider or custom agent that this computer has.
 
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { AgentProviderId } from "@tommy/contracts/agent-providers";
-import { INPUT_LIMITS } from "@tommy/contracts/input-limits";
+import { AVATAR_IMAGE_LIMITS, INPUT_LIMITS } from "@tommy/contracts/input-limits";
 import {
   AGENT_IMPORT_LIMITS,
   type AgentImportPreviewAgent,
@@ -48,21 +48,23 @@ import {
 import { INSTANCE_TRANSFER_REMOTE_BYTES } from "@tommy/contracts/team-protocol/instance-transfer-v1";
 import { sourceText } from "@tommy/i18n/source";
 import { Deferred, Effect, Exit, Result } from "effect";
-import { Zip, ZipPassThrough, zipSync } from "fflate";
+import { Zip, ZipPassThrough } from "fflate";
 import { isMissingFileError } from "../backend/file-errors";
 import { isPathInside } from "../backend/path-containment";
+import { type ArchiveLimits, avatarImage, isUnsafeEntry, writeTreeEffect } from "./agent-archive";
 import {
-  type ArchiveLimits,
-  avatarImage,
-  executableEntries,
-  extract,
-  isUnsafeEntry,
-  listEntries,
-  readArchiveEffect,
-  sha256,
-  writeImportedFilesEffect,
-  writeTreeEffect,
-} from "./agent-archive";
+  assertArchiveFreeSpaceEffect,
+  ensureArchiveDirectoryEffect,
+  extractStreamEntryEffect,
+  MANIFEST_MAX_BYTES,
+  readStreamArchiveEffect,
+  readStreamEntriesEffect,
+  readStreamSkillEffect,
+  type StreamArchiveEntry,
+  type StreamArchiveFile,
+  withStreamArchive,
+  writeStreamImportedFilesEffect,
+} from "./agent-archive-reader";
 import { type ArchiveOperationError, archiveCall, archiveFailure, archiveSync } from "./archive-effects";
 import {
   agentPrefix,
@@ -80,7 +82,7 @@ import type { LocalSkillLibrary } from "./local-skill-library";
 import { MANAGED_SKILL_FOLDERS, OWNERSHIP_MARKER } from "./managed-skill-service";
 import type { SkillMarketplaceFailure } from "./skill-marketplace-service";
 import { readPackFolders } from "./skill-marketplace-service";
-import { inspectArchive, isUnsafeArchivePath } from "./skill-package";
+import { isUnsafeArchivePath } from "./skill-package";
 import { validTimezone } from "./valid-timezone";
 
 const ARCHIVE: ArchiveLimits = {
@@ -496,27 +498,29 @@ export class InstanceTransferService {
     limits: ArchiveLimits,
   ): Effect.fn.Return<InstanceTransferPreview, ArchiveOperationError> {
     // The file read before stays staged until this one is checked, so a bad file keeps it.
-    const bytes = yield* readArchiveEffect(path, limits);
-    const entries = yield* archiveSync(() => listEntries(bytes, limits));
+    const archive = yield* readStreamArchiveEffect(path, limits);
+    const entries = archive.entries;
     if (!entries.has(INSTANCE_TRANSFER_MANIFEST))
       return yield* archiveFailure(new Error(sourceText("error.import.transferNotFile")));
+    const manifestData = yield* readStreamEntriesEffect(archive, [INSTANCE_TRANSFER_MANIFEST], MANIFEST_MAX_BYTES);
     const { manifest, warnings } = yield* archiveSync(() =>
-      decodeTransferManifest(
-        extract(bytes, (name) => name === INSTANCE_TRANSFER_MANIFEST)[INSTANCE_TRANSFER_MANIFEST] ?? new Uint8Array(),
-      ),
+      decodeTransferManifest(manifestData[INSTANCE_TRANSFER_MANIFEST] ?? new Uint8Array()),
     );
+    if (archive.skipped > 0)
+      warnings.push(sourceText("error.import.transferUnsafeFilesSkipped", { number: archive.skipped }));
     // An agent whose skill has no SKILL.md cannot import, so it is not offered.
     const agents = manifest.agents.filter((agent) => {
       const missing = agent.skills.find((skill) => !entries.has(`${skill}/SKILL.md`));
       if (missing) warnings.push(sourceText("error.import.skillFolderMissing", { name: agent.name, skill: missing }));
       return !missing;
     });
-    const avatarPaths = new Set(agents.flatMap((agent) => (agent.avatar ? [agent.avatar] : [])));
-    const avatarBytes = yield* archiveSync(() => extract(bytes, (name) => avatarPaths.has(name)));
     const avatars = new Map<string, AvatarImageInput>();
     for (const agent of agents) {
       if (!agent.avatar) continue;
-      const image = avatarImage(avatarBytes[agent.avatar]);
+      const bytes = yield* Effect.result(
+        readStreamEntriesEffect(archive, [agent.avatar], AVATAR_IMAGE_LIMITS.storedBytes),
+      );
+      const image = Result.isSuccess(bytes) ? avatarImage(bytes.success[agent.avatar]) : null;
       if (image) avatars.set(agent.key, image);
       else warnings.push(sourceText("error.import.avatarSkipped", { name: agent.name }));
     }
@@ -526,7 +530,7 @@ export class InstanceTransferService {
       owner,
       temporary,
       path,
-      sha256: sha256(bytes),
+      sha256: archive.fingerprint,
       manifest: { ...manifest, agents },
       avatars,
     };
@@ -615,11 +619,27 @@ export class InstanceTransferService {
         new Error(sourceText("error.import.serverAgentLimit", { limit: INPUT_LIMITS.agents })),
       );
     // The file is read again rather than held since `stage`, and only the same bytes are accepted.
-    const bytes = yield* readArchiveEffect(staged.path, staged.temporary ? REMOTE_ARCHIVE : ARCHIVE);
-    if (sha256(bytes) !== staged.sha256)
+    const archive = yield* readStreamArchiveEffect(staged.path, staged.temporary ? REMOTE_ARCHIVE : ARCHIVE);
+    if (archive.fingerprint !== staged.sha256)
       return yield* archiveFailure(new Error(sourceText("error.import.exportChanged")));
+    // Check the selected expanded files before settings or agents are changed. Each actual target
+    // is checked again before extraction, because a workspace can be on another filesystem.
+    const folders = selected.flatMap((agent) => [...agent.skills, ...(agent.files ? [agent.files] : [])]);
+    const avatars = new Set(selected.flatMap((agent) => (agent.avatar ? [agent.avatar] : [])));
+    const shared = staged.manifest.shared;
+    const selectedBytes = [...archive.entries].reduce((total, [name, entry]) => {
+      const sharedFile =
+        shared !== null && name.startsWith(`${shared}/`) && !isSharedData(name.slice(shared.length + 1));
+      return avatars.has(name) || folders.some((folder) => name.startsWith(`${folder}/`)) || sharedFile
+        ? total + entry.size
+        : total;
+    }, 0);
+    const targetDirectory = yield* existingTransferDirectory(this.options.sharedRoot);
+    yield* assertArchiveFreeSpaceEffect(targetDirectory, selectedBytes);
 
     const warnings: string[] = [];
+    if (archive.skipped > 0)
+      warnings.push(sourceText("error.import.transferUnsafeFilesSkipped", { number: archive.skipped }));
     const settings = input.includeSettings ? staged.manifest.settings : null;
     // Providers and custom agents first, so their warnings come first. Their models are not listed yet:
     // a save does not wait for model discovery, and an imported provider has no key. An agent on one
@@ -632,7 +652,7 @@ export class InstanceTransferService {
     const routineIds = new Map<string, string>();
     for (const agent of selected) {
       const result = yield* Effect.result(
-        this.#importAgent(bytes, staged, agent, routineIds, warnings, fallbackTimezone),
+        this.#importAgent(archive, staged, agent, routineIds, warnings, fallbackTimezone),
       );
       if (Result.isFailure(result)) {
         skipped.push({ key: agent.key, name: agent.name, reason: message(result.failure.cause) });
@@ -642,7 +662,7 @@ export class InstanceTransferService {
       }
     }
     if (settings) yield* this.#applyLayout(settings, agentIds, routineIds, warnings);
-    if (staged.manifest.shared) yield* this.#importShared(bytes, staged.manifest.shared, warnings);
+    if (staged.manifest.shared) yield* this.#importShared(archive, staged.manifest.shared, warnings);
 
     const signedIn = new Set(this.options.settings.signedInProviders());
     return {
@@ -739,32 +759,42 @@ export class InstanceTransferService {
   /** Copies `~/Tommy/Shared` files. A file that is already here is kept as it is. */
   readonly #importShared = Effect.fn("InstanceTransfer.importShared")(function* (
     this: InstanceTransferService,
-    bytes: Uint8Array,
+    archive: StreamArchiveFile,
     folder: string,
     warnings: string[],
   ) {
-    const files = yield* archiveSync(() => extract(bytes, (name) => name.startsWith(`${folder}/`)));
-    const executable = yield* archiveSync(() => executableEntries(bytes));
-    const base = resolve(this.options.sharedRoot);
-    let kept = 0;
-    for (const [name, data] of Object.entries(files)) {
+    yield* archiveCall(() => mkdir(this.options.sharedRoot, { recursive: true }));
+    const base = yield* archiveCall(() => realpath(this.options.sharedRoot));
+    const files = [...archive.entries].flatMap(([name, entry]) => {
+      if (!name.startsWith(`${folder}/`)) return [];
       const inner = name.slice(folder.length + 1);
       const target = resolve(base, inner);
-      if (isUnsafeEntry(inner) || isSharedData(inner) || !isPathInside(base, target)) continue;
-      const written = yield* Effect.result(
-        Effect.gen(function* () {
-          yield* archiveCall(() => mkdir(dirname(target), { recursive: true }));
-          yield* archiveCall(() => writeFile(target, data, { flag: "wx", mode: executable.has(name) ? 0o777 : 0o666 }));
-        }),
-      );
-      if (Result.isFailure(written)) kept += 1;
-    }
+      return isUnsafeEntry(inner) || isSharedData(inner) || !isPathInside(base, target) ? [] : [{ entry, target }];
+    });
+    yield* assertArchiveFreeSpaceEffect(
+      base,
+      files.reduce((total, { entry }) => total + entry.size, 0),
+    );
+    let kept = 0;
+    yield* withStreamArchive(archive.path, (handle) =>
+      Effect.gen(function* () {
+        for (const { entry, target } of files) {
+          const written = yield* Effect.result(
+            Effect.gen(function* () {
+              yield* ensureArchiveDirectoryEffect(base, dirname(target));
+              yield* extractStreamEntryEffect(handle, entry, target, entry.executable ? 0o777 : 0o666);
+            }).pipe(Effect.uninterruptible),
+          );
+          if (Result.isFailure(written)) kept += 1;
+        }
+      }),
+    );
     if (kept > 0) warnings.push(sourceText("error.import.transferSharedKept", { number: kept }));
   });
 
   readonly #importAgent = Effect.fn("InstanceTransfer.importAgent")(function* (
     this: InstanceTransferService,
-    bytes: Uint8Array,
+    archive: StreamArchiveFile,
     staged: StagedTransfer,
     source: TransferAgent,
     routineIds: Map<string, string>,
@@ -772,18 +802,18 @@ export class InstanceTransferService {
     fallbackTimezone: string,
   ): Effect.fn.Return<AgentSummary, ArchiveOperationError> {
     const prefix = agentPrefix(source.key);
-    const files = yield* archiveSync(() => extract(bytes, (name) => name.startsWith(prefix)));
-    const read = (path: string) =>
-      Object.entries(files)
+    const files = [...archive.entries].filter(([name]) => name.startsWith(prefix));
+    const read = (path: string): Array<readonly [string, StreamArchiveEntry]> =>
+      files
         .filter(([name]) => name.startsWith(`${path}/`))
-        .map(([name, data]) => [name.slice(path.length + 1), data] as const);
-    // Every skill is checked before the agent exists, so a bad one publishes nothing.
-    const skills = yield* archiveSync(() =>
-      source.skills.map((skill) => {
-        const skillFiles = read(skill);
-        return { files: skillFiles, slug: inspectArchive(zipSync(Object.fromEntries(skillFiles))).slug };
-      }),
-    );
+        .map(([name, entry]) => [name.slice(path.length + 1), entry] as const);
+    // Validate every skill before the agent exists, but retain only its slug. Import reads one
+    // bounded skill again when it is installed, so many skills do not stay in memory together.
+    const skills: Array<{ path: string; slug: string }> = [];
+    for (const path of source.skills) {
+      const skill = yield* readStreamSkillEffect(archive, read(path));
+      skills.push({ path, slug: skill.slug });
+    }
     // The model is kept when this computer offers it, and the provider is on.
     const model = this.options.agents
       .listModels()
@@ -812,17 +842,18 @@ export class InstanceTransferService {
           let agent = created;
           if (source.files) {
             const folder = source.files;
-            const executable = yield* archiveSync(() => executableEntries(bytes));
-            yield* writeImportedFilesEffect(
+            yield* writeStreamImportedFilesEffect(
               agent.workspacePath,
+              archive,
               read(folder).filter(([name]) => !isWorkspaceSkipped(name)),
               source.name,
               warnings,
-              (name) => executable.has(`${folder}/${name}`),
+              true,
             );
           }
           const library = this.options.skills.library();
           for (const skill of skills) {
+            const content = yield* readStreamSkillEffect(archive, read(skill.path));
             const current = (yield* library.list().pipe(Effect.mapError(failure))).find(
               (candidate) => candidate.slug === skill.slug,
             );
@@ -832,7 +863,7 @@ export class InstanceTransferService {
               Effect.succeed(target),
               () =>
                 Effect.gen({ self: this }, function* () {
-                  yield* writeTreeEffect(target, skill.files);
+                  yield* writeTreeEffect(target, content.files);
                   const revision = yield* (
                     current
                       ? library.revise(agent.id, current.id, current.version, folder)
@@ -923,6 +954,21 @@ export class InstanceTransferService {
     );
   });
 }
+
+/** A new profile need not have Shared yet. Read disk space from its closest existing parent. */
+const existingTransferDirectory = Effect.fn("InstanceTransfer.existingDirectory")(function* (
+  target: string,
+): Effect.fn.Return<string, ArchiveOperationError> {
+  let directory = resolve(target);
+  for (;;) {
+    const info = yield* Effect.result(archiveCall(() => stat(directory)));
+    if (Result.isSuccess(info) && info.success.isDirectory()) return directory;
+    if (Result.isFailure(info) && !isMissingFileError(info.failure.cause)) return yield* info.failure;
+    const parent = dirname(directory);
+    if (parent === directory) return yield* archiveFailure(new Error(sourceText("error.import.transferNotFile")));
+    directory = parent;
+  }
+});
 
 /**
  * The files an export carries from one folder: no link, nothing `isUnsafeArchivePath` refuses on

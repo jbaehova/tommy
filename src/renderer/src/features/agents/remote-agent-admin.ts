@@ -2,7 +2,6 @@ import type {
   AgentAdminSettings,
   AgentBackupModelSettings,
   AgentBackupModels,
-  AgentFastModeSettings,
   AgentHostSettings,
   AgentNewChatSettings,
   AgentPlanCardSettings,
@@ -14,12 +13,14 @@ import type {
   UpdateAgentHostSettingsInput,
   UpdateAgentInput,
 } from "@tommy/contracts/ipc";
+import type { AgentSpeedSettings } from "@tommy/contracts/ipc-agent-speed";
 import { AGENT_ADMIN_CAPABILITY } from "@tommy/contracts/team-protocol/agent-admin-v1";
 import { AGENT_BACKUP_MODELS_CAPABILITY } from "@tommy/contracts/team-protocol/agent-backup-models-v1";
 import { AGENT_FAST_MODE_CAPABILITY } from "@tommy/contracts/team-protocol/agent-fast-mode-v1";
 import { AGENT_HOST_SETTINGS_CAPABILITY } from "@tommy/contracts/team-protocol/agent-host-settings-v1";
 import { AGENT_NEW_CHAT_CAPABILITY } from "@tommy/contracts/team-protocol/agent-new-chat-v1";
 import { AGENT_PLAN_CARD_CAPABILITY } from "@tommy/contracts/team-protocol/agent-plan-card-v1";
+import { AGENT_SPEED_CAPABILITY } from "@tommy/contracts/team-protocol/agent-speed-v1";
 import { AGENT_TASK_LIMIT_CAPABILITY } from "@tommy/contracts/team-protocol/agent-task-limit-v1";
 import { currentText } from "@tommy/ui/text";
 import { createEffect, createMemo, createStore, untrack } from "solid-js";
@@ -43,6 +44,8 @@ export type RemoteAgentAdminCalls = Pick<
   | "updateAgentPlanCard"
   | "getAgentFastMode"
   | "updateAgentFastMode"
+  | "getAgentSpeed"
+  | "updateAgentSpeed"
 >;
 
 /** A joined server where this account may change agent access and auto-approve. */
@@ -64,7 +67,7 @@ interface RemoteAgentAdminState {
   planCardKey: string | null;
   planCard: AgentPlanCardSettings | null;
   fastModeKey: string | null;
-  fastMode: AgentFastModeSettings | null;
+  fastMode: AgentSpeedSettings | null;
 }
 
 /**
@@ -274,11 +277,17 @@ export function createRemoteAgentAdmin(
   // Any member can change fast mode, as the model and effort, so this key needs no admin role.
   const fastModeKey = createMemo(() => {
     const current = target();
-    if (current?.server.kind !== "remote" || !serverSupportsCapability(current.server, AGENT_FAST_MODE_CAPABILITY))
+    if (
+      current?.server.kind !== "remote" ||
+      !(
+        serverSupportsCapability(current.server, AGENT_FAST_MODE_CAPABILITY) ||
+        serverSupportsCapability(current.server, AGENT_SPEED_CAPABILITY)
+      )
+    )
       return null;
     return JSON.stringify([current.server.id, current.agentId]);
   });
-  function acceptFastMode(requestKey: string, settings: AgentFastModeSettings): void {
+  function acceptFastMode(requestKey: string, settings: AgentSpeedSettings): void {
     if (fastModeKey() !== requestKey) return;
     setState((draft) => {
       draft.fastModeKey = requestKey;
@@ -298,8 +307,13 @@ export function createRemoteAgentAdmin(
         });
       const current = untrack(target);
       if (!requestKey || !current) return;
-      calls()
-        .getAgentFastMode(current.agentId, current.server.id)
+      const api = calls();
+      const read = serverSupportsCapability(current.server, AGENT_SPEED_CAPABILITY)
+        ? api.getAgentSpeed(current.agentId, current.server.id)
+        : api
+            .getAgentFastMode(current.agentId, current.server.id)
+            .then((settings) => ({ ...settings, ultrafast: false }));
+      read
         .then((settings) => {
           if (generation === fastModeReadGeneration) acceptFastMode(requestKey, settings);
         })
@@ -404,11 +418,22 @@ export function createRemoteAgentAdmin(
     /** Undefined for a local agent, before the host answers, and without the capability. Null: never set. */
     fastMode: (): boolean | null | undefined =>
       state.fastModeKey !== null && state.fastModeKey === fastModeKey() ? state.fastMode?.fastMode : undefined,
+    ultrafast: (): boolean | undefined =>
+      state.fastModeKey !== null && state.fastModeKey === fastModeKey() ? state.fastMode?.ultrafast : undefined,
+    async updateSpeed(agentId: string, fastMode: boolean, ultrafast: boolean): Promise<void> {
+      const server = target()?.server;
+      if (server?.kind !== "remote" || !serverSupportsCapability(server, AGENT_SPEED_CAPABILITY))
+        throw new Error(currentText().t("error.agent.settingsLocalOnly"));
+      const settings = await calls().updateAgentSpeed({ agentId, fastMode, ultrafast }, server.id);
+      if (fastModeKey() === JSON.stringify([server.id, agentId])) fastModeReadGeneration += 1;
+      acceptFastMode(JSON.stringify([server.id, agentId]), settings);
+    },
     async updateFastMode(agentId: string, fastMode: boolean): Promise<void> {
       const server = target()?.server;
-      if (server?.kind !== "remote" || !serverSupportsCapability(server, AGENT_FAST_MODE_CAPABILITY))
-        throw new Error(currentText().t("error.agent.settingsLocalOnly"));
-      const settings = await calls().updateAgentFastMode({ agentId, fastMode }, server.id);
+      if (server?.kind !== "remote") throw new Error(currentText().t("error.agent.settingsLocalOnly"));
+      const settings = serverSupportsCapability(server, AGENT_SPEED_CAPABILITY)
+        ? await calls().updateAgentSpeed({ agentId, fastMode, ultrafast: false }, server.id)
+        : { ...(await calls().updateAgentFastMode({ agentId, fastMode }, server.id)), ultrafast: false };
       if (fastModeKey() === JSON.stringify([server.id, agentId])) fastModeReadGeneration += 1;
       acceptFastMode(JSON.stringify([server.id, agentId]), settings);
     },
@@ -449,6 +474,7 @@ export async function updateRemoteAgent(
     | "updateNewChat"
     | "updatePlanCard"
     | "updateFastMode"
+    | "updateSpeed"
   >,
   input: UpdateAgentInput,
   updateProfile: (input: UpdateAgentInput) => Promise<void>,
@@ -463,6 +489,7 @@ export async function updateRemoteAgent(
     allowNewChat,
     quickAcknowledgement,
     fastMode,
+    ultrafast,
     agentId,
     ...fields
   } = input;
@@ -485,7 +512,8 @@ export async function updateRemoteAgent(
   if (taskLimit !== undefined) await admin.updateTaskLimit(agentId, taskLimit);
   if (allowNewChat !== undefined) await admin.updateNewChat(agentId, allowNewChat);
   if (quickAcknowledgement !== undefined) await admin.updatePlanCard(agentId, quickAcknowledgement);
-  if (fastMode !== undefined) await admin.updateFastMode(agentId, fastMode);
+  if (ultrafast !== undefined) await admin.updateSpeed(agentId, fastMode === true, ultrafast);
+  else if (fastMode !== undefined) await admin.updateFastMode(agentId, fastMode);
   if (Object.keys(fields).length) await updateProfile({ agentId, ...fields });
 }
 

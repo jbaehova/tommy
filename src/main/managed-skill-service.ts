@@ -8,6 +8,7 @@ import { Effect, Result, Schema } from "effect";
 import { parse as parseYaml } from "yaml";
 import { causeHelpers } from "../backend/effect-boundary";
 import { isMissingFileError } from "../backend/file-errors";
+import { SKILL_OWNERSHIP_MARKER } from "../backend/home-skills";
 import { isPathInside } from "../backend/path-containment";
 
 /**
@@ -19,7 +20,7 @@ export const SKILL_CREATOR_SKILL_SLUG = "tommy-skill-creator";
 export const DATA_SKILL_SLUG = "tommy-data";
 /** The skills Tommy writes into every agent workspace. Add a new managed skill here too. */
 export const MANAGED_SKILL_SLUGS: ReadonlySet<string> = new Set([SKILL_CREATOR_SKILL_SLUG, DATA_SKILL_SLUG]);
-export const OWNERSHIP_MARKER = ".tommy-managed.json";
+export const OWNERSHIP_MARKER = SKILL_OWNERSHIP_MARKER;
 /** The workspace skill folders Tommy writes. Each provider reads at least one of them. */
 export const MANAGED_SKILL_FOLDERS = [".agents/skills", ".claude/skills"] as const;
 

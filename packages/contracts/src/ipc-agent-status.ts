@@ -1,5 +1,6 @@
 import { type AgentProviderId, isAgentProvider } from "./agent-providers";
 import { INPUT_LIMITS } from "./input-limits";
+import { type AgentModelOption, isAgentModelOption } from "./ipc-agent-identity";
 import { isBoundedString, isFiniteNumber, isNullableBoundedString } from "./ipc-bounded-values";
 import type { McpSignInRelayPage } from "./ipc-mcp-servers";
 import { isDynamicRecord, isOneOf } from "./runtime-values";
@@ -108,6 +109,8 @@ export interface ProviderAccountStatus {
   /** One of `ProviderAccountState`, open at the trust boundary like the provider `state`. */
   state: ProviderAccountState;
   message: string | null;
+  /** Local account catalog; released Team adapters omit it. */
+  models?: AgentModelOption[];
 }
 
 /** The longest name a user can give a provider account. */
@@ -120,7 +123,9 @@ export function isProviderAccountStatus(value: unknown): value is ProviderAccoun
     isNullableBoundedString(value.label, PROVIDER_ACCOUNT_LABEL_MAX_LENGTH) &&
     isNullableBoundedString(value.email, INPUT_LIMITS.email) &&
     isBoundedString(value.state, INPUT_LIMITS.identifier) &&
-    isNullableBoundedString(value.message, INPUT_LIMITS.messageText)
+    isNullableBoundedString(value.message, INPUT_LIMITS.messageText) &&
+    (value.models === undefined ||
+      (Array.isArray(value.models) && value.models.length <= 10_000 && value.models.every(isAgentModelOption)))
   );
 }
 

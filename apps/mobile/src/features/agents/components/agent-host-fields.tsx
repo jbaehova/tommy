@@ -14,9 +14,12 @@ import {
   type UpdateAgentFastModeInput,
   type UpdateAgentHostSettingsInput,
 } from "@tommy/contracts/ipc";
+import type { AgentSpeedSettings, UpdateAgentSpeedInput } from "@tommy/contracts/ipc-agent-speed";
 import type { MobileTextKey } from "@tommy/i18n/mobile";
+import { useIsFocused } from "expo-router";
 import { Typography } from "heroui-native";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Alert } from "react-native";
 import { useUniwind } from "uniwind";
 import { useQueryScope } from "@/features/auth/context/mobile-session-context";
 import { SettingsRow, SettingsSection } from "@/features/settings/components/settings-content";
@@ -29,6 +32,7 @@ import {
 import { queryKeys } from "@/features/workspace/model/query-keys";
 import { haptics } from "@/shared/lib/haptics";
 import { useText } from "@/shared/lib/text";
+import { useAppForeground } from "@/shared/lib/use-app-foreground";
 
 /** `default` follows the host default. */
 type TaskLimitChoice = "default" | number;
@@ -54,6 +58,7 @@ export interface AgentHostFieldsProps {
   agent: MobileAgent;
   server: MobileServer | undefined;
   available: boolean;
+  accountScope?: string | undefined;
 }
 
 /**
@@ -64,7 +69,7 @@ export interface AgentHostFieldsProps {
  */
 export function useAgentHostRecord<Settings extends object, Input extends Partial<Settings>>(
   { agent, server, available }: AgentHostFieldsProps,
-  part: "host" | "task-limit" | "new-chat" | "plan-card" | "backup-models" | "fast-mode",
+  part: "host" | "task-limit" | "new-chat" | "plan-card" | "backup-models" | "fast-mode" | "speed",
   load: (agentId: string, serverId: string) => Promise<Settings | null>,
   update: (input: Input & { agentId: string }, serverId: string) => Promise<Settings>,
   members = false,
@@ -347,6 +352,78 @@ export function AgentPlanCardField(props: AgentHostFieldsProps) {
   );
 }
 
+/** A price confirmation grants only this agent and this still-open visit. */
+function useFastModeConfirmation(props: AgentHostFieldsProps, enabled: boolean) {
+  const { t } = useText();
+  const focused = useIsFocused();
+  const foreground = useAppForeground();
+  const queryScope = useQueryScope();
+  const identity = JSON.stringify([
+    ...queryScope,
+    props.agent.serverId,
+    props.agent.id,
+    props.agent.provider,
+    props.agent.model,
+    props.accountScope,
+    props.server?.state,
+    props.server?.role,
+  ]);
+  const latest = useRef({ identity, active: enabled && focused && foreground });
+  const generation = useRef(0);
+  const pending = useRef<number | null>(null);
+  const active = enabled && focused && foreground;
+  if (latest.current.identity !== identity || latest.current.active !== active) {
+    generation.current += 1;
+    pending.current = null;
+  }
+  latest.current = { identity, active };
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      generation.current += 1;
+      pending.current = null;
+    };
+  }, []);
+
+  return (needsConfirmation: boolean, save: () => void): void => {
+    if (!mounted.current || !latest.current.active || pending.current !== null) return;
+    if (!needsConfirmation) {
+      save();
+      return;
+    }
+    const request = ++generation.current;
+    pending.current = request;
+    const close = () => {
+      if (pending.current === request) pending.current = null;
+    };
+    Alert.alert(
+      t("mobile.agent.fastMode.confirmTitle"),
+      t("mobile.agent.fastMode.confirmDescription"),
+      [
+        { text: t("common.cancel"), style: "cancel", onPress: close },
+        {
+          text: t("mobile.agent.fastMode.confirm"),
+          onPress: () => {
+            if (
+              !mounted.current ||
+              request !== generation.current ||
+              pending.current !== request ||
+              latest.current.identity !== identity ||
+              !latest.current.active
+            )
+              return;
+            close();
+            save();
+          },
+        },
+      ],
+      { cancelable: true, onDismiss: close },
+    );
+  };
+}
+
 /**
  * Agent info > Model: whether the agent asks its provider for the fast service tier, from
  * `agent-fast-mode-v1`. It shows only for a model with a fast tier, as on desktop. A member with
@@ -361,6 +438,7 @@ export function AgentFastModeField(props: AgentHostFieldsProps) {
     AgentFastModeSettings,
     Omit<UpdateAgentFastModeInput, "agentId">
   >(props, "fast-mode", workspace.loadAgentFastMode, workspace.updateAgentFastMode, true);
+  const requestChange = useFastModeConfirmation(props, enabled);
   if (!current) return null;
   return (
     <>
@@ -371,8 +449,58 @@ export function AgentFastModeField(props: AgentHostFieldsProps) {
             disabled={!enabled}
             label={t("mobile.agent.fastMode.label")}
             dark={theme === "dark"}
-            onValueChange={(fastMode) => void save(current, { fastMode })}
+            onValueChange={(fastMode) =>
+              requestChange(
+                fastMode && !current.fastMode && props.agent.provider === "claude",
+                () => void save(current, { fastMode }),
+              )
+            }
           />
+        </SettingsRow>
+      </SettingsSection>
+      <SaveError error={error} />
+    </>
+  );
+}
+
+/** The host's optional speed setting. Standard and Fast always clear Ultrafast. */
+export function AgentSpeedField(props: AgentHostFieldsProps & { ultrafast: boolean }) {
+  const { t } = useText();
+  const { theme } = useUniwind();
+  const workspace = useMobileWorkspaceActions();
+  const { current, enabled, error, save } = useAgentHostRecord<
+    AgentSpeedSettings,
+    Omit<UpdateAgentSpeedInput, "agentId">
+  >(props, "speed", workspace.loadAgentSpeed, workspace.updateAgentSpeed, true);
+  const requestChange = useFastModeConfirmation(props, enabled);
+  if (!current) return null;
+  type Speed = "standard" | "fast" | "ultrafast";
+  const selected: Speed = current.fastMode ? (current.ultrafast && props.ultrafast ? "ultrafast" : "fast") : "standard";
+  return (
+    <>
+      <SettingsSection footer={t("mobile.agent.speed.footer")}>
+        <SettingsRow
+          trailing={
+            <SettingsPicker<Speed>
+              value={selected}
+              options={[
+                { value: "standard", label: t("mobile.agent.speed.standard") },
+                { value: "fast", label: t("mobile.agent.speed.fast") },
+                ...(props.ultrafast ? [{ value: "ultrafast" as const, label: t("mobile.agent.speed.ultrafast") }] : []),
+              ]}
+              enabled={enabled}
+              label={t("mobile.agent.speed.label")}
+              dark={theme === "dark"}
+              onChange={(speed) =>
+                requestChange(
+                  speed !== "standard" && !current.fastMode && props.agent.provider === "claude",
+                  () => void save(current, { fastMode: speed !== "standard", ultrafast: speed === "ultrafast" }),
+                )
+              }
+            />
+          }
+        >
+          <Typography.Paragraph>{t("mobile.agent.speed.label")}</Typography.Paragraph>
         </SettingsRow>
       </SettingsSection>
       <SaveError error={error} />

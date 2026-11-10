@@ -95,4 +95,7 @@ export const messages = defineMessages("status.agent", {
   "status.agent.nextStepContinues": "The agent stopped before its next step. It continues ({current} of {limit}).",
   "status.agent.planContinues": "The plan has open steps. The agent continues ({current} of {limit}).",
   "status.agent.branchTitle": "Branched chat",
+  "status.agent.compactionContinues":
+    "The connection stopped while the agent compacted its context. The agent continues.",
+  "status.agent.workflowDelete": "Delete the workflow {title} with its runs and versions. Its open steps stop.",
 });

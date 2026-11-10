@@ -23,7 +23,17 @@ import {
 } from "@tommy/contracts/team-protocol/current";
 import { toWireAgentKeysObjectForPath } from "@tommy/contracts/team-protocol/current-agent-keys";
 import { optionalTeamEvent } from "@tommy/contracts/team-protocol/optional-events";
+import {
+  addRoutineTaskReferences,
+  ROUTINE_RUN_PLACE_CAPABILITY,
+  withRoutineTaskReferences,
+} from "@tommy/contracts/team-protocol/routine-run-place-v1";
 import { teamSideRouteCodec } from "@tommy/contracts/team-protocol/side-routes";
+import {
+  addSkillSuggestionNames,
+  SKILL_LEARNING_CAPABILITY,
+  withSkillSuggestionNames,
+} from "@tommy/contracts/team-protocol/skill-learning-v1";
 import {
   addUiBlockAutoAnswers,
   TEAM_UI_BLOCK_AUTO_ANSWER_CAPABILITY,
@@ -798,9 +808,7 @@ export class TeamWebRtcHostPeer {
                 promptMultiSelect: this.#peerCapabilities.has(TEAM_PROMPT_MULTI_SELECT_CAPABILITY),
               }),
         );
-        if (this.#peerCapabilities.has(TEAM_UI_BLOCK_AUTO_ANSWER_CAPABILITY))
-          frame = withUiBlockAutoAnswers(frame, event);
-        if (this.#peerCapabilities.has(TEAM_UI_BLOCK_VAULT_CAPABILITY)) frame = withUiBlockVaultRequests(frame, event);
+        frame = withPeerEventExtensions(this.#peerCapabilities, event, frame);
       } catch {
         return;
       }
@@ -1140,12 +1148,24 @@ class GatewayError extends Error {
  * A response body with the automatic answer of each block, for a peer with `ui-block-auto-answer-v1`,
  * and its Vault request, for a peer with `ui-block-vault-v1`.
  */
-function withBlockExtensions(
+export function withBlockExtensions(
   capabilities: ReadonlySet<string>,
   source: unknown,
   encoded: TeamProtocolV2Json,
 ): TeamProtocolV2Json {
   if (capabilities.has(TEAM_UI_BLOCK_AUTO_ANSWER_CAPABILITY)) addUiBlockAutoAnswers(encoded, source);
   if (capabilities.has(TEAM_UI_BLOCK_VAULT_CAPABILITY)) addUiBlockVaultRequests(encoded, source);
+  if (capabilities.has(SKILL_LEARNING_CAPABILITY)) addSkillSuggestionNames(encoded, source);
+  if (capabilities.has(ROUTINE_RUN_PLACE_CAPABILITY)) addRoutineTaskReferences(encoded, source);
   return encoded;
+}
+
+/** Reapply only negotiated metadata after the peer's frozen event projection. */
+export function withPeerEventExtensions(capabilities: ReadonlySet<string>, source: unknown, encoded: string): string {
+  let frame = encoded;
+  if (capabilities.has(TEAM_UI_BLOCK_AUTO_ANSWER_CAPABILITY)) frame = withUiBlockAutoAnswers(frame, source);
+  if (capabilities.has(TEAM_UI_BLOCK_VAULT_CAPABILITY)) frame = withUiBlockVaultRequests(frame, source);
+  if (capabilities.has(SKILL_LEARNING_CAPABILITY)) frame = withSkillSuggestionNames(frame, source);
+  if (capabilities.has(ROUTINE_RUN_PLACE_CAPABILITY)) frame = withRoutineTaskReferences(frame, source);
+  return frame;
 }

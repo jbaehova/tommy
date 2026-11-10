@@ -4,6 +4,7 @@ import { type DynamicRecord, isDynamicRecord } from "@tommy/contracts/runtime-va
 import { sourceText } from "@tommy/i18n/source";
 import { redactText, registerSecretValue } from "@tommy/logging";
 import { Effect, Fiber } from "effect";
+import { childProcessEnvironment } from "./child-process-environment";
 import { cliSpawnTarget } from "./cli";
 import { stopProcessTree } from "./process-tree";
 import { type ProviderClientOperationError, ProviderSignInError, providerFailure } from "./provider-client-effects";
@@ -68,12 +69,12 @@ export const startAcpAuthentication = Effect.fnUntraced(function* (options: {
         spawnWithProviderTemp(options.privateTemp, (tempEnv) =>
           spawn(target.command, target.args, {
             cwd: process.cwd(),
-            env: {
+            env: childProcessEnvironment({
               ...process.env,
               ...options.env,
               ...(options.openGoogleSignIn ? { BROWSER: "true" } : {}),
               ...tempEnv,
-            },
+            }),
             // Only Gemini delegates the browser launch. Other servers still open it themselves.
             stdio: ["pipe", "pipe", "pipe"],
             shell: false,

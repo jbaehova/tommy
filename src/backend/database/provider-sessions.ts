@@ -3,6 +3,7 @@ import { isStoredProvider, type StoredProviderId } from "@tommy/contracts/agent-
 import type { DynamicRecord } from "@tommy/contracts/runtime-values";
 import type { DatabaseCore } from "./database-core";
 import { databaseRow, databaseRows, optionalStringColumn, requiredStringColumn } from "./database-rows";
+import { isDeletedProviderHistorySource } from "./deleted-thread-messages";
 
 export interface ProviderSession {
   id: string;
@@ -125,6 +126,8 @@ export class ProviderSessions {
     // The table has no provider CHECK since migration 28, so this is the guard. It throws before the
     // dispatch, so an unknown provider writes no event and no row, as the CHECK did.
     if (!isStoredProvider(input.provider)) throw new Error("Unknown provider for a provider session.");
+    if (isDeletedProviderHistorySource(this.#core.connection, input))
+      throw new Error("A deleted provider session cannot be reopened.");
     const now = new Date().toISOString();
     const session: ProviderSession = {
       id: randomUUID(),

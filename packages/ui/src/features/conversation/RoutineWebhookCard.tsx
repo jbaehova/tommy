@@ -60,6 +60,8 @@ export function RoutineWebhookCard(props: RoutineWebhookCardProps) {
           secret={props.secret}
           onSecretDismiss={props.onSecretDismiss}
           onRegenerateSecret={props.onRegenerateSecret}
+          senderKeyScope={props.senderKeyScope}
+          onSetSenderSecret={props.onSetSenderSecret}
         />
         <RoutineWebhookEvents
           eventType={props.eventType}

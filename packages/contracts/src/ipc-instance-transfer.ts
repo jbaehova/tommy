@@ -23,7 +23,7 @@ import { isBoundedString, isIdentifier, isNullableBoundedString } from "./ipc-bo
 import { isBoolean, isDynamicRecord, isNumber, isString } from "./runtime-values";
 
 export const INSTANCE_TRANSFER_LIMITS = {
-  /** The file is read into memory on import, so it stays below 2 GiB. */
+  /** The existing local archive size limit. Import streams expanded files to disk. */
   archiveBytes: 2 * 1024 ** 3 - 1,
   files: 50_000,
   appVersion: 64,

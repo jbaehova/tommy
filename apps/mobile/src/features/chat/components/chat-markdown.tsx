@@ -13,6 +13,7 @@ import * as Linking from "expo-linking";
 import { useThemeColor } from "heroui-native/hooks";
 import Blocks from "lucide-react-native/icons/blocks";
 import FileText from "lucide-react-native/icons/file-text";
+import Globe from "lucide-react-native/icons/globe";
 import Sparkles from "lucide-react-native/icons/sparkles";
 import type { Token, Tokens } from "marked";
 import { Fragment, memo, type ReactNode, useEffect, useId, useMemo, useRef } from "react";
@@ -40,12 +41,14 @@ import { graphemes } from "@/shared/lib/graphemes";
 import { haptics } from "@/shared/lib/haptics";
 import { useMotionPreference } from "@/shared/lib/motion";
 import { currentText, useText } from "@/shared/lib/text";
+import { Press } from "@/shared/ui/press";
 import { parseFinishedChatMarkdown, parseStreamingChatMarkdown } from "../model/chat-markdown-parser";
 import { plainMentionParts } from "../model/chat-mentions";
 import { createReplyReveal, finishedReplyReveal } from "../model/reply-reveal";
 import { ChatCodeBlock } from "./chat-code-block";
 import { ChatCodePreview } from "./chat-code-preview";
 import { ChatMath } from "./chat-math";
+import { useOpenTaggedTab } from "./chat-tag-actions";
 import { CHAT_CODE_STYLES, CHAT_HEADING_RAMP, CHAT_TEXT_STYLES, type ChatTextType } from "./chat-text-styles";
 import { type ReplyPlayback, useReplyPlayback } from "./use-reply-playback";
 
@@ -122,7 +125,11 @@ function textSize(presentation: TextPresentation): number {
 function textContainerStyle(source: string, presentation: TextPresentation): TextStyle {
   const hasMention =
     chatTagReferences(source).some(
-      (reference) => reference.kind === "agent" || reference.kind === "skill" || reference.kind === "mcp",
+      (reference) =>
+        reference.kind === "agent" ||
+        reference.kind === "skill" ||
+        reference.kind === "mcp" ||
+        reference.kind === "tab",
     ) || plainMentionParts(source, presentation.agents).some((part) => part.agent);
   // Inline math is moved down to the math axis in the same way.
   const hasMath = chatMathStart(source) !== undefined;
@@ -355,6 +362,44 @@ function SkillMention({ name, app, presentation }: { name: string; app: boolean;
   );
 }
 
+/**
+ * A browser tab that a message tags: the same chip as a skill, with the globe mark. Where the phone
+ * can show the host's browser, a tap opens the tab, as a click on the desktop chip does.
+ */
+function TabMention({ id, name, presentation }: { id: string; name: string; presentation: TextPresentation }) {
+  const openTab = useOpenTaggedTab();
+  const chip = mentionChip(presentation);
+  const content = (
+    <>
+      <Globe
+        color={presentation.style.color === undefined ? undefined : String(presentation.style.color)}
+        size={chip.mark - 2 * presentation.fontScale}
+        strokeWidth={2}
+      />
+      <Text style={chip.label}>{name}</Text>
+    </>
+  );
+  const className = "max-w-full flex-row items-center gap-1 rounded-full bg-control/30 pr-1.5 pl-1";
+  if (!openTab)
+    return (
+      <View collapsable={false} className={className} style={chip.style}>
+        {content}
+      </View>
+    );
+  return (
+    <Press
+      collapsable={false}
+      className={className}
+      style={chip.style}
+      accessibilityRole="button"
+      accessibilityLabel={presentation.t("mobile.chat.markdown.openBrowserTab", { name })}
+      onPress={() => openTab(id)}
+    >
+      {content}
+    </Press>
+  );
+}
+
 function openMessageLink(url: string): void {
   void haptics.impact("soft");
   void Linking.openURL(url).catch((error: unknown) => {
@@ -388,6 +433,12 @@ function inline(tokens: Token[], parentPresentation: TextPresentation): ReactNod
           app={reference?.kind === "mcp"}
           presentation={presentation}
         />
+      );
+    }
+    if (token.type === "tabMention") {
+      const reference = chatTagReferences(token.raw)[0];
+      return (
+        <TabMention key={offset} id={reference?.id ?? ""} name={reference?.name ?? ""} presentation={presentation} />
       );
     }
     if (token.type === "br") return "\n";
@@ -542,6 +593,12 @@ function selectableInline(tokens: Token[], presentation: TextPresentation, segme
       inlineView(
         <SkillMention key={offset} name={name} app={reference?.kind === "mcp"} presentation={presentation} />,
         `@${name}`,
+      );
+    } else if (token.type === "tabMention") {
+      const reference = chatTagReferences(token.raw)[0];
+      inlineView(
+        <TabMention key={offset} id={reference?.id ?? ""} name={reference?.name ?? ""} presentation={presentation} />,
+        reference?.name ?? "",
       );
     } else if (token.type === "br") {
       text("\n");

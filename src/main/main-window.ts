@@ -23,6 +23,7 @@ import {
   Menu,
   type MenuItemConstructorOptions,
   type Rectangle,
+  type RenderProcessGoneDetails,
   screen,
   session,
   type WebContents,
@@ -56,6 +57,20 @@ import { followWindowGlass, windowBackgroundColor } from "./window-appearance";
 
 /** The dark background of the main and setup windows, under the page's own canvas. */
 const MAIN_WINDOW_DARK_BACKGROUND = "#0b0d0e";
+
+/**
+ * The main window loads its page again when the renderer stops, as many times as this in
+ * `RENDERER_RELOAD_WINDOW_MS`. A page that stops each time it loads then ends as it did before.
+ */
+const RENDERER_RELOAD_MAX = 3;
+const RENDERER_RELOAD_WINDOW_MS = 60_000;
+/** A clean exit or a launch failure is not a page that stopped while in use. */
+const RELOADABLE_RENDERER_EXITS: ReadonlySet<RenderProcessGoneDetails["reason"]> = new Set([
+  "crashed",
+  "oom",
+  "killed",
+  "abnormal-exit",
+]);
 
 /**
  * What the window surface reads off the running application. Deliberately narrower than
@@ -178,6 +193,7 @@ export function createMainWindowController({
       writeBounds: (bounds) => writeMainWindowBounds(statePath, bounds),
       reportError,
     });
+  let rendererReloadTimes: number[] = [];
 
   function createWindow(): BrowserWindow {
     const cursor = screen.getCursorScreenPoint();
@@ -258,6 +274,27 @@ export function createMainWindowController({
     });
     window.webContents.on("render-process-gone", onRendererGone);
     window.webContents.once("destroyed", onRendererGone);
+    // A dead page gets no keys, so Ctrl+R cannot reach the Reload item on Windows and Linux, and the
+    // window stayed white until a restart (#4696). The agents keep running in main.
+    window.webContents.on("render-process-gone", (_event, details) => {
+      const now = Date.now();
+      rendererReloadTimes = rendererReloadTimes.filter((time) => now - time < RENDERER_RELOAD_WINDOW_MS);
+      if (
+        isQuitting() ||
+        window.isDestroyed() ||
+        !RELOADABLE_RENDERER_EXITS.has(details.reason) ||
+        rendererReloadTimes.length >= RENDERER_RELOAD_MAX
+      ) {
+        return;
+      }
+      rendererReloadTimes.push(now);
+      setImmediate(() => {
+        if (window.isDestroyed() || isQuitting()) return;
+        void loadRenderer(window).catch((error: unknown) =>
+          reportError("Could not reload the main window after its renderer stopped", error),
+        );
+      });
+    });
     attachAppInput(window, getServices, getTranslate, { closesBrowserTabs: true, quitShortcut });
     window.webContents.on("will-navigate", (event, targetUrl) => {
       if (!isTrustedRendererUrl(targetUrl)) event.preventDefault();
@@ -480,13 +517,15 @@ function attachAppInput(
       window.webContents.inspectElement(params.x, params.y);
       return;
     }
-    // A chat message opens its own menu, but leaves selected text and links to this one
-    // (`keepNativeMenu` in `ChatMessageRow`). The native edit menu covers editing, spelling and
-    // link copying; anything else keeps no menu.
+    // A chat message opens its own menu, but leaves selected text, links and images to this one
+    // (`keepNativeMenu` in `ChatMessageRow`). The native menu covers editing, spelling, and link and
+    // image copying; anything else keeps no menu.
     const items = chatContextMenuItems({
       selectionText: params.selectionText,
       isEditable: params.isEditable,
       linkURL: params.linkURL,
+      mediaType: params.mediaType,
+      hasImageContents: params.hasImageContents,
       misspelledWord: params.misspelledWord,
       dictionarySuggestions: params.dictionarySuggestions,
       editFlags: params.editFlags,
@@ -502,6 +541,13 @@ function attachAppInput(
           return {
             label: t("menu.copyLink"),
             click: () => clipboard.writeText(params.linkURL),
+          };
+        if (item.kind === "copy-image")
+          return {
+            label: t("menu.copyImage"),
+            click: () => {
+              if (!window.isDestroyed()) window.webContents.copyImageAt(params.x, params.y);
+            },
           };
         if (item.kind === "spelling")
           return {

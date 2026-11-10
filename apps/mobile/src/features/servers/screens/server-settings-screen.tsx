@@ -129,6 +129,11 @@ export function ServerSettingsScreen() {
           ) : null}
           {canManageBrowserProfiles(serverId) ? <ServerBrowserProfilesRow serverId={serverId} /> : null}
           {canReadServerStorage(serverId) ? (
+            <SettingsRow onPress={() => router.push({ pathname: "/server-settings/library", params: { serverId } })}>
+              <Typography.Paragraph>{t("mobile.server.library.title")}</Typography.Paragraph>
+            </SettingsRow>
+          ) : null}
+          {canReadServerStorage(serverId) ? (
             <SettingsRow onPress={() => router.push({ pathname: "/server-settings/storage", params: { serverId } })}>
               <Typography.Paragraph>{t("mobile.server.settings.storage")}</Typography.Paragraph>
             </SettingsRow>

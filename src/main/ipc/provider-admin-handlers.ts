@@ -1,6 +1,11 @@
+import {
+  PROVIDER_ACCOUNT_MODELS_CAPABILITY,
+  PROVIDER_ACCOUNT_MODELS_ROUTE,
+} from "@tommy/contracts/team-protocol/provider-account-models-v1";
 import { PROVIDERS_V5_CAPABILITY, PROVIDERS_V5_ROUTES } from "@tommy/contracts/team-protocol/providers-v5";
 import { PROVIDERS_V8_CAPABILITY, PROVIDERS_V8_ROUTES } from "@tommy/contracts/team-protocol/providers-v8";
 import { Cause, Effect, Exit, Fiber } from "effect";
+import { decodeProviderAccountModelsFromHost } from "../provider-account-models-decoding";
 import type { RemoteWorkflowError } from "../remote-service-effects";
 // The providers of one server's host: code sign-in, API keys, managed CLI runtimes and custom
 // endpoints. On a joined server they belong to the host, so the request goes there, and the host
@@ -316,7 +321,51 @@ export function providerAdminIpcHandlers({
       cancelHostSignIn: hostSignIn((provider, serverId) =>
         remoteChange(serverId, PROVIDER_HOST_SIGN_IN_ROUTES.cancel, { provider }),
       ),
-      accounts: accountsQuery(PROVIDER_ACCOUNTS_ROUTES.list, decodeHostProviderAccountsFromHost),
+      accounts: scopedQueryHandler({
+        local: () => Promise.reject(new Error(sourceText("error.team.providersUnsupported"))),
+        remote: (serverId) => {
+          requireAccounts(serverId);
+          return runCauseEffect(
+            remoteServers
+              .request(serverId, PROVIDER_ACCOUNTS_ROUTES.list, decodeHostProviderAccountsFromHost, {
+                method: "POST",
+                body: {},
+              })
+              .pipe(
+                Effect.flatMap((host) =>
+                  !remoteServers.supportsCapability(serverId, PROVIDER_ACCOUNT_MODELS_CAPABILITY)
+                    ? Effect.succeed(host)
+                    : Effect.forEach(
+                        host.providers,
+                        (row) =>
+                          Effect.forEach(
+                            row.accounts,
+                            (account) =>
+                              account.state !== "connected"
+                                ? Effect.succeed(account)
+                                : remoteServers
+                                    .request(
+                                      serverId,
+                                      PROVIDER_ACCOUNT_MODELS_ROUTE,
+                                      (value) => decodeProviderAccountModelsFromHost(value, row.provider),
+                                      {
+                                        method: "POST",
+                                        body: { provider: row.provider, providerAccountId: account.id },
+                                      },
+                                    )
+                                    .pipe(
+                                      Effect.map(({ models }) => ({ ...account, models })),
+                                      Effect.catch(() => Effect.succeed({ ...account, models: [] })),
+                                    ),
+                            { concurrency: 4 },
+                          ).pipe(Effect.map((accounts) => ({ ...row, accounts }))),
+                        { concurrency: 1 },
+                      ).pipe(Effect.map((providers) => ({ ...host, providers }))),
+                ),
+              ),
+          );
+        },
+      }),
       accountUsage: accountsQuery(PROVIDER_ACCOUNTS_ROUTES.usage, decodeHostProviderAccountUsage),
       startAccountSignIn: accountsRequest(
         parseConnectProviderAccountInput,

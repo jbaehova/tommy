@@ -49,6 +49,7 @@ import { StoredStateFailure, storedIO, storedSync, toStoredStateFailure } from "
 export type { ExportedAttachmentFile, GeneratedAttachmentSource } from "./attachment-files";
 
 import { isEmptyStoredFile, parseStoredJson } from "./atomic-json-file";
+import { databaseRows, requiredStringColumn } from "./database/database-rows";
 import { mailboxReactionRowKey } from "./database/mailbox-projection";
 import { MailboxDeliveryGate } from "./mailbox-delivery-gate";
 import { isRecord } from "./protocol";
@@ -220,6 +221,8 @@ export interface MailboxStoredFile {
 }
 
 export interface DeliveryContext {
+  /** True only for a host-authenticated person delivery outside channel and external inputs. */
+  allowTagTargets?: boolean;
   delivery: QueueDelivery;
   managedAttachments: Array<AttachmentSummary & { path: string }>;
   resumeAfterUsageLimit?: UsageLimitContinuation;
@@ -251,6 +254,21 @@ export interface CommittedChannelAttachments {
 
 /** The most completed messages that one `conversationMessages` read returns. */
 export const MAILBOX_CONVERSATION_MESSAGE_LIMIT = 100;
+
+/**
+ * A lane id for the channel thread of one channel. A task id never starts with this control
+ * character, so a lane id names a task or a channel without a second field.
+ */
+const CHANNEL_LANE_PREFIX = "\u0001channel:";
+
+export function channelLane(channelId: string): string {
+  return `${CHANNEL_LANE_PREFIX}${channelId}`;
+}
+
+/** The channel of a channel lane, or null for a task lane or the agent's own chat. */
+export function laneChannelId(lane: string | null): string | null {
+  return lane?.startsWith(CHANNEL_LANE_PREFIX) ? lane.slice(CHANNEL_LANE_PREFIX.length) : null;
+}
 
 export class MailboxStore {
   readonly #statePath: string;
@@ -801,6 +819,23 @@ export class MailboxStore {
       .map((delivery) => delivery.id);
   }
 
+  /**
+   * The routine deliveries of this agent's side threads. `listQueue` hides them, so the routine
+   * scheduler reads them here to follow the status of a run in a routine thread.
+   */
+  taskRoutineDeliveries(agentId: string): QueueDelivery[] {
+    const messages = this.#messagesById();
+    const deliveries = this.#state.deliveries.filter((delivery) => {
+      const message = messages.get(delivery.messageId);
+      return delivery.recipientAgentId === agentId && message?.taskId && message.sender.kind === "routine";
+    });
+    if (deliveries.length === 0) return [];
+    const positions = this.#queuedPositions();
+    return deliveries.map((delivery) =>
+      this.#publicDelivery(delivery, positions, this.#requireMessage(delivery.messageId, messages)),
+    );
+  }
+
   /** Indexed once for a whole read: a queue holds one delivery for each message the agent has. */
   #executionMessageIds(): Set<string> {
     const ids = new Set<string>();
@@ -825,6 +860,44 @@ export class MailboxStore {
       ? messages.get(delivery.messageId)
       : this.#state.messages.find((candidate) => candidate.id === delivery.messageId);
     return message?.taskId ?? null;
+  }
+
+  /**
+   * The lane a delivery runs in: its task, the channel thread of its channel, or null for the
+   * agent's own chat. Each lane runs one turn at a time, beside the other lanes.
+   */
+  #laneOf(delivery: StoredDelivery, messages?: ReadonlyMap<string, StoredMessage>): string | null {
+    const message = messages
+      ? messages.get(delivery.messageId)
+      : this.#state.messages.find((candidate) => candidate.id === delivery.messageId);
+    return message?.taskId ?? (message?.channelId ? channelLane(message.channelId) : null);
+  }
+
+  /** The lane a delivery runs in, as {@link nextQueued} takes it. */
+  laneIdForDelivery(deliveryId: string): string | null {
+    const delivery = this.#state.deliveries.find((candidate) => candidate.id === deliveryId);
+    return delivery ? this.#laneOf(delivery) : null;
+  }
+
+  /**
+   * The channel lanes of this agent that have work, in queue order of their first delivery. With
+   * `queuedOnly`, only the lanes with a queued delivery.
+   */
+  channelLanes(agentId: string, queuedOnly = false): string[] {
+    const deliveries = queuedOnly
+      ? this.#queuedFor(agentId)
+      : this.#state.deliveries.filter(
+          (delivery) => delivery.recipientAgentId === agentId && isActiveDelivery(delivery),
+        );
+    // The scheduler asks on each check, and an idle agent has no delivery: skip the message index.
+    if (deliveries.length === 0) return [];
+    const messages = this.#messagesById();
+    const lanes = new Set<string>();
+    for (const delivery of deliveries) {
+      const lane = this.#laneOf(delivery, messages);
+      if (lane !== null && laneChannelId(lane) !== null) lanes.add(lane);
+    }
+    return [...lanes];
   }
 
   /**
@@ -875,7 +948,7 @@ export class MailboxStore {
       (delivery) =>
         delivery.recipientAgentId === agentId &&
         (delivery.status === "starting" || delivery.status === "running") &&
-        this.#taskIdOf(delivery) === taskId,
+        this.#laneOf(delivery) === taskId,
     );
   }
 
@@ -883,7 +956,7 @@ export class MailboxStore {
   laneQueuedIds(agentId: string, taskId: string | null): string[] {
     const messages = this.#messagesById();
     return this.#queuedFor(agentId)
-      .filter((delivery) => !waitsForPlanContinuation(delivery) && this.#taskIdOf(delivery, messages) === taskId)
+      .filter((delivery) => !waitsForPlanContinuation(delivery) && this.#laneOf(delivery, messages) === taskId)
       .map((delivery) => delivery.id);
   }
 
@@ -960,6 +1033,185 @@ export class MailboxStore {
       }
       try {
         this.#persist("mailbox.thread-deleted", `mailbox:thread-deleted:${taskId}:${randomUUID()}`, deletions);
+      } catch (error) {
+        this.#state = previous;
+        throw error;
+      }
+      yield* this.#drainFileDeletionOutboxEffect();
+    } catch (cause) {
+      return yield* new StoredStateFailure({ cause });
+    }
+  }, Effect.uninterruptible).bind(this);
+
+  /**
+   * Removes the mailbox copy of one message that a person deleted from an agent's chat or side thread,
+   * and the agent's reactions on it. `shownMessageId` is the id that the chat shows: a delivery shows
+   * under its own id. A person's message loses its delivery to the agent; when no other delivery
+   * remains, the message goes too, with its reactions, idempotency keys and the files that no other
+   * record uses. A teammate's message and a routine's message stay: the teammate's chat and the run
+   * still use them, and the deleted-message record hides them in this chat. An active delivery stops
+   * the removal, and the state stays as it was.
+   */
+  deleteShownMessage(agentId: string, shownMessageId: string): Effect.Effect<"busy" | "deleted", StoredStateFailure> {
+    return this.deleteShownMessages(agentId, [shownMessageId], `mailbox:message-deleted:${agentId}:${shownMessageId}`);
+  }
+
+  /**
+   * As `deleteShownMessage`, for each message of a chat history that a person deletes, in one write.
+   * One active delivery stops the whole removal.
+   */
+  deleteShownMessages = Effect.fn("MailboxStore.deleteShownMessages")(function* (
+    this: MailboxStore,
+    agentId: string,
+    shownMessageIds: readonly string[],
+    commandPrefix = `mailbox:history-deleted:${agentId}`,
+  ): Effect.fn.Return<"busy" | "deleted", StoredStateFailure> {
+    try {
+      const shown = new Set(shownMessageIds);
+      const found = () => {
+        const deliveries = this.#state.deliveries.filter(
+          (candidate) => shown.has(candidate.id) && candidate.recipientAgentId === agentId,
+        );
+        const messages = this.#messagesById();
+        const personal = deliveries.flatMap((delivery) => {
+          const message = messages.get(delivery.messageId);
+          return message?.sender.kind === "user" ? [{ delivery, message }] : [];
+        });
+        const removedDeliveryIds = new Set(personal.map(({ delivery }) => delivery.id));
+        // A message goes with its last delivery; a delivery that this delete keeps keeps it.
+        const keptMessageIds = new Set(
+          this.#state.deliveries
+            .filter((candidate) => !removedDeliveryIds.has(candidate.id))
+            .map((candidate) => candidate.messageId),
+        );
+        const lastOf = personal.filter(({ message }) => !keptMessageIds.has(message.id)).map(({ message }) => message);
+        return { deliveries, personal, lastOf: [...new Set(lastOf)] };
+      };
+      const before = found();
+      if (before.deliveries.some(isActiveDelivery)) return "busy";
+      // The path checks wait, so they run before the state changes, as in `deleteStoredFile`.
+      const managedPaths = new Map<string, string | null>();
+      for (const message of before.lastOf) {
+        for (const file of messageFiles(message)) {
+          if (file.deletedAt || managedPaths.has(file.path)) continue;
+          managedPaths.set(file.path, yield* this.#files.managedTransferFile(file.path).pipe(toStoredStateFailure));
+        }
+      }
+      const { deliveries, personal, lastOf } = found();
+      if (deliveries.some(isActiveDelivery)) return "busy";
+      const removedMessageIds = new Set(lastOf.map((message) => message.id));
+      const reactions = this.#state.reactions.filter(
+        (reaction) =>
+          (reaction.agentId === agentId && shown.has(reaction.messageId)) || removedMessageIds.has(reaction.messageId),
+      );
+      if (personal.length === 0 && reactions.length === 0) return "deleted";
+      const previous = structuredClone(this.#state);
+      const deletions: string[] = [];
+      const removedDeliveryIds = new Set(personal.map(({ delivery }) => delivery.id));
+      this.#state.deliveries = this.#state.deliveries.filter((candidate) => !removedDeliveryIds.has(candidate.id));
+      for (const id of removedDeliveryIds) this.#changes.deliveryIds.add(id);
+      if (removedMessageIds.size > 0) {
+        this.#state.messages = this.#state.messages.filter((candidate) => !removedMessageIds.has(candidate.id));
+        for (const id of removedMessageIds) this.#changes.messageIds.add(id);
+        for (const [key, keyMessageId] of Object.entries(this.#state.idempotency))
+          if (removedMessageIds.has(keyMessageId)) delete this.#state.idempotency[key];
+        const inUse = new Set(
+          this.#fileRecords()
+            .filter((record) => !record.deletedAt)
+            .map((record) => record.path),
+        );
+        for (const path of new Set(
+          lastOf.flatMap(messageFiles).flatMap((file) => (file.deletedAt ? [] : [file.path])),
+        )) {
+          const managed = inUse.has(path) ? null : managedPaths.get(path);
+          if (managed) deletions.push(managed);
+        }
+      }
+      const removedReactions = new Set(reactions);
+      this.#state.reactions = this.#state.reactions.filter((reaction) => !removedReactions.has(reaction));
+      for (const reaction of reactions)
+        this.#changes.reactionKeys.add(mailboxReactionRowKey(reaction.agentId, reaction.messageId, reaction.actor));
+      try {
+        this.#persist("mailbox.message-deleted", `${commandPrefix}:${randomUUID()}`, deletions);
+      } catch (error) {
+        this.#state = previous;
+        throw error;
+      }
+      yield* this.#drainFileDeletionOutboxEffect();
+      return "deleted";
+    } catch (cause) {
+      return yield* new StoredStateFailure({ cause });
+    }
+  }, Effect.uninterruptible).bind(this);
+
+  /**
+   * Removes the channel-owned copy that `commitChannelAttachments` made of one channel message that a
+   * person deleted, with its reactions, idempotency keys and the files that no other record uses. The
+   * assignment messages that already went to members stay: their turns used them. A copy that a
+   * delivery still uses stays too.
+   */
+  deleteChannelMessageCopy(channelId: string, messageId: string): Effect.Effect<void, StoredStateFailure> {
+    return this.deleteChannelMessageCopies(
+      channelId,
+      [messageId],
+      `mailbox:channel-message-deleted:${channelId}:${messageId}`,
+    );
+  }
+
+  /** As `deleteChannelMessageCopy`, for each copy of the channel when `messageIds` is "all", in one write. */
+  deleteChannelMessageCopies = Effect.fn("MailboxStore.deleteChannelMessageCopies")(function* (
+    this: MailboxStore,
+    channelId: string,
+    messageIds: readonly string[] | "all",
+    commandPrefix = `mailbox:channel-history-deleted:${channelId}`,
+  ): Effect.fn.Return<void, StoredStateFailure> {
+    try {
+      const named = messageIds === "all" ? null : new Set(messageIds);
+      const find = () => {
+        const delivered = new Set(this.#state.deliveries.map((delivery) => delivery.messageId));
+        return this.#state.messages.filter(
+          (candidate) =>
+            candidate.channelId === channelId &&
+            (named === null || named.has(candidate.id)) &&
+            !delivered.has(candidate.id),
+        );
+      };
+      const before = find();
+      if (before.length === 0) return;
+      // The path checks wait, so they run before the state changes, as in `deleteShownMessages`.
+      const managedPaths = new Map<string, string | null>();
+      for (const file of before.flatMap(messageFiles)) {
+        if (file.deletedAt || managedPaths.has(file.path)) continue;
+        managedPaths.set(file.path, yield* this.#files.managedTransferFile(file.path).pipe(toStoredStateFailure));
+      }
+      const messages = find();
+      if (messages.length === 0) return;
+      const removed = new Set(messages);
+      const removedIds = new Set(messages.map((message) => message.id));
+      const previous = structuredClone(this.#state);
+      this.#state.messages = this.#state.messages.filter((candidate) => !removed.has(candidate));
+      for (const id of removedIds) this.#changes.messageIds.add(id);
+      const reactions = this.#state.reactions.filter((reaction) => removedIds.has(reaction.messageId));
+      const removedReactions = new Set(reactions);
+      this.#state.reactions = this.#state.reactions.filter((reaction) => !removedReactions.has(reaction));
+      for (const reaction of reactions)
+        this.#changes.reactionKeys.add(mailboxReactionRowKey(reaction.agentId, reaction.messageId, reaction.actor));
+      for (const [key, keyMessageId] of Object.entries(this.#state.idempotency))
+        if (removedIds.has(keyMessageId)) delete this.#state.idempotency[key];
+      const inUse = new Set(
+        this.#fileRecords()
+          .filter((record) => !record.deletedAt)
+          .map((record) => record.path),
+      );
+      const deletions: string[] = [];
+      for (const path of new Set(
+        messages.flatMap(messageFiles).flatMap((file) => (file.deletedAt ? [] : [file.path])),
+      )) {
+        const managed = inUse.has(path) ? null : managedPaths.get(path);
+        if (managed) deletions.push(managed);
+      }
+      try {
+        this.#persist("mailbox.channel-message-deleted", `${commandPrefix}:${randomUUID()}`, deletions);
       } catch (error) {
         this.#state = previous;
         throw error;
@@ -1361,7 +1613,7 @@ export class MailboxStore {
     if (this.laneActive(agentId, taskId)) return null;
     const messages = this.#messagesById();
     const delivery = this.#queuedFor(agentId).find(
-      (candidate) => this.#taskIdOf(candidate, messages) === taskId && !this.#isHeldReply(candidate),
+      (candidate) => this.#laneOf(candidate, messages) === taskId && !this.#isHeldReply(candidate),
     );
     return delivery && this.#mayStart(delivery) ? this.#context(delivery, undefined, messages) : null;
   }
@@ -1378,11 +1630,11 @@ export class MailboxStore {
     const requestId = isAnswer(message) ? message.replyToMessageId : null;
     if (message.sender.kind !== "user" && !requestId) return [];
     // One turn runs in one lane: the agent's own chat, or the side thread that sent the request.
-    const lane = message.taskId ?? null;
     const messages = this.#messagesById();
+    const lane = this.#laneOf(next, messages);
     return this.#contexts(
       this.#queuedFor(next.recipientAgentId).filter((candidate) => {
-        if (candidate.id === next.id || !this.#mayStart(candidate) || this.#taskIdOf(candidate, messages) !== lane)
+        if (candidate.id === next.id || !this.#mayStart(candidate) || this.#laneOf(candidate, messages) !== lane)
           return false;
         if (!requestId) return this.#isHeldReply(candidate);
         const reply = this.#requireMessage(candidate.messageId, messages);
@@ -1403,9 +1655,9 @@ export class MailboxStore {
     const messages = this.#messagesById();
     const first = this.#requireMessage(next.messageId, messages);
     if (!isChatMessageFromPerson(first)) return [];
-    const lane = first.taskId ?? null;
+    const lane = this.#laneOf(next, messages);
     const queued = this.#queuedFor(next.recipientAgentId).filter(
-      (candidate) => this.#taskIdOf(candidate, messages) === lane && !this.#isHeldReply(candidate),
+      (candidate) => this.#laneOf(candidate, messages) === lane && !this.#isHeldReply(candidate),
     );
     const start = queued.findIndex((candidate) => candidate.id === next.id);
     if (start < 0) return [];
@@ -1430,13 +1682,11 @@ export class MailboxStore {
     const next = this.#state.deliveries.find((candidate) => candidate.id === deliveryId);
     if (!next || !waitsForPlanContinuation(next)) return [];
     const messages = this.#messagesById();
-    const lane = this.#taskIdOf(next, messages);
+    const lane = this.#laneOf(next, messages);
     return this.#contexts(
       this.#queuedFor(next.recipientAgentId).filter(
         (candidate) =>
-          candidate.id !== next.id &&
-          waitsForPlanContinuation(candidate) &&
-          this.#taskIdOf(candidate, messages) === lane,
+          candidate.id !== next.id && waitsForPlanContinuation(candidate) && this.#laneOf(candidate, messages) === lane,
       ),
     );
   }
@@ -1552,6 +1802,12 @@ export class MailboxStore {
     return delivery ? this.#context(delivery) : null;
   }
 
+  /** Host-stamped person provenance. A model cannot supply this value. */
+  senderMember(messageId: string): ConversationMessageSender | undefined {
+    const sender = this.#state.messages.find((message) => message.id === messageId)?.senderMember;
+    return sender ? { ...sender } : undefined;
+  }
+
   findDeliveriesByTurn(agentId: string, turnId: string): DeliveryContext[] {
     return this.#contexts(
       this.#state.deliveries.filter(
@@ -1582,7 +1838,7 @@ export class MailboxStore {
       delivery.recipientAgentId === agentId &&
       delivery.status === "starting" &&
       delivery.turnId === null &&
-      (taskId === undefined || this.#taskIdOf(delivery) === taskId)
+      (taskId === undefined || this.#laneOf(delivery) === taskId)
     );
   }
 
@@ -1749,6 +2005,7 @@ export class MailboxStore {
     this: MailboxStore,
     deliveryId: string,
     taskOpen: (taskId: string) => boolean,
+    agentExists: (agentId: string) => boolean,
   ): Effect.fn.Return<string | null, StoredStateFailure> {
     const delivery = this.#state.deliveries.find((candidate) => candidate.id === deliveryId);
     const request = delivery && this.#state.messages.find((message) => message.id === delivery.messageId);
@@ -1758,6 +2015,8 @@ export class MailboxStore {
     const originAgentId = this.chainOriginAgentId(request.id);
     if (
       requesterId === teammateId ||
+      // The user deleted the agent that asked. A note for it would make the agent again (#6106).
+      !agentExists(requesterId) ||
       !originAgentId ||
       originAgentId === teammateId ||
       request.expectsReply === false ||
@@ -1783,15 +2042,37 @@ export class MailboxStore {
     return requesterId;
   }, Effect.uninterruptible).bind(this);
 
-  hasAgentMessageFromTurnTo(agentId: string, turnId: string, recipientAgentId: string): boolean {
+  /**
+   * Whether the turn sent the recipient a message. A reply to one of `turnRequestIds`, the recipient's
+   * requests that the turn read, answers only that request, so it does not count for the others (#5804).
+   */
+  hasAgentMessageFromTurnTo(
+    agentId: string,
+    turnId: string,
+    recipientAgentId: string,
+    turnRequestIds: ReadonlySet<string>,
+  ): boolean {
     const turnIds = this.#sourceTurnIds();
     return this.#state.messages.some((message) => {
       if (message.sender.kind !== "agent" || message.sender.agentId !== agentId) return false;
       if (turnIds.get(message.id) !== turnId) return false;
+      if (message.replyToMessageId !== null && turnRequestIds.has(message.replyToMessageId)) return false;
       return this.#state.deliveries.some(
         (delivery) => delivery.messageId === message.id && delivery.recipientAgentId === recipientAgentId,
       );
     });
+  }
+
+  /** Whether the turn sent another agent a request that waits for a reply. */
+  hasRequestFromTurn(agentId: string, turnId: string): boolean {
+    const turnIds = this.#sourceTurnIds();
+    return this.#state.messages.some(
+      (message) =>
+        message.sender.kind === "agent" &&
+        message.sender.agentId === agentId &&
+        message.expectsReply !== false &&
+        turnIds.get(message.id) === turnId,
+    );
   }
 
   markStarting = Effect.fn("MailboxStore.markStarting")(function* (
@@ -2362,7 +2643,7 @@ export class MailboxStore {
         if (
           delivery.recipientAgentId !== agentId ||
           !waitsForPlanContinuation(delivery) ||
-          (taskId !== undefined && this.#taskIdOf(delivery, messages) !== taskId)
+          (taskId !== undefined && this.#laneOf(delivery, messages) !== taskId)
         )
           continue;
         const turnIds = delivery.planContinuation?.turnIds ?? [];
@@ -2397,15 +2678,18 @@ export class MailboxStore {
     );
   }
 
-  /** As {@link hasUnfinishedDelivery}, without the work of the agent's tasks, which run in their own threads. */
-  hasUnfinishedDeliveryOutsideTasks(agentId: string): boolean {
+  /**
+   * As {@link hasUnfinishedDelivery}, without the work of the agent's tasks, which run in their own
+   * threads. Channel work counts only with `includeChannels`: on a provider that runs one turn at a
+   * time, a channel turn holds the agent's own chat too.
+   */
+  hasUnfinishedDeliveryOutsideTasks(agentId: string, includeChannels: boolean): boolean {
     const messages = this.#messagesById();
-    return this.#state.deliveries.some(
-      (delivery) =>
-        delivery.recipientAgentId === agentId &&
-        isActiveDelivery(delivery) &&
-        this.#taskIdOf(delivery, messages) === null,
-    );
+    return this.#state.deliveries.some((delivery) => {
+      if (delivery.recipientAgentId !== agentId || !isActiveDelivery(delivery)) return false;
+      const lane = this.#laneOf(delivery, messages);
+      return lane === null || (includeChannels && laneChannelId(lane) !== null);
+    });
   }
 
   /** As {@link hasUnfinishedDelivery}, without the `queued` deliveries that a usage limit holds. */
@@ -2546,6 +2830,86 @@ export class MailboxStore {
       } catch (error) {
         this.#state = previous;
         throw error;
+      }
+      yield* this.#drainFileDeletionOutboxEffect();
+    } catch (cause) {
+      return yield* new StoredStateFailure({ cause });
+    }
+  }, Effect.uninterruptible).bind(this);
+
+  /**
+   * Removes generated files whose deleted transcript was their last reference. A message in a
+   * different thread or a retained mailbox delivery keeps its file. Rechecking after path reads
+   * protects a new reference added while the filesystem adapter was running.
+   */
+  cleanupDeletedGeneratedAttachments = Effect.fn("MailboxStore.cleanupDeletedGeneratedAttachments")(function* (
+    this: MailboxStore,
+    threadIds: readonly string[],
+  ): Effect.fn.Return<void, StoredStateFailure> {
+    try {
+      const threads = new Set(threadIds);
+      const candidates = this.#state.generatedAttachments.filter(
+        (attachment) =>
+          !attachment.deletedAt &&
+          typeof attachment.ownerThreadId === "string" &&
+          threads.has(attachment.ownerThreadId),
+      );
+      if (candidates.length === 0) return;
+      // Conversation writes already maintain this attachment projection. Read it and channel
+      // references once per pass, rather than walking every message once for each generated file.
+      const references = this.#database.connection.prepare(`
+        SELECT json_extract(metadata_json, '$.id') AS attachment_id FROM projection_attachments
+        WHERE owner_kind = 'thread-message' AND json_type(metadata_json, '$.id') = 'text'
+        UNION
+        SELECT part.value AS attachment_id FROM projection_channel_messages message, json_tree(message.message_json) part
+        WHERE COALESCE(json_extract(message.message_json, '$.deleted'), 0) != 1
+          AND part.key = 'id' AND part.type = 'text'
+      `);
+      const referencedIds = () =>
+        new Set(databaseRows(references.all()).map((row) => requiredStringColumn(row, "attachment_id")));
+      const usedPaths = () =>
+        new Set(
+          this.#state.messages
+            .flatMap(messageFiles)
+            .filter((file) => !file.deletedAt)
+            .map((file) => file.path),
+        );
+      const initialIds = referencedIds();
+      const initialPaths = usedPaths();
+      const unreferenced = candidates.filter((file) => !initialIds.has(file.id) && !initialPaths.has(file.path));
+      if (unreferenced.length === 0) return;
+      const managedPaths = new Map<string, string | null>();
+      for (const file of unreferenced)
+        managedPaths.set(file.path, yield* this.#files.managedTransferFile(file.path).pipe(toStoredStateFailure));
+      // Filesystem checks can yield. Re-read references once after them so a newly shared file stays.
+      const currentIds = referencedIds();
+      const currentPaths = usedPaths();
+      const removed = unreferenced.filter(
+        (file) =>
+          this.#state.generatedAttachments.includes(file) &&
+          !file.deletedAt &&
+          !currentIds.has(file.id) &&
+          !currentPaths.has(file.path),
+      );
+      if (removed.length === 0) return;
+      const previous = structuredClone(this.#state);
+      const ids = new Set(removed.map((file) => file.id));
+      this.#state.generatedAttachments = this.#state.generatedAttachments.filter((file) => !ids.has(file.id));
+      for (const id of ids) this.#changes.generatedAttachmentIds.add(id);
+      const retainedPaths = new Set(
+        this.#fileRecords()
+          .filter((file) => !file.deletedAt)
+          .map((file) => file.path),
+      );
+      const deletions = [...new Set(removed.map((file) => file.path))].flatMap((path) => {
+        const managed = retainedPaths.has(path) ? null : managedPaths.get(path);
+        return managed ? [managed] : [];
+      });
+      try {
+        this.#persist("mailbox.deleted-history-files", `mailbox:deleted-history-files:${randomUUID()}`, deletions);
+      } catch (cause) {
+        this.#state = previous;
+        throw cause;
       }
       yield* this.#drainFileDeletionOutboxEffect();
     } catch (cause) {
@@ -2797,6 +3161,7 @@ export class MailboxStore {
     const message = this.#requireMessage(delivery.messageId, messages);
     return {
       delivery: this.#publicDelivery(delivery, positions, message),
+      allowTagTargets: message.sender.kind === "user" && !message.channelId && !message.messaging,
       ...(delivery.resumeAfterUsageLimit ? { resumeAfterUsageLimit: delivery.resumeAfterUsageLimit } : {}),
       ...(delivery.planContinuation ? { planContinuation: delivery.planContinuation } : {}),
       ...(message.channelId ? { channelId: message.channelId } : {}),
@@ -2850,6 +3215,11 @@ export class MailboxStore {
           : null,
       editing: Boolean(delivery.editId),
     };
+  }
+
+  /** The queue position of each queued delivery, by delivery id. */
+  queuedPositions(): Map<string, number> {
+    return this.#queuedPositions();
   }
 
   #queuedPositions(): Map<string, number> {

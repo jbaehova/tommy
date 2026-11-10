@@ -38,6 +38,7 @@ import { AgentRoutinesSettings, type RoutineSelectionRequest } from "./AgentRout
 import { AgentSkillsModal, type AgentSkillsMode, type SkillDetail } from "./AgentSkillsModal";
 import { conversationPort, type SharedTableCalls } from "./conversation-port";
 import type { AgentNotificationLevelCalls, ConversationRuntime } from "./conversation-runtime";
+import type { LocalSkillLibraryCalls } from "./LocalSkillsLibrary";
 import { agentMemoriesPort } from "./memories-port";
 import type { EventRoutinesApi } from "./routine-webhooks-api";
 import { type AgentRoutinesApi, agentRoutinesPort, eventRoutinesPort, type RoutinesPort } from "./routines-port";
@@ -51,6 +52,8 @@ interface AgentSettingsPanelProps
   remoteClient?: boolean;
   /** Routines can copy local run commands only on the computer that runs the agent. */
   localHost?: boolean;
+  /** The host keeps the agent routine run place through its optional route. */
+  routineRunPlace?: boolean;
   sessionSettingsEditable?: boolean;
   /** The memory cap of an agent on this computer. Absent for a remote agent: its host enforces its own. */
   memoryLimit?: number | undefined;
@@ -66,9 +69,11 @@ interface AgentSettingsPanelProps
   routineSelectionRequest?: RoutineSelectionRequest | null | undefined;
   onRoutineSelectionRequestHandled?: ((nonce: number) => void) | undefined;
   onOpenRoutineRun?: ((messageId: string) => void) | undefined;
+  onOpenRoutineThread?: ((routineId: string) => Promise<boolean>) | undefined;
   skillsMode?: AgentSkillsMode | undefined;
   /** The joined server that runs the agent, for the `host` skills mode. */
   skillsServerId?: string | undefined;
+  localSkillLibraryCalls?: LocalSkillLibraryCalls | undefined;
   skillsMarketplaceOpen?: boolean | undefined;
   /** Another page of the window covers the conversation. */
   workspaceCovered?: boolean | undefined;
@@ -197,6 +202,7 @@ export default function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       // Set only for the host on this computer, the one place the policy is kept.
       props.localHost === true,
       props.routines,
+      props.routineRunPlace === true,
     ),
   );
   const routinesPort = createMemo(() => {
@@ -590,6 +596,7 @@ export default function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             selectionRequest={props.routineSelectionRequest}
             onSelectionRequestHandled={props.onRoutineSelectionRequestHandled}
             onOpenRun={props.onOpenRoutineRun}
+            onOpenThread={props.onOpenRoutineThread}
           />
         </div>
       </Show>
@@ -633,6 +640,7 @@ export default function AgentSettingsPanel(props: AgentSettingsPanelProps) {
           open={draft.skills.open}
           skillsMode={skillsMode()}
           serverId={props.skillsServerId}
+          localLibraryCalls={props.localSkillLibraryCalls}
           calls={props.adminCalls?.skills}
           catalog={props.remoteClient ? null : undefined}
           onCreateSkill={props.onCreateSkill}

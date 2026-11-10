@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { sourceText } from "@tommy/i18n/source";
 import { Effect } from "effect";
+import { childProcessEnvironment } from "../backend/child-process-environment";
 import { ProviderRuntimeFailure, runtimeIO } from "./provider-runtime-effects";
 
 const execFileAsync = promisify(execFile);
@@ -43,10 +44,20 @@ export const assertSafeArchive = Effect.fn("ProviderArchive.assertSafeArchive")(
   const [{ stdout: namesValue }, { stdout: detailsValue }] = yield* Effect.all(
     [
       runtimeIO((signal) =>
-        execFileAsync("tar", ["-tzf", path], { encoding: "utf8", maxBuffer: MAX_ARCHIVE_LIST_BYTES, signal }),
+        execFileAsync("tar", ["-tzf", path], {
+          encoding: "utf8",
+          maxBuffer: MAX_ARCHIVE_LIST_BYTES,
+          signal,
+          env: childProcessEnvironment(),
+        }),
       ),
       runtimeIO((signal) =>
-        execFileAsync("tar", ["-tvzf", path], { encoding: "utf8", maxBuffer: MAX_ARCHIVE_LIST_BYTES, signal }),
+        execFileAsync("tar", ["-tvzf", path], {
+          encoding: "utf8",
+          maxBuffer: MAX_ARCHIVE_LIST_BYTES,
+          signal,
+          env: childProcessEnvironment(),
+        }),
       ),
     ],
     { concurrency: "unbounded" },
@@ -92,6 +103,7 @@ export const extractArchive = Effect.fn("ProviderArchive.extractArchive")(functi
       encoding: "utf8",
       maxBuffer: MAX_ARCHIVE_LIST_BYTES,
       signal,
+      env: childProcessEnvironment(),
     }),
   );
 });

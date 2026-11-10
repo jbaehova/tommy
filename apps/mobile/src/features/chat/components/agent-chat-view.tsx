@@ -15,9 +15,11 @@ import { openTurnActivity } from "@/features/workspace/model/agent-activity";
 import { showsOnline } from "@/features/workspace/model/server-status";
 import { useText } from "@/shared/lib/text";
 import { chatRowIndex, latestReadableMessage, projectChatMessages, withFailureReasons } from "../model/chat-messages";
+import { useAgentMentionReferences } from "../model/use-agent-mention-references";
 import { useAgentMentionSkills } from "../model/use-agent-mention-skills";
 import { MAIN_THREAD_ID, useChatThreadMenu } from "./chat-thread-menu";
 import { ChatView } from "./chat-view";
+import { useBranchThread } from "./use-branch-thread";
 import { useChatQueue } from "./use-chat-queue";
 import { useOpenAgentTasks } from "./use-open-agent-tasks";
 import { useQuestionPrompt } from "./use-question-prompt";
@@ -203,7 +205,15 @@ export function MobileChatView({
       message.turnId === conversation?.activeTurnId,
   );
   const viewOnly = useAgentViewOnly(agent.serverId, agent.id);
+  const branching = useBranchThread({
+    serverId: agent.serverId,
+    agentId: agent.id,
+    sourceTaskId: null,
+    messages: conversation?.messages,
+    activeTurnId: conversation?.activeTurnId ?? null,
+  });
   const mentionSkills = useAgentMentionSkills(agent.id, agent.serverId, showsOnline(server));
+  const mentionReferences = useAgentMentionReferences(agent.serverId, agent.id);
   const questionForm = useQuestionPrompt(
     agent.id,
     activePrompt?.kind === "question" ? activePrompt : undefined,
@@ -227,6 +237,7 @@ export function MobileChatView({
       agents={serverAgents}
       mentionAgents={mentionAgents}
       mentionSkills={mentionSkills}
+      mentionReferences={mentionReferences}
       projectedMessages={messages}
       referenceMessages={references}
       ready={Boolean(conversation)}
@@ -238,6 +249,8 @@ export function MobileChatView({
       activeTurnId={conversation?.activeTurnId ?? null}
       conversation={liveConversation}
       stopTurn={stopTurn}
+      branchPoints={branching.branchPoints}
+      onBranch={branching.branch}
       questionForm={questionForm}
       activityAccessory={activityAccessory}
       threadMenu={threadMenu}

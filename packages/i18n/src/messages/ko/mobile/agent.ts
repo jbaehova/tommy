@@ -646,4 +646,24 @@ export const messages = {
   "mobile.agent.instructionsFile.readFailed": "지침 파일을 읽을 수 없어요.",
   "mobile.agent.instructionsFile.loading": "지침 파일을 불러오는 중…",
   "mobile.agent.instructionsFile.unsupported": "이 호스트는 원격 기기에서 지침 파일을 편집할 수 없어요.",
+  "mobile.agent.runtime.searchModels": "모델 검색",
+  "mobile.agent.runtime.noMatches": "검색과 일치하는 모델이 없어요.",
+  "mobile.agent.speed.label": "속도",
+  "mobile.agent.speed.standard": "표준",
+  "mobile.agent.speed.fast": "빠르게",
+  "mobile.agent.speed.ultrafast": "초고속",
+  "mobile.agent.speed.footer": "빠른 처리는 추가 사용량이나 비용이 발생할 수 있어요. 이용 가능 여부는 제공자가 정해요.",
+  "mobile.agent.speed.unsupported": "이 호스트는 이 속도 설정을 지원하지 않아요.",
+
+  "mobile.agent.webhook.senderKey.open": "발신자 키 사용",
+  "mobile.agent.webhook.senderKey.label": "발신자 서명키",
+  "mobile.agent.webhook.senderKey.hint":
+    "발신자가 제공한 Standard Webhooks 서명키를 붙여 넣으세요. 현재 서명키를 교체하고 호스트에만 보관해요.",
+  "mobile.agent.webhook.senderKey.saved": "발신자 키를 저장했어요",
+  "mobile.agent.webhook.senderKey.failed": "발신자 키를 저장하지 못했어요. 키를 확인하고 다시 입력해 주세요.",
+
+  "mobile.agent.fastMode.confirmTitle": "빠른 모드를 켤까요?",
+  "mobile.agent.fastMode.confirmDescription":
+    "Claude가 더 빠르게 답하지만 토큰당 요금이 높아져요. Claude 구독의 사용량이 남아 있어도 빠른 모드는 사용량 크레딧을 사용해요.",
+  "mobile.agent.fastMode.confirm": "켜기",
 } as const satisfies PartialTranslation<typeof source>;

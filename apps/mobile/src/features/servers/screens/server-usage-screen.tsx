@@ -10,6 +10,7 @@ import { UsageLoading } from "@/features/agents/components/usage-motion";
 import { lastUsageDays, UsageRangePicker } from "@/features/agents/components/usage-range-picker";
 import { useQueryScope } from "@/features/auth/context/mobile-session-context";
 import { PlanLimitsSummary } from "@/features/servers/components/plan-limits-summary";
+import { ServerMachineResources } from "@/features/servers/components/server-machine-resources";
 import { SettingsNote } from "@/features/settings/components/settings-content";
 import { useMobileWorkspace } from "@/features/workspace/context/mobile-workspace-context";
 import { queryKeys } from "@/features/workspace/model/query-keys";
@@ -69,6 +70,7 @@ export function ServerUsageScreen() {
       <View className="gap-4">
         {/* Above the range: the limits are the provider's now, not of a range. */}
         <PlanLimitsSummary serverId={server.id} />
+        <ServerMachineResources key={server.id} serverId={server.id} />
         <UsageRangePicker range={range} onChange={setRange} />
         {!online ? (
           <Typography.Paragraph>{t("mobile.agent.info.usage.reconnect")}</Typography.Paragraph>

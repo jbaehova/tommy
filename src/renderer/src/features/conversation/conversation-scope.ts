@@ -5,9 +5,18 @@ import {
   fileQuoteTarget,
   limitedQuoteText,
 } from "@tommy/contracts/chat-tag-references";
-import { type McpSignInRelayPage, relayableSignInLink, type UpdateAgentInput } from "@tommy/contracts/ipc";
+import {
+  agentNextProviderAccountId,
+  type McpSignInRelayPage,
+  relayableSignInLink,
+  type UpdateAgentInput,
+} from "@tommy/contracts/ipc";
+import type { HostSkillLearning } from "@tommy/contracts/ipc-skill-learning";
+import type { CodexLiveVoice } from "@tommy/contracts/ipc-voice";
 import { toast } from "@tommy/ui";
 import type { QuestionPromptComposerAnswer } from "@tommy/ui/components/QuestionPromptBubble";
+import type { AgentMessage } from "@tommy/ui/data";
+import type { MessageSkillLearning } from "@tommy/ui/features/conversation/ChatMessageRow";
 import type { QuoteRequest } from "@tommy/ui/features/conversation/ComposerEditor";
 import { currentText } from "@tommy/ui/text";
 import { usesTouchLayout } from "@tommy/ui/utils";
@@ -24,8 +33,10 @@ import {
   useContext,
 } from "solid-js";
 import { actionToast } from "../../action-toast";
+import { toAgentMessages } from "../../app-message-projection";
 import { createScopeGuard } from "../../scope-lifetime";
 import { appendVoiceTranscript } from "../../voice-recording";
+import { serverSupportsCapability } from "../servers/server-capabilities";
 import { createAttachmentImportSounds } from "./attachment-import-sounds";
 import type { ChatSearchMatch } from "./chat-search";
 import { useConversationController } from "./conversation-controller-context";
@@ -48,18 +59,21 @@ import {
 } from "./quoted-text";
 import { createActivityStore } from "./stores/activity-store";
 import { createBrowserStore } from "./stores/browser-store";
+import { createCodexLiveConversation } from "./stores/codex-live-conversation-store";
 import { createComposerActions } from "./stores/composer-actions";
 import { conversationOwnerId, createComposerStore, currentConversationTarget } from "./stores/composer-store";
 import { createMcpServersStore } from "./stores/mcp-servers-store";
 import { createMessageActions } from "./stores/message-actions";
+import { createMessageDeletionStore } from "./stores/message-deletion-store";
 import { createPanelsStore, SIDE_PANEL_MODES } from "./stores/panels-store";
-import { PENDING_SEND_ID_PREFIX, pendingSendMessage } from "./stores/pending-send-store";
+import { PENDING_SEND_ID_PREFIX, type PendingSend, pendingSendMessage } from "./stores/pending-send-store";
 import { createQueueStore } from "./stores/queue-store";
 import { createReplyJumpStore } from "./stores/reply-jump-store";
 import { createScrollStore } from "./stores/scroll-store";
 import { createSearchStore } from "./stores/search-store";
 import { createSettingsStore, runtimeSettingsEqual } from "./stores/settings-store";
 import { createSideQuestionStore } from "./stores/side-question-store";
+import { createSkillLearningStore } from "./stores/skill-learning-store";
 import { createSkillsStore } from "./stores/skills-store";
 import { createThreadComposerActions } from "./stores/thread-composer-actions";
 import { createVoiceStore } from "./stores/voice-store";
@@ -87,9 +101,167 @@ export function createConversationViewScope(props: ConversationProps) {
   const controller = useConversationController();
   /** A view shows one agent or one channel for its whole life, so each branch below is fixed. */
   const channel = untrack(() => props.channel);
+  const messageDeletion = createMessageDeletionStore(props);
   const agentReady = () => props.agentStatus.phase === "ready";
+  const learningCalls = () => conversationRuntime(props).skillLearning;
+  const [learningPreference, setLearningPreference] = createSignal<HostSkillLearning | null>(null);
+  const skillLearning = createSkillLearningStore((input, serverId) => {
+    const calls = learningCalls();
+    if (!calls) return Promise.resolve({ saved: false });
+    return calls.save(input, serverId);
+  });
+  const skillLearningAvailable = () =>
+    !channel &&
+    !!props.agent &&
+    !!learningCalls() &&
+    serverSupportsCapability(props.server, "skill-learning-v1") &&
+    (props.server?.kind === "local" || props.server?.state === "online");
+  let learningRequest = 0;
+  const learningScope = createMemo(
+    () => ({
+      available: skillLearningAvailable(),
+      serverId: props.server?.id,
+      agentId: props.agent?.id,
+      covered: props.workspaceCovered === true,
+    }),
+    {
+      equals: (before, after) =>
+        before.available === after.available &&
+        before.serverId === after.serverId &&
+        before.agentId === after.agentId &&
+        before.covered === after.covered,
+    },
+  );
+  createEffect(learningScope, ({ available, serverId, covered }) => {
+    const request = ++learningRequest;
+    skillLearning.invalidate();
+    setLearningPreference(null);
+    if (!available || covered) return;
+    learningCalls()
+      ?.get(serverId)
+      .then(
+        (preference) => {
+          if (request === learningRequest) setLearningPreference(preference);
+        },
+        () => undefined,
+      );
+    return () => {
+      learningRequest += 1;
+      skillLearning.invalidate();
+    };
+  });
+  createEffect(
+    () => {
+      const agentId = props.agent?.id;
+      if (!agentId) return [];
+      const serverId = props.server?.id;
+      const scopes: Array<{ serverId?: string; agentId: string; threadId?: string; messageId: string }> = [];
+      const collect = (messages: readonly AgentMessage[], threadId?: string) => {
+        const savedNames = new Set<string>();
+        const savedIds = new Set<string>();
+        for (let index = messages.length - 1; index >= 0; index -= 1) {
+          const message = messages[index];
+          if (!message) continue;
+          const marker = message.actionMarker;
+          if (marker?.kind === "skill-lifecycle" && (marker.action === "created" || marker.action === "revised")) {
+            savedNames.add(marker.skillName);
+            savedIds.add(marker.skillId);
+          }
+          const suggestion = message.skillSuggestion;
+          if (
+            suggestion &&
+            (suggestion.action === "update" ? savedIds.has(suggestion.skillId) : savedNames.has(suggestion.skillName))
+          )
+            scopes.push({ serverId, agentId, messageId: message.id, ...(threadId === undefined ? {} : { threadId }) });
+        }
+      };
+      collect(props.messages);
+      const open = props.threads?.conversation;
+      if (open?.threadId) collect(toAgentMessages(open.messages, agentId), open.threadId);
+      for (const tab of props.threads?.side.tabs ?? []) {
+        const conversation = props.threads?.side.thread(tab.id)?.conversation;
+        if (conversation?.threadId) collect(toAgentMessages(conversation.messages, agentId), conversation.threadId);
+      }
+      return scopes;
+    },
+    (scopes) => {
+      for (const scope of scopes) skillLearning.markSaved(scope);
+    },
+  );
+  const skillLearningFor = (messageId: string, threadId?: string): MessageSkillLearning | undefined => {
+    const agentId = props.agent?.id;
+    if (!agentId || !skillLearningAvailable()) return undefined;
+    const scope = { serverId: props.server?.id, agentId, messageId, ...(threadId === undefined ? {} : { threadId }) };
+    const state = skillLearning.read(scope);
+    return {
+      ...state,
+      enabled: learningPreference() !== null && learningPreference()?.mode !== "off",
+      onSave: () => {
+        void skillLearning.save(scope);
+      },
+      onSkip: () => skillLearning.skip(scope),
+    };
+  };
+
   /** A side thread covers the agent's own chat, which stays mounted under it. */
   const sideThreadOpen = () => props.threads?.open !== undefined;
+  const [liveVoiceChoice, setLiveVoiceChoice] = createSignal<CodexLiveVoice | null>(null);
+  const liveVoiceTarget = createMemo(
+    () => {
+      const agent = props.agent;
+      if (channel || !agent || agent.provider !== "codex" || !serverSupportsCapability(props.server, "live-voice-v1"))
+        return null;
+      return {
+        agentId: agent.id,
+        accountId: agent.providerAccountId,
+        serverId: props.server?.id ?? "local",
+        api: conversationRuntime(props).voice,
+      };
+    },
+    {
+      equals: (a, b) =>
+        a?.agentId === b?.agentId && a?.accountId === b?.accountId && a?.serverId === b?.serverId && a?.api === b?.api,
+    },
+  );
+  const liveVoice = createMemo(() => {
+    const target = liveVoiceTarget();
+    const start = target?.api.startLive;
+    const stop = target?.api.stopLive;
+    const subscribe = target?.api.onLiveEvent;
+    const cancel = target?.api.cancelLive;
+    if (!target || !start || !stop || !cancel || !subscribe) return null;
+    return createCodexLiveConversation({
+      agentId: target.agentId,
+      voice: liveVoiceChoice,
+      port: {
+        startLive: (input) => start(input, target.serverId),
+        stopLive: (input) => stop(input, target.serverId),
+        cancelLive: (input) => cancel(input, target.serverId),
+        onLiveEvent: (listener) =>
+          subscribe((scoped) => {
+            if (scoped.serverId === target.serverId) listener(scoped.event);
+          }),
+      },
+    });
+  });
+  const liveVoiceActive = () => {
+    const phase = liveVoice()?.phase();
+    return phase !== undefined && phase !== "idle" && phase !== "failed";
+  };
+  createEffect(liveVoice, (call) => () => call?.dispose());
+  createEffect(
+    () => ({
+      call: liveVoice(),
+      offline: props.server?.kind === "remote" && props.server.state !== "online",
+      covered: props.workspaceCovered,
+      thread: sideThreadOpen(),
+    }),
+    ({ call, offline, covered, thread }) => {
+      if (offline) call?.disconnected();
+      else if (covered || thread) call?.end();
+    },
+  );
+
   const providerUpdateRequired = () =>
     props.agentStatus.providers?.find(
       (provider) => provider.id === props.agent?.provider && provider.state === "outdated",
@@ -451,6 +623,29 @@ export function createConversationViewScope(props: ConversationProps) {
     takeBrowserControl,
     releaseBrowserControl,
   } = browser;
+  const targetTagsAvailable = () =>
+    !channel && (props.server?.kind === "local" || serverSupportsCapability(props.server, "chat-target-tags-v1"));
+  const taggableBrowserTabs = createMemo(() =>
+    targetTagsAvailable() ? browserTabs().filter((tab) => tab.ownerAgentId === props.agent?.id) : [],
+  );
+  const taggableThreads = createMemo(() =>
+    targetTagsAvailable()
+      ? [...(props.threads?.tasks ?? [])]
+          .filter((task) => task.closedAt === null)
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      : [],
+  );
+  function openTaggedReference(kind: "tab" | "thread", id: string): void {
+    if (!targetTagsAvailable()) return;
+    if (kind === "tab") {
+      if (!taggableBrowserTabs().some((tab) => tab.id === id && tab.ownerAgentId === props.agent?.id)) return;
+      activateBrowserTab(id);
+      setActiveRightPanel("browser-expanded");
+      return;
+    }
+    if (taggableThreads().some((task) => task.id === id)) moveThreadToPanel(id);
+  }
+
   function showBrowserPanel() {
     setActiveRightPanel("browser");
     if (browserTabs().length === 0) void openBrowserAddress();
@@ -551,10 +746,47 @@ export function createConversationViewScope(props: ConversationProps) {
   }
   const viewIsMounted = createScopeGuard();
   let attachmentPicker: HTMLInputElement | undefined;
+  /*
+   * A channel stores the message and shows it in the transcript before the send answers with its id.
+   * Until then the pending copy and the stored message would stand together, so the reader saw the
+   * message twice for a moment. Here a send takes the first own message that came after it and has
+   * its text, or, while it is the only one in flight, the first own message after it. The own
+   * messages that were already on screen when the send started do not count, so an earlier message
+   * with the same text is not taken.
+   */
+  const ownMessagesBefore = new Map<string, ReadonlySet<string>>();
+  const channelSentIds = createMemo((): ReadonlyMap<string, string> => {
+    const found = new Map<string, string>();
+    if (!channel) return found;
+    const sends = currentPendingSends();
+    const waiting = sends.filter((send) => send.state === "sending" && !send.messageId);
+    for (const id of ownMessagesBefore.keys())
+      if (!waiting.some((send) => send.clientMessageId === id)) ownMessagesBefore.delete(id);
+    if (waiting.length === 0) return found;
+    const own = props.messages.filter((message) => channel.ownMessage(message));
+    const taken = new Set(sends.flatMap((send) => (send.messageId ? [send.messageId] : [])));
+    for (const send of waiting) {
+      const before = ownMessagesBefore.get(send.clientMessageId);
+      if (!before) {
+        ownMessagesBefore.set(send.clientMessageId, new Set(own.map((message) => message.id)));
+        continue;
+      }
+      const after = own.filter((message) => !before.has(message.id) && !taken.has(message.id));
+      const match =
+        after.find((message) => message.body.trim() === send.text.trim()) ??
+        (waiting.length === 1 ? after[0] : undefined);
+      if (!match) continue;
+      found.set(send.clientMessageId, match.id);
+      taken.add(match.id);
+    }
+    return found;
+  });
+  /** The host's id of a sent message: its answer, or in a channel the stored message that came first. */
+  const sentMessageId = (send: PendingSend) => send.messageId ?? channelSentIds().get(send.clientMessageId) ?? null;
   // The host rows on screen: a sent message hands over to its row in the transcript or the queue.
   // Built only while a send waits for its row, so a streaming reply does not rebuild it for nothing.
   const drawnHostIds = createMemo(() =>
-    currentPendingSends().some((send) => send.messageId)
+    currentPendingSends().some((send) => sentMessageId(send))
       ? new Set([
           ...props.messages.map((message) => message.id),
           ...presentedQueueDeliveries().map((delivery) => delivery.id),
@@ -569,7 +801,10 @@ export function createConversationViewScope(props: ConversationProps) {
     const sends = currentPendingSends();
     const firstFailed = sends.findIndex((send) => send.state === "failed");
     return sends
-      .filter((send) => !(send.messageId && drawnHostIds().has(send.messageId)))
+      .filter((send) => {
+        const messageId = sentMessageId(send);
+        return !(messageId && drawnHostIds().has(messageId));
+      })
       .filter((send) => !send.queued || (firstFailed !== -1 && sends.indexOf(send) >= firstFailed))
       .map(pendingSendMessage);
   });
@@ -678,6 +913,17 @@ export function createConversationViewScope(props: ConversationProps) {
     setChatSearchTotal: () => undefined,
     setActiveChatSearchIndex: setActiveThreadSearchIndex,
   });
+  onSettled(() =>
+    conversationRuntime(props).agent.onScopedEvent?.((scoped) => {
+      if (scoped.serverId !== (props.server?.id ?? "local")) return;
+      const event = scoped.event;
+      if (event.type === "conversation-messages-deleted" && event.agentId === props.agent?.id) {
+        if (event.threadId === props.agent?.threadId) search.removeMessages(event.messageIds);
+        if (event.threadId === props.threads?.open?.threadId) threadSearch.removeMessages(event.messageIds);
+      } else if (event.type === "channel-messages-deleted" && event.channelId === channel?.id)
+        search.removeMessages(event.messageIds);
+    }),
+  );
   // Another thread, or the agent's own chat, has other messages, so the search of the thread closes.
   // A new thread has no task (`null`), and the agent's own chat has no thread (`undefined`).
   createEffect(
@@ -756,7 +1002,9 @@ export function createConversationViewScope(props: ConversationProps) {
       reportLimit: () => toast.warning(currentText().t("composer.voice.limitReached")),
     },
   });
-  const { startVoiceRecording, stopVoiceRecording, stopVoiceRecordingAndSend, cancelVoiceRecording } = voice;
+  const { stopVoiceRecording, stopVoiceRecordingAndSend, cancelVoiceRecording } = voice;
+  const startVoiceRecording = (key?: string) =>
+    liveVoiceActive() ? Promise.resolve() : voice.startVoiceRecording(key);
   /**
    * Copies a conversation through an answer into a new thread. The branch opens in the chat, and its
    * composer takes the focus, so the user can type the new direction at once.
@@ -1028,18 +1276,65 @@ export function createConversationViewScope(props: ConversationProps) {
     }
   }
   // The switch shows the new value while the save runs. The saved agent then holds it.
-  const [fastModeDraft, setFastModeDraft] = createSignal<{ agentId: string; fastMode: boolean }>();
+  const [fastModeDraft, setFastModeDraft] = createSignal<{ agentId: string; fastMode: boolean; ultrafast: boolean }>();
   const fastMode = () => {
     const draft = fastModeDraft();
     return draft && draft.agentId === props.agent?.id ? draft.fastMode : props.agent?.fastMode === true;
   };
-  async function changeFastMode(next: boolean): Promise<void> {
+  const ultrafast = () => {
+    const draft = fastModeDraft();
+    return draft && draft.agentId === props.agent?.id ? draft.ultrafast : props.agent?.ultrafast === true;
+  };
+  async function changeSpeed(speed: "standard" | "fast" | "ultrafast"): Promise<void> {
+    await changeFastMode(speed !== "standard", speed === "ultrafast");
+  }
+  const [fastModeConfirmation, setFastModeConfirmation] = createSignal<{ identity: string; ultrafast: boolean }>();
+  const fastModeIdentity = () =>
+    JSON.stringify([
+      props.server?.id ?? "local",
+      props.server?.state,
+      props.agent?.id,
+      settingsProvider(),
+      settingsModel(),
+      props.agent ? agentNextProviderAccountId(props.agent) : undefined,
+      props.workspaceCovered === true,
+    ]);
+  createEffect(fastModeIdentity, (identity) => {
+    if (untrack(fastModeConfirmation)?.identity !== identity) setFastModeConfirmation(undefined);
+  });
+  const fastModeConfirmationOpen = () => fastModeConfirmation()?.identity === fastModeIdentity();
+  function cancelFastModeConfirmation(): void {
+    setFastModeConfirmation(undefined);
+  }
+  async function confirmFastMode(): Promise<void> {
+    const confirmation = fastModeConfirmation();
+    setFastModeConfirmation(undefined);
+    if (!confirmation || confirmation.identity !== fastModeIdentity() || settingsProvider() !== "claude") return;
+    await applyFastMode(true, confirmation.ultrafast);
+  }
+  async function changeFastMode(next: boolean, ultra = false): Promise<void> {
+    if (next && !fastMode() && settingsProvider() === "claude") {
+      setFastModeConfirmation({ identity: fastModeIdentity(), ultrafast: ultra });
+      return;
+    }
+    setFastModeConfirmation(undefined);
+    await applyFastMode(next, ultra);
+  }
+  async function applyFastMode(next: boolean, ultra = false): Promise<void> {
     const agentId = props.agent?.id;
     if (!agentId) return;
-    const draft = { agentId, fastMode: next };
+    const draft = { agentId, fastMode: next, ultrafast: ultra };
     setFastModeDraft(draft);
     setScopedComposerError(null);
-    const saved = await saveAgentPatch({ fastMode: next }, agentId);
+    const saved = await saveAgentPatch(
+      {
+        fastMode: next,
+        ...(props.server?.kind === "local" || serverSupportsCapability(props.server, "agent-speed-v1")
+          ? { ultrafast: ultra }
+          : {}),
+      },
+      agentId,
+    );
     if (fastModeDraft() !== draft) return;
     setFastModeDraft(undefined);
     if (!saved && props.agent?.id === agentId) {
@@ -1991,6 +2286,15 @@ export function createConversationViewScope(props: ConversationProps) {
     currentDraft,
     currentTarget,
     currentConversationError,
+    taggableBrowserTabs,
+    taggableThreads,
+    openTaggedReference,
+    liveVoice,
+    liveVoiceActive,
+    liveVoiceChoice,
+    setLiveVoiceChoice,
+    messageDeletion,
+    skillLearningFor,
     installedSkills,
     installedSkillsLoadFailed,
     mcpServers,
@@ -2101,7 +2405,12 @@ export function createConversationViewScope(props: ConversationProps) {
     setChatSearchQuery,
     setComposerError: setScopedComposerError,
     changeFastMode,
+    fastModeConfirmationOpen,
+    confirmFastMode,
+    cancelFastModeConfirmation,
     fastMode,
+    ultrafast,
+    changeSpeed,
     setComposerFocusRequest,
     setDropActive,
     setExpandedEmojiMessageId,

@@ -4,6 +4,7 @@ import { INPUT_LIMITS } from "@tommy/contracts/input-limits";
 import {
   type AgentMemorySelectionState,
   type CreateRoutineInput,
+  canAdministerServer,
   type EventRoutine,
   type EventRoutineTriggerInput,
   isRoutineSchedule,
@@ -15,6 +16,7 @@ import {
   type UpdateRoutineInput,
   type RoutineWebhookTrigger as WebhookTriggerFields,
 } from "@tommy/contracts/ipc";
+import { WEBHOOK_SENDER_SECRET_ROUTES } from "@tommy/contracts/team-protocol/webhook-sender-secret-v1";
 import type { MobileTextKey } from "@tommy/i18n/mobile";
 import {
   type RoutineScheduleDraft,
@@ -37,6 +39,7 @@ import {
   useMobileWorkspaceSelector,
 } from "@/features/workspace/context/mobile-workspace-context";
 import { queryKeys } from "@/features/workspace/model/query-keys";
+import { ignoreResponse } from "@/features/workspace/model/workspace-records";
 import { SheetFormField } from "@/shared/components/sheet-form-field";
 import { SheetSaveAction } from "@/shared/components/sheet-save-action";
 import { haptics } from "@/shared/lib/haptics";
@@ -380,6 +383,14 @@ export function RoutineEditor({
   const eventType = edits.eventType ?? savedEventType;
   const filters = edits.filters ?? filterDrafts(savedFilters);
   const eventsSupported = useMobileWorkspaceSelector((current) => current.canManageEvents(agent.serverId));
+  const senderKeyScope = useMobileWorkspaceSelector((current) => {
+    const server = current.servers.find((item) => item.id === agent.serverId);
+    return current.canUseWebhookSenderKeys(agent.serverId) &&
+      server?.state === "online" &&
+      canAdministerServer(server.role)
+      ? `${server.id}:${server.publicKey}:${server.membershipId}`
+      : null;
+  });
   // Such a host saves a scheduled routine through the event routes, which carry `missedPolicy`.
   const missedRuns = useMobileWorkspaceSelector((current) => current.canManageMissedRuns(agent.serverId));
   const routineResults = useMobileWorkspaceSelector((current) => current.canManageRoutineResults(agent.serverId));
@@ -589,6 +600,21 @@ export function RoutineEditor({
           onEventTypeChange={setEventType}
           onFiltersChange={setFilters}
           onSecretDismiss={() => setSecret(null)}
+          senderKeyScope={
+            senderKeyScope && savedWebhook
+              ? `${senderKeyScope}:${eventOwner.kind}:${eventOwner.id}:${savedWebhook.id}`
+              : undefined
+          }
+          onSetSenderSecret={
+            senderKeyScope && savedWebhook
+              ? (secret) =>
+                  workspace.hostRequest(agent.serverId, WEBHOOK_SENDER_SECRET_ROUTES.routine, ignoreResponse, {
+                    id: savedWebhook.id,
+                    owner: eventOwner,
+                    secret,
+                  })
+              : undefined
+          }
           onRotate={
             webhookRoutine && eventsSupported
               ? () =>

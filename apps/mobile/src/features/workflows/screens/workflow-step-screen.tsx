@@ -17,6 +17,7 @@ import {
 import { SettingsPicker } from "@/features/settings/components/settings-controls";
 import { DiscordOutputFields } from "@/features/workflows/components/workflow-discord-fields";
 import { GitHubOutputFields } from "@/features/workflows/components/workflow-github-fields";
+import { SavedWorkflowIntegration } from "@/features/workflows/components/workflow-saved-integration";
 import { useWorkflowGitHubSupported } from "@/features/workflows/model/use-workflows";
 import { useWorkflowDraft, type WorkflowDraft } from "@/features/workflows/model/workflow-draft";
 import { GITHUB_OUTPUT_DEFAULTS } from "@/features/workflows/model/workflow-github";
@@ -196,6 +197,9 @@ const SHOWN_TARGET_LABEL = {
   channel: "mobile.workflow.output.channel",
   file: "mobile.workflow.output.file",
   discord: "mobile.workflow.output.discord",
+  slack: "mobile.workflow.output.slack",
+  telegram: "mobile.workflow.output.telegram",
+  "chat-channel": "mobile.workflow.output.tommyChannel",
 } as const satisfies Record<string, MobileTextKey>;
 
 /**
@@ -212,7 +216,15 @@ function OutputChoice({ node, draft }: { node: WorkflowNode; draft: WorkflowDraf
   );
   const githubSupported = useWorkflowGitHubSupported(draft.serverId);
   const target = text(node, "target");
-  const shown = target === "channel" || target === "file" || target === "discord" ? target : null;
+  const shown =
+    target === "channel" ||
+    target === "file" ||
+    target === "discord" ||
+    target === "slack" ||
+    target === "telegram" ||
+    target === "chat-channel"
+      ? target
+      : null;
   const notify = shown === null && target !== "github";
   const check = (on: boolean) => (on ? <Check size={18} color={accent} strokeWidth={2} /> : null);
   const choose = (next: "notify" | "github") => {
@@ -231,7 +243,13 @@ function OutputChoice({ node, draft }: { node: WorkflowNode; draft: WorkflowDraf
       title={t("mobile.workflow.step.sendTo")}
       footer={target === "channel" ? t("mobile.workflow.step.channelHint") : undefined}
     >
-      <SettingsRow checked={notify} disclosure={false} trailing={check(notify)} onPress={() => choose("notify")}>
+      <SettingsRow
+        checked={notify}
+        disclosure={false}
+        disabled={!admin && (target === "slack" || target === "telegram" || target === "chat-channel")}
+        trailing={check(notify)}
+        onPress={() => choose("notify")}
+      >
         <Typography.Paragraph>{t("mobile.workflow.output.notify")}</Typography.Paragraph>
       </SettingsRow>
       {(admin && githubSupported) || target === "github" ? (
@@ -364,6 +382,9 @@ export function WorkflowStepScreen() {
           <OutputChoice node={node} draft={draft} />
           {text(node, "target") === "github" ? <GitHubOutputFields node={node} draft={draft} /> : null}
           {text(node, "target") === "discord" ? <DiscordOutputFields node={node} /> : null}
+          {["slack", "telegram", "chat-channel"].includes(text(node, "target")) ? (
+            <SavedWorkflowIntegration node={node} />
+          ) : null}
         </>
       ) : null}
       {outline && (list || node.kind === "condition") ? (

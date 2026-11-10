@@ -136,4 +136,10 @@ export const messages = {
   "sidebar.machine.alertTo": "알림은 {name}에게 전송돼요",
   "sidebar.machine.details": "세부정보 보기",
   "sidebar.machine.dismiss": "다음 알림까지 숨기기",
+  "sidebar.unread.title": "읽지 않음",
+  "sidebar.unread.label": { other: "읽지 않음, 채팅 {count}개" },
+  "sidebar.order.manual": "수동",
+  "sidebar.order.unreadGroup": "읽지 않음을 그룹으로",
+  "sidebar.order.unreadFirst": "폴더에서 읽지 않음 먼저",
+  "sidebar.order.title": "채팅 정렬",
 } as const satisfies PartialTranslation<typeof source>;

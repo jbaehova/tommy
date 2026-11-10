@@ -1,4 +1,5 @@
 import { canAdministerServer, type RoutineSchedule, type WorkflowTriggerType } from "@tommy/contracts/ipc";
+import { WEBHOOK_SENDER_SECRET_ROUTES } from "@tommy/contracts/team-protocol/webhook-sender-secret-v1";
 import type { MobileTextKey } from "@tommy/i18n/mobile";
 import {
   type RoutineScheduleDraft,
@@ -16,6 +17,7 @@ import { Alert } from "react-native";
 import { useCSSVariable } from "uniwind";
 import { RoutineScheduleFields } from "@/features/agents/components/routine-schedule-fields";
 import { RoutineTriggerPicker } from "@/features/agents/components/routine-trigger-picker";
+import { RoutineWebhookSenderKey } from "@/features/agents/components/routine-webhook-sender-key";
 import {
   SettingsContent,
   SettingsNote,
@@ -24,6 +26,7 @@ import {
 } from "@/features/settings/components/settings-content";
 import { DiscordTriggerFields } from "@/features/workflows/components/workflow-discord-fields";
 import { GitHubTriggerFields } from "@/features/workflows/components/workflow-github-fields";
+import { SavedWorkflowIntegration } from "@/features/workflows/components/workflow-saved-integration";
 import { useWorkflowDetail, useWorkflowGitHubSupported } from "@/features/workflows/model/use-workflows";
 import { useWorkflowDraft } from "@/features/workflows/model/workflow-draft";
 import { GITHUB_TRIGGER_DEFAULTS } from "@/features/workflows/model/workflow-github";
@@ -32,6 +35,7 @@ import {
   useMobileWorkspaceActions,
   useMobileWorkspaceSelector,
 } from "@/features/workspace/context/mobile-workspace-context";
+import { ignoreResponse } from "@/features/workspace/model/workspace-records";
 import { haptics } from "@/shared/lib/haptics";
 import { currentText, useText } from "@/shared/lib/text";
 
@@ -79,7 +83,16 @@ export function WorkflowTriggerScreen() {
     canAdministerServer(current.servers.find((server) => server.id === draft?.serverId)?.role),
   );
   const githubSupported = useWorkflowGitHubSupported(draft?.serverId ?? "");
-  const { rotateWorkflowWebhookSecret } = useMobileWorkspaceActions();
+  const senderKeyScope = useMobileWorkspaceSelector((current) => {
+    const server = current.servers.find((item) => item.id === draft?.serverId);
+    return server &&
+      current.canUseWebhookSenderKeys(server.id) &&
+      server.state === "online" &&
+      canAdministerServer(server.role)
+      ? `${server.id}:${server.publicKey}:${server.membershipId}`
+      : null;
+  });
+  const { rotateWorkflowWebhookSecret, hostRequest } = useMobileWorkspaceActions();
   const [schedule, setScheduleDraft] = useState<RoutineScheduleDraft>(() =>
     routineScheduleToDraft(node?.schedule ?? NEW_SCHEDULE),
   );
@@ -145,6 +158,7 @@ export function WorkflowTriggerScreen() {
   };
 
   const webhookSaved = Boolean(draft.workflowId) && savedTrigger?.type === "webhook";
+  const workflowId = draft.workflowId;
   const webhookNote = !webhookSaved
     ? t("mobile.workflow.webhook.saveFirst")
     : admin
@@ -171,6 +185,19 @@ export function WorkflowTriggerScreen() {
             </Typography.Paragraph>
           </SettingsRow>
         ) : null}
+        {admin && editable && webhookSaved && senderKeyScope && workflowId ? (
+          <RoutineWebhookSenderKey
+            key={`${senderKeyScope}:${workflowId}:${node.id}`}
+            scopeKey={`${senderKeyScope}:${workflowId}:${node.id}`}
+            onSave={(secret) =>
+              hostRequest(draft.serverId, WEBHOOK_SENDER_SECRET_ROUTES.workflow, ignoreResponse, {
+                workflowId,
+                nodeId: node.id,
+                secret,
+              })
+            }
+          />
+        ) : null}
       </SettingsSection>
     ) : (
       <SettingsNote>{webhookNote}</SettingsNote>
@@ -186,6 +213,24 @@ export function WorkflowTriggerScreen() {
           ...(type === "message" ? [MESSAGE_CHOICE] : []),
           // Only the computer that runs Tommy has the Discord servers.
           ...(type === "discord" ? [DISCORD_CHOICE] : []),
+          ...(type === "slack"
+            ? [
+                {
+                  type: "slack" as const,
+                  title: "mobile.workflow.trigger.slack" as const,
+                  description: "mobile.workflow.trigger.slackHint" as const,
+                },
+              ]
+            : []),
+          ...(type === "telegram"
+            ? [
+                {
+                  type: "telegram" as const,
+                  title: "mobile.workflow.trigger.telegram" as const,
+                  description: "mobile.workflow.trigger.telegramHint" as const,
+                },
+              ]
+            : []),
         ].map((choice) => (
           <SettingsRow
             key={choice.type}
@@ -196,7 +241,14 @@ export function WorkflowTriggerScreen() {
               !editable ||
               choice.type === "message" ||
               choice.type === "discord" ||
-              (!admin && (choice.type === "github" || type === "github" || type === "discord"))
+              choice.type === "slack" ||
+              choice.type === "telegram" ||
+              (!admin &&
+                (choice.type === "github" ||
+                  type === "github" ||
+                  type === "discord" ||
+                  type === "slack" ||
+                  type === "telegram"))
             }
             supportingText={t(choice.description)}
             trailing={choice.type === type ? <Check size={18} color={accent} strokeWidth={2} /> : null}
@@ -233,6 +285,7 @@ export function WorkflowTriggerScreen() {
       {type === "webhook" ? webhookSection : null}
       {type === "github" ? <GitHubTriggerFields node={node} draft={draft} /> : null}
       {type === "discord" ? <DiscordTriggerFields node={node} /> : null}
+      {type === "slack" || type === "telegram" ? <SavedWorkflowIntegration node={node} /> : null}
     </SettingsContent>
   );
 }

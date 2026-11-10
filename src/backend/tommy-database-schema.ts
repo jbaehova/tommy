@@ -7,14 +7,21 @@ import { createTommyLogger, toLogValue } from "@tommy/logging";
 import { AGENT_MEMORY_SELECTION_SCHEMA_SQL, migrateAgentMemorySelection } from "./agent-memory-selection";
 import { AGENT_TASK_SCHEMA_SQL } from "./agent-tasks/agent-task-schema";
 import {
+  AGENT_ROUTINE_THREAD_MIGRATION_SQL,
+  ROUTINE_RUN_PLACE_COLUMN_SQL,
+  ROUTINE_RUN_PLACE_MIGRATION_SQL,
+} from "./agent-threads/agent-routine-thread-schema";
+import {
   AGENT_THREAD_MIGRATION_SQL,
   AGENT_THREAD_SCHEMA_SQL,
   V48_AGENT_THREAD_BRANCH_COLUMNS_SQL,
 } from "./agent-threads/agent-thread-schema";
 import { AGENT_WAIT_SCHEMA_SQL } from "./agent-waits/agent-wait-schema";
 import { BROWSER_PROFILE_SCHEMA_SQL } from "./browser-profiles/browser-profile-schema";
+import { BROWSER_PROFILE_PROXY_SCHEMA_SQL } from "./browser-profiles/browser-proxy-schema";
 import { CHANNEL_SCHEMA_SQL, CHANNEL_SETTINGS_SCHEMA_SQL } from "./channel-schema";
 import { AGENT_SKILL_LOADS_SCHEMA_SQL } from "./database/agent-skill-loads-schema";
+import { DELETED_THREAD_MESSAGES_SCHEMA_SQL } from "./database/deleted-thread-messages-schema";
 import { PROVIDER_HISTORY_SCHEMA_SQL } from "./database/provider-history-schema";
 import { MCP_SERVERS_SCHEMA_SQL } from "./mcp-schema";
 import {
@@ -24,12 +31,18 @@ import {
 } from "./messaging/messaging-schema";
 import { ROUTINE_FLOW_SCHEMA_SQL } from "./routine-flows/routine-flow-schema";
 import { ROUTINE_RESULT_SCHEMA_SQL } from "./routine-results/routine-result-schema";
-import { addDiscordWorkflows, V50_WORKFLOW_RUN_SOURCE_SQL } from "./workflows/workflow-discord-schema";
+import { addDiscordWorkflows } from "./workflows/workflow-discord-schema";
 import {
   addGitHubWorkflows,
   V46_WORKFLOW_RUN_SOURCE_SQL,
   WORKFLOW_GITHUB_SCHEMA_SQL,
 } from "./workflows/workflow-github-schema";
+import {
+  HOST_WORKFLOW_OUTPUT_CONNECTION_COLUMN_SQL,
+  HOST_WORKFLOW_OUTPUT_MIGRATION_SQL,
+  LEGACY_WORKFLOW_OUTPUT_CONNECTION_COLUMN_SQL,
+} from "./workflows/workflow-host-output-schema";
+import { addMessagingWorkflows, MESSAGING_WORKFLOW_RUN_SOURCE_SQL } from "./workflows/workflow-messaging-schema";
 import { WORKFLOW_SCHEMA_SQL } from "./workflows/workflow-schema";
 
 const BASELINE_SCHEMA_VERSION = 8;
@@ -581,7 +594,7 @@ const LATEST_SCHEMA_SQL =
         V28_PROVIDER_SESSIONS_COLUMN_SQL,
       ),
       BASELINE_AGENT_ROUTINES_END_SQL,
-      withRoutinePolicies(BASELINE_AGENT_ROUTINES_END_SQL),
+      withRoutineRunPlace(withRoutinePolicies(BASELINE_AGENT_ROUTINES_END_SQL)),
     ),
     BASELINE_ROUTINE_RUNS_END_SQL,
     withRunAddedColumns(BASELINE_ROUTINE_RUNS_END_SQL),
@@ -613,10 +626,25 @@ const LATEST_SCHEMA_SQL =
   V43_THREAD_EVENT_TYPE_INDEX_SQL +
   MESSAGING_ALLOWED_ROLES_SCHEMA_SQL +
   BROWSER_PROFILE_SCHEMA_SQL +
-  substituteOnce(WORKFLOW_SCHEMA_SQL, V46_WORKFLOW_RUN_SOURCE_SQL, V50_WORKFLOW_RUN_SOURCE_SQL) +
+  BROWSER_PROFILE_PROXY_SCHEMA_SQL +
+  substituteOnce(
+    substituteOnce(WORKFLOW_SCHEMA_SQL, V46_WORKFLOW_RUN_SOURCE_SQL, MESSAGING_WORKFLOW_RUN_SOURCE_SQL),
+    LEGACY_WORKFLOW_OUTPUT_CONNECTION_COLUMN_SQL,
+    HOST_WORKFLOW_OUTPUT_CONNECTION_COLUMN_SQL,
+  ) +
   AGENT_THREAD_SCHEMA_SQL +
   WORKFLOW_GITHUB_SCHEMA_SQL +
-  AGENT_SKILL_LOADS_SCHEMA_SQL;
+  AGENT_SKILL_LOADS_SCHEMA_SQL +
+  DELETED_THREAD_MESSAGES_SCHEMA_SQL;
+
+/** Latest agent routine tail only. Channel routines retain their shipped run place. */
+function withRoutineRunPlace(tableEnd: string): string {
+  return substituteOnce(
+    tableEnd,
+    `${V33_ROUTINE_MISSED_POLICY_COLUMN_SQL}\n`,
+    `${V33_ROUTINE_MISSED_POLICY_COLUMN_SQL},\n    ${ROUTINE_RUN_PLACE_COLUMN_SQL}\n`,
+  );
+}
 
 /** The end of the thread message table with the migration 40 columns before its PRIMARY KEY constraint. */
 function withThreadMessageOrderColumns(tableEnd: string): string {
@@ -918,6 +946,38 @@ const MIGRATIONS: readonly TommyMigration[] = [
     // Renames rows only, as migration 21 did, so no foreign-key pause, no vacuum, and nothing to
     // mirror in the latest schema: a new database has no rows to rename.
     up: freeAgentDesktopServerName,
+  },
+  {
+    version: 53,
+    // Adds a nullable routine link and a partial unique index. Existing side threads keep their history.
+    up: (db) => db.exec(AGENT_ROUTINE_THREAD_MIGRATION_SQL),
+  },
+  {
+    version: 54,
+    // Adds the run place without rebuilding routines. Every saved routine continues in its chat.
+    up: (db) => db.exec(ROUTINE_RUN_PLACE_MIGRATION_SQL),
+  },
+  {
+    version: 55,
+    // Optional host proxy connections start empty. No browser profile or cookie data changes.
+    up: (db) => db.exec(BROWSER_PROFILE_PROXY_SCHEMA_SQL),
+  },
+  {
+    version: 56,
+    // Rebuilds only the run source CHECK, retaining every run and dependent row.
+    disableForeignKeys: true,
+    up: addMessagingWorkflows,
+  },
+  {
+    version: 57,
+    // Tombstones start empty. No existing message, provider session or attachment is removed.
+    up: (db) => db.exec(DELETED_THREAD_MESSAGES_SCHEMA_SQL),
+  },
+  {
+    version: 58,
+    // Host-configured connectors have no legacy messaging row. Keep every delivery and its step FK.
+    disableForeignKeys: true,
+    up: (db) => db.exec(HOST_WORKFLOW_OUTPUT_MIGRATION_SQL),
   },
 ];
 

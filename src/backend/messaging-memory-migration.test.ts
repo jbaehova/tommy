@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+import { type MigrationFixtureRows, withImprovementSchema } from "./migration-fixture-rows";
 import { migrateTommyDatabase } from "./tommy-database-schema";
 
 // Failure modes: the upgrade changes or loses a row of any table; a failed upgrade leaves the table
@@ -44,7 +45,7 @@ function seed(db: DatabaseSync, version: number): void {
 }
 
 /** Every row of every table, by table name. */
-function contents(db: DatabaseSync): Record<string, unknown[]> {
+function contents(db: DatabaseSync): MigrationFixtureRows {
   const tables = db
     .prepare(
       `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'
@@ -76,7 +77,7 @@ describe("messaging memory migration", () => {
       const before = contents(db);
       migrateTommyDatabase(db);
       expect(contents(db)).toEqual({
-        ...before,
+        ...withImprovementSchema(before),
         projection_messaging_memories: [],
         routine_result_deliveries: [],
         routine_result_destinations: [],
@@ -100,7 +101,7 @@ describe("messaging memory migration", () => {
         agent_usage_skill_loads: [],
         workflows: [],
       });
-      expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 52 });
+      expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 58 });
       expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
       expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       expect(db.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
@@ -120,7 +121,7 @@ describe("messaging memory migration", () => {
     db.exec("DROP TRIGGER fail_marker");
     migrateTommyDatabase(db);
     expect(contents(db)).toEqual({
-      ...before,
+      ...withImprovementSchema(before),
       projection_messaging_memories: [],
       routine_result_deliveries: [],
       routine_result_destinations: [],
@@ -149,9 +150,9 @@ describe("messaging memory migration", () => {
   it("rejects newer and incomplete migration histories before it creates the table", () => {
     const db = databaseAtWithSeed(35);
     const before = contents(db);
-    db.exec("INSERT INTO schema_migrations VALUES(53,'now')");
+    db.exec("INSERT INTO schema_migrations VALUES(59,'now')");
     expect(() => migrateTommyDatabase(db)).toThrow("newer than this application supports");
-    db.exec("DELETE FROM schema_migrations WHERE version=53; DELETE FROM schema_migrations WHERE version=20");
+    db.exec("DELETE FROM schema_migrations WHERE version=59; DELETE FROM schema_migrations WHERE version=20");
     expect(() => migrateTommyDatabase(db)).toThrow("missing version 20");
     expect(contents(db)).toEqual(before);
     expect(memoryTables(db)).toEqual([]);

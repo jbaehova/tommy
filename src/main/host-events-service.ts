@@ -39,7 +39,12 @@ import {
   WebhookRouteConflict,
 } from "./host-events-api";
 import type { SecretCipher } from "./provider-credential-store";
-import { signWebhookBody, verifyWebhookSignature } from "./webhook-security";
+import {
+  isStandardWebhookSecret,
+  signWebhookBody,
+  verifyStandardWebhookSignature,
+  verifyWebhookSignature,
+} from "./webhook-security";
 
 const logger = createTommyLogger("host-events");
 const DEFAULT_ACTIVITY_LIMIT = 50;
@@ -49,6 +54,8 @@ const TEST_EVENT_TYPE = "tommy.test";
 
 export interface HostWebhookRelay {
   connected(): boolean;
+  /** False only when this host has explicitly disabled public routes. */
+  configured?(): boolean;
   /** Holds the inbound relay connection open while at least one route exists. */
   setEnabled(enabled: boolean): void;
   /** Pauses or refreshes the relay when the signed-in account changes. */
@@ -67,7 +74,8 @@ interface HostWorkflowWebhooks {
 }
 
 export interface HostEventsServiceOptions {
-  routines: RoutineRecords;
+  /** Only the public owner-neutral operations cross into this service. */
+  routines: Pick<RoutineRecords, keyof RoutineRecords>;
   workflows?: HostWorkflowWebhooks;
   cipher: SecretCipher;
   relay: HostWebhookRelay;
@@ -154,7 +162,7 @@ interface DecodedWebhookBody {
   data: EventJsonValue;
 }
 
-function decodeWebhookBody(body: Uint8Array): DecodedWebhookBody | null {
+function decodeWebhookBody(body: Uint8Array, standard = false): DecodedWebhookBody | null {
   let value: unknown;
   try {
     value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
@@ -165,7 +173,8 @@ function decodeWebhookBody(body: Uint8Array): DecodedWebhookBody | null {
   if (value.type.length < 1 || value.type.length > WEBHOOK_EVENT_TYPE_MAX_LENGTH) return null;
   if (value.occurredAt !== undefined && (!isString(value.occurredAt) || Number.isNaN(Date.parse(value.occurredAt))))
     return null;
-  const data = value.data ?? null;
+  // Standard Webhooks carries the sender's complete event. Tommy's released envelope keeps `data`.
+  const data = standard ? value : (value.data ?? null);
   if (!isEventJsonValue(data)) return null;
   return { type: value.type, occurredAt: value.occurredAt ?? null, data };
 }
@@ -181,6 +190,8 @@ export interface WebhookIngressDelivery {
   timestamp: string;
   signature: string;
   body: Uint8Array;
+  /** Absent for the released Tommy envelope and signature. */
+  format?: "standard";
 }
 
 export class HostEventsService implements HostEventsApi {
@@ -227,6 +238,37 @@ export class HostEventsService implements HostEventsApi {
   readonly deleteRoutine = Effect.fn("HostEvents.deleteRoutine")(
     function* (this: HostEventsService, input: EventRoutineRef) {
       yield* toHostEventsFailure(this.#options.routines.delete(input.owner, input.id));
+    },
+    (operation) => this.#writes.withPermit(operation),
+  ).bind(this);
+
+  /** Uses the sender's Standard Webhooks key. It remains encrypted in the existing route record. */
+  readonly setRoutineSenderSecret = Effect.fn("HostEvents.setRoutineSenderSecret")(
+    function* (this: HostEventsService, input: EventRoutineRef & { secret: string }) {
+      if (!isStandardWebhookSecret(input.secret))
+        return yield* eventFailure(sourceText("error.backend.webhookSettingsInvalid"));
+      const routine = yield* this.#requireRoutine(input);
+      if (routine.trigger.kind !== "webhook")
+        return yield* eventFailure(sourceText("error.backend.webhookSettingsInvalid"));
+      const encrypted = yield* this.#encrypt(input.secret);
+      yield* eventStep(() => this.#options.routines.routes.rotateSecret(input.owner, input.id, encrypted));
+    },
+    (operation) => this.#writes.withPermit(operation),
+  ).bind(this);
+
+  readonly setWorkflowSenderSecret = Effect.fn("HostEvents.setWorkflowSenderSecret")(
+    function* (this: HostEventsService, input: WorkflowTriggerInput & { secret: string }) {
+      if (!isStandardWebhookSecret(input.secret))
+        return yield* eventFailure(sourceText("error.backend.webhookSettingsInvalid"));
+      const routes = this.#options.routines.routes;
+      const known = yield* eventStep(() => routes.hasWorkflowRoute(input.workflowId, input.nodeId));
+      if (!known && (yield* eventStep(() => routes.list())).length >= WEBHOOK_ROUTES_LIMIT)
+        return yield* eventFailure(sourceText("error.backend.webhookRouteLimit", { limit: WEBHOOK_ROUTES_LIMIT }));
+      const encrypted = yield* this.#encrypt(input.secret);
+      const written = yield* eventStep(() => routes.rotateWorkflowSecret(input.workflowId, input.nodeId, encrypted));
+      if (!written) return yield* eventFailure(sourceText("error.workflow.webhookMissing"));
+      yield* this.syncRoutes({ all: false });
+      this.#options.workflows?.changed(input.workflowId);
     },
     (operation) => this.#writes.withPermit(operation),
   ).bind(this);
@@ -381,6 +423,17 @@ export class HostEventsService implements HostEventsApi {
         }
       }
       const current = yield* eventStep(() => routes.list());
+      if (relay.configured?.() === false) {
+        for (const route of current) {
+          if (!isCurrent()) return true;
+          if (route.url === null) continue;
+          yield* eventStep(() => routes.setUrl(route.routeId, null));
+          if (route.owner.kind === "workflow") this.#options.workflows?.changed(route.owner.id);
+          else this.#options.routines.changed(route.owner);
+        }
+        relay.setEnabled(false);
+        return true;
+      }
       const updatedOwners = new Map<string, WebhookRouteOwner>();
       for (const route of current) {
         if (!isCurrent()) return true;
@@ -472,10 +525,14 @@ export class HostEventsService implements HostEventsApi {
       return { status: 503, received: null };
     }
     const authenticated = yield* Effect.result(
-      eventStep(() => verifyWebhookSignature(secret.success, input, input.signature)),
+      eventStep(() =>
+        input.format === "standard"
+          ? verifyStandardWebhookSignature(secret.success, input, input.signature)
+          : verifyWebhookSignature(secret.success, input, input.signature),
+      ),
     );
     if (authenticated._tag === "Failure") return { status: 401, received: null };
-    const body = decodeWebhookBody(input.body);
+    const body = decodeWebhookBody(input.body, input.format === "standard");
     if (!body) return { status: 400, received: null };
     const receivedAt = new Date().toISOString();
     const event = {
@@ -531,6 +588,7 @@ export class HostEventsService implements HostEventsApi {
           trigger: recordTrigger,
           ...(input.limitPolicy === undefined ? {} : { limitPolicy: input.limitPolicy }),
           ...(input.missedPolicy === undefined ? {} : { missedPolicy: input.missedPolicy }),
+          ...(input.runIn === undefined ? {} : { runIn: input.runIn }),
         }),
       );
       return { saved, secret };

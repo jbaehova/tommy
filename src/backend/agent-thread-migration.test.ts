@@ -49,6 +49,9 @@ function seedTasks(db: DatabaseSync): void {
 
 // Migration 49 adds the GitHub workflow tables, empty.
 const EMPTY_GITHUB_TABLES = {
+  browser_profile_proxies: [],
+  projection_deleted_thread_messages: [],
+  projection_deleted_provider_history_sources: [],
   workflow_github_actions: [],
   workflow_github_deliveries: [],
   workflow_github_runs: [],
@@ -69,6 +72,7 @@ const THREADS = [
     updated_at: "2026-10-02T09:00:00.000Z",
     archived_at: "2026-10-03T09:00:00.000Z",
     last_event_sequence: 7,
+    routine_id: null,
     branch_source_thread_id: null,
     branch_source_message_id: null,
     branch_through_message_id: null,
@@ -86,6 +90,7 @@ const THREADS = [
     updated_at: "2026-10-02T08:00:00.000Z",
     archived_at: null,
     last_event_sequence: 4,
+    routine_id: null,
     branch_source_thread_id: null,
     branch_source_message_id: null,
     branch_through_message_id: null,
@@ -131,7 +136,7 @@ function withoutTasks(rows: Record<string, unknown[]>): Record<string, unknown[]
 }
 
 function expectHealthy(db: DatabaseSync): void {
-  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 52 });
+  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 58 });
   expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
   expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   expect(db.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
@@ -169,6 +174,7 @@ describe("agent thread migration", () => {
       expect(agentTables(db)).toEqual([
         { type: "index", name: "agent_threads_agent" },
         { type: "index", name: "agent_threads_open" },
+        { type: "index", name: "agent_threads_routine" },
         { type: "table", name: "projection_agent_threads" },
       ]);
       expectHealthy(db);
@@ -237,9 +243,9 @@ describe("agent thread migration", () => {
     seedThreads(db);
     seedTasks(db);
     const before = contents(db);
-    db.exec("INSERT INTO schema_migrations VALUES(53,'now')");
+    db.exec("INSERT INTO schema_migrations VALUES(59,'now')");
     expect(() => migrateTommyDatabase(db)).toThrow("newer than this application supports");
-    db.exec("DELETE FROM schema_migrations WHERE version=53; DELETE FROM schema_migrations WHERE version=20");
+    db.exec("DELETE FROM schema_migrations WHERE version=59; DELETE FROM schema_migrations WHERE version=20");
     expect(() => migrateTommyDatabase(db)).toThrow("missing version 20");
     expect(contents(db)).toEqual(before);
   });

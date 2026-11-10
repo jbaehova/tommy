@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+import { withRoutineSchemaColumns } from "./migration-fixture-rows";
 import { migrateTommyDatabase } from "./tommy-database-schema";
 
 // Failure modes: an upgrade loses or changes a routine run, flow link or flow step; a partial migration
@@ -78,7 +79,7 @@ function indexColumns(db: DatabaseSync) {
 }
 
 function expectHealthy(db: DatabaseSync): void {
-  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 52 });
+  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 58 });
   expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
   expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   expect(db.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
@@ -111,7 +112,7 @@ describe("routine flow sweep index migration", () => {
     expect(db.prepare("SELECT version FROM schema_migrations WHERE version = 42").all()).toEqual([]);
     db.exec("DROP TRIGGER fail_marker");
     migrateTommyDatabase(db);
-    expect(contents(db)).toEqual(before);
+    expect(contents(db)).toEqual(withRoutineSchemaColumns(before));
     expect(indexColumns(db)).toEqual(INDEXES);
     expectHealthy(db);
   });
@@ -129,7 +130,7 @@ describe("routine flow sweep index migration", () => {
     expect(contents(db)).toEqual(before);
     db.exec("DROP TABLE routine_flow_steps_updated");
     migrateTommyDatabase(db);
-    expect(contents(db)).toEqual(before);
+    expect(contents(db)).toEqual(withRoutineSchemaColumns(before));
     expect(indexColumns(db)).toEqual(INDEXES);
     expectHealthy(db);
   });
@@ -138,9 +139,9 @@ describe("routine flow sweep index migration", () => {
     const db = databaseAt(41);
     seedRoutineFlow(db, 41);
     const before = contents(db);
-    db.exec("INSERT INTO schema_migrations VALUES(53, 'now')");
+    db.exec("INSERT INTO schema_migrations VALUES(59, 'now')");
     expect(() => migrateTommyDatabase(db)).toThrow("newer than this application supports");
-    db.exec("DELETE FROM schema_migrations WHERE version = 53; DELETE FROM schema_migrations WHERE version = 20");
+    db.exec("DELETE FROM schema_migrations WHERE version = 59; DELETE FROM schema_migrations WHERE version = 20");
     expect(() => migrateTommyDatabase(db)).toThrow("missing version 20");
     expect(contents(db)).toEqual(before);
     expect(indexColumns(db)).toEqual(NO_INDEXES);

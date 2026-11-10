@@ -52,7 +52,6 @@ export const messages = {
     "이 요청이 라우팅 컨텍스트 한도를 넘었어요. 멤버를 선택하거나 더 짧은 요청을 보내세요.",
   "error.backend.channelTaskMemberRequired": "이 작업을 맡을 멤버를 선택하세요.",
   "error.backend.channelTaskStopped": "중지됨. 이 작업을 계속하거나 다시 배정하세요.",
-  "error.backend.channelRoutingUnreadable": "리더가 이 메시지를 배정하지 못했어요. 멤버에게 다시 배정하세요.",
   "error.backend.channelRoutingFailed": "라우팅에 실패했어요. 멤버를 선택하거나 다시 시도해 주세요.",
   "error.backend.channelLeadTimedOut": "채널 리더가 제시간에 답하지 않았어요. 멤버를 선택하거나 다시 시도해 주세요.",
   "error.backend.channelLeadFailed": "채널 리더가 이 메시지를 전달하지 못했어요. 멤버를 선택하거나 다시 시도해 주세요.",
@@ -314,4 +313,16 @@ export const messages = {
     "이 에이전트에는 열린 작업이 {count}개 있어요. 작업 하나를 닫은 후 다른 작업을 시작하거나 여세요.",
   "error.backend.taskRemoteUnsupported": "작업은 이 컴퓨터의 에이전트에서만 사용할 수 있어요.",
   "error.backend.taskStartFailed": "Tommy가 작업을 시작할 수 없었어요. 대신 이 턴에서 작업을 처리하세요.",
+  "error.backend.browserCertificateUntrusted": "이 사이트의 보안 인증서를 신뢰할 수 없어 페이지를 열지 못했어요.",
+  "error.backend.mcpSignInAnswerUnreadable":
+    "로그인 서버가 Tommy가 읽을 수 없는 응답을 보냈어요. 서비스에서 API 키나 토큰을 제공한다면 이 서버의 설정에 추가한 후 다시 연결을 테스트해 주세요.",
+  "error.backend.messageDeleteBusy": "이 메시지는 실행 중인 턴의 일부예요. 턴이 끝나면 삭제하세요.",
+  "error.backend.messageDeleteForbidden": "내가 보낸 메시지만 삭제할 수 있어요.",
+  "error.backend.messageDeleteNotFound": "이 메시지는 채팅에 없어요.",
+
+  "error.backend.browserProxySavedUnreadable": "저장된 브라우저 프록시를 읽을 수 없어요.",
+  "error.backend.browserProxyAddressInvalid": "올바른 브라우저 프로필 프록시 주소를 입력해 주세요.",
+  "error.backend.browserProxyPasswordChanged": "브라우저 프록시가 변경됐어요. 비밀번호를 다시 입력해 주세요.",
+  "error.backend.browserProxyPasswordConflict": "새 프록시 비밀번호를 입력하거나 저장된 비밀번호를 유지해 주세요.",
+  "error.backend.browserProfileInUse": "브라우저 프로필이 사용 중이에요.",
 } as const satisfies PartialTranslation<typeof source>;

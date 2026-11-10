@@ -11,6 +11,11 @@ import {
   requiredNumberColumn,
   requiredStringColumn,
 } from "./database-rows";
+import {
+  deletedProviderHistoryItemFilter,
+  isDeletedProviderHistoryImport,
+  isDeletedProviderHistorySource,
+} from "./deleted-thread-messages";
 
 export interface ProviderHistorySessionInput {
   sessionId: string;
@@ -96,6 +101,11 @@ export class ProviderHistoryStore {
             OR provider_history_imports.provider IS NOT excluded.provider
             OR provider_history_imports.external_session_id IS NOT excluded.external_session_id`,
       ).run(input.sessionId, input.threadId, input.provider, input.externalSessionId, now, now);
+      if (isDeletedProviderHistorySource(db, input)) {
+        db.prepare(
+          "UPDATE provider_history_imports SET state = 'complete', cursor_json = NULL WHERE session_id = ?",
+        ).run(input.sessionId);
+      }
       return this.#requireImport(db, input.sessionId);
     });
   }
@@ -117,6 +127,7 @@ export class ProviderHistoryStore {
     return this.#transaction((db) => {
       const existing = this.#readImport(db, input.sessionId);
       if (!existing) throw new Error(`Unknown provider history session: ${input.sessionId}`);
+      if (isDeletedProviderHistoryImport(db, input.sessionId)) return { ...existing, turnImported: true };
       const existingTurn = databaseRow(
         db
           .prepare(
@@ -178,7 +189,9 @@ export class ProviderHistoryStore {
         `SELECT item_index, item_json FROM provider_history_staging
          WHERE session_id = ? AND turn_id = ? AND item_key = ?`,
       );
+      const isDeletedItem = deletedProviderHistoryItemFilter(db, existing.threadId);
       for (const [itemIndex, item] of input.fragment.items.entries()) {
+        if (isDeletedItem(input.fragment.turnId, item)) continue;
         const provisionalIndex = itemOffset + itemIndex;
         const provisionalKey = item.id ?? `${item.type}:${provisionalIndex}`;
         const previousRow = databaseRow(readItem.get(input.sessionId, input.fragment.turnId, provisionalKey));
@@ -235,6 +248,7 @@ export class ProviderHistoryStore {
     this.#transaction((db) => {
       const current = this.#readImport(db, sessionId);
       if (!current) throw new Error(`Unknown provider history session: ${sessionId}`);
+      if (isDeletedProviderHistoryImport(db, sessionId)) return;
       db.prepare(
         `UPDATE provider_history_imports
          SET cursor_json = ?, state = ?, updated_at = ? WHERE session_id = ?`,

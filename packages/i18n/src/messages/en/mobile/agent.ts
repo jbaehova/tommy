@@ -649,4 +649,24 @@ export const messages = defineMessages("mobile.agent", {
   "mobile.agent.instructionsFile.readFailed": "Could not read the instructions file.",
   "mobile.agent.instructionsFile.loading": "Loading the instructions file…",
   "mobile.agent.instructionsFile.unsupported": "This host cannot edit the instructions file from a remote device.",
+  "mobile.agent.runtime.searchModels": "Search models",
+  "mobile.agent.runtime.noMatches": "No models match your search.",
+  "mobile.agent.speed.label": "Speed",
+  "mobile.agent.speed.standard": "Standard",
+  "mobile.agent.speed.fast": "Fast",
+  "mobile.agent.speed.ultrafast": "Ultrafast",
+  "mobile.agent.speed.footer": "Faster service can use extra allowance or cost more. The provider sets availability.",
+  "mobile.agent.speed.unsupported": "This host does not support this speed setting.",
+
+  "mobile.agent.webhook.senderKey.open": "Use sender key",
+  "mobile.agent.webhook.senderKey.label": "Sender signing key",
+  "mobile.agent.webhook.senderKey.hint":
+    "Paste the Standard Webhooks signing key from the sender. This replaces the current signing key and keeps it on the host.",
+  "mobile.agent.webhook.senderKey.saved": "Sender key saved",
+  "mobile.agent.webhook.senderKey.failed": "Could not save the sender key. Check the key and enter it again.",
+
+  "mobile.agent.fastMode.confirmTitle": "Turn on fast mode?",
+  "mobile.agent.fastMode.confirmDescription":
+    "Claude answers faster at a higher price per token. With a Claude subscription, fast mode uses usage credits even when your plan has usage left.",
+  "mobile.agent.fastMode.confirm": "Turn on",
 });

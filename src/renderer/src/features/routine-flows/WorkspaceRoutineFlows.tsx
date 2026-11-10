@@ -14,6 +14,7 @@ import { useNavigation } from "../../navigation";
 import { useAgentActions } from "../agents/agent-actions";
 import { resolveCreationModel } from "../agents/agent-creation-model";
 import { useAgents } from "../agents/agents-context";
+import { routineWebhookScope } from "../conversation/routine-webhooks-api";
 import { useSetup } from "../onboarding/onboarding-context";
 import { serverCanAdminister, serverSupportsCapability } from "../servers/server-capabilities";
 import { useServers } from "../servers/servers-context";
@@ -88,7 +89,12 @@ export function WorkspaceRoutineFlows() {
     >
       {(id) => (
         <RoutineFlowsCanvas
-          host={desktopRoutineFlowsHost(id, webhooks)}
+          host={desktopRoutineFlowsHost(
+            id,
+            webhooks,
+            () => serverCanAdminister(activeServer(), "webhook-sender-secret-v1"),
+            () => routineWebhookScope(activeServer()),
+          )}
           agent={activeAgent()}
           agents={agentList()}
           newAgentModels={newAgentModels()}

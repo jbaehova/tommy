@@ -29,6 +29,7 @@ import {
   type RemoteBrowserViewSession,
 } from "@/features/browser/model/browser-view-bridge";
 import { supportLog, supportLogUrl } from "@/features/support/model/support-log";
+import { publishLiveVoiceEvent } from "@/features/workspace/model/live-voice-events";
 import { InactiveRequestError } from "@/features/workspace/model/pending-approvals";
 import { referencedError } from "@/features/workspace/model/referenced-error";
 import {
@@ -39,7 +40,8 @@ import {
 import { currentText } from "@/shared/lib/text";
 
 export interface RemoteTeamTransportRef {
-  connect(hostId: string, hostPublicKey: string): Promise<void>;
+  /** True only when the same live direct connection served the previous load. */
+  connect(hostId: string, hostPublicKey: string): Promise<boolean>;
   disconnect(): Promise<void>;
   request<T>(
     method: string,
@@ -80,6 +82,7 @@ export const RemoteTeamTransport = memo(
     latest.current = { props, session };
     const viewsRef = useRef<ReturnType<typeof createBrowserViewBridge> | null>(null);
     const viewListeners = useRef(new Map<string, (event: BrowserViewBridgeEvent) => void>());
+    const connected = useRef<{ hostId: string } | null>(null);
     const actions = useRef<RemoteTeamPeerActions>({
       getDevice: async () => {
         const current = latest.current.session;
@@ -90,6 +93,7 @@ export const RemoteTeamTransport = memo(
         uploadListeners.current.get(commandId)?.(total > 0 ? sent / total : 1),
       onHostStreamData: (data: string | ArrayBuffer) => viewsRef.current?.receive(data),
       onConnectionUpdate: async (update: RemoteTeamConnectionUpdate) => {
+        connected.current = update.state === "online" ? { hostId: update.hostId } : null;
         if (update.state !== "online") viewsRef.current?.disconnect(update.message ?? null);
         await latest.current.props.onConnectionUpdate(update);
       },
@@ -98,6 +102,20 @@ export const RemoteTeamTransport = memo(
           step === "failed" ? "warn" : "info",
           "connection",
           `${hostId} peer ${step}${detail ? `: ${detail}` : ""}`,
+        ),
+      onLiveVoice: async (hostId, event) =>
+        publishLiveVoiceEvent(
+          hostId,
+          event.type === "transcript"
+            ? {
+                type: "live-voice",
+                kind: "transcript",
+                sessionId: event.sessionId,
+                role: event.role,
+                text: event.text,
+                final: event.final,
+              }
+            : { type: "live-voice", kind: "ended", sessionId: event.sessionId, error: event.error },
         ),
       onNetworkRestored: async () => latest.current.props.onNetworkRestored?.(),
       onTeamEvent: async (hostId: string, event: AgentEvent | TeamRealtimeEvent) =>
@@ -170,14 +188,17 @@ export const RemoteTeamTransport = memo(
       () => ({
         connect: async (hostId, hostPublicKey) => {
           hostIdRef.current = hostId;
+          const previous = connected.current;
           const result = await enqueue({ type: "connect", hostId, hostPublicKey });
           if (!result.ok)
             throw referencedError(
               result.error ?? currentText().t("mobile.workspace.error.connectFailed"),
               result.reference,
             );
+          return previous !== null && previous.hostId === hostId && connected.current === previous;
         },
         disconnect: async () => {
+          connected.current = null;
           const result = await enqueue({ type: "disconnect" });
           if (!result.ok)
             throw referencedError(

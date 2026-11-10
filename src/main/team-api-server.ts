@@ -18,6 +18,7 @@ import {
   type TeamPresenceSnapshot,
   type TeamRealtimeEvent,
 } from "@tommy/contracts/ipc";
+import type { VoiceLiveEvent } from "@tommy/contracts/ipc-voice";
 import { TEAM_API_ROUTES } from "@tommy/contracts/team-api-routes";
 import { AGENT_ACCESS_CAPABILITY } from "@tommy/contracts/team-protocol/agent-access-v1";
 import { AGENT_BACKUP_MODELS_CAPABILITY } from "@tommy/contracts/team-protocol/agent-backup-models-v1";
@@ -29,6 +30,7 @@ import { AGENT_NEW_CHAT_CAPABILITY } from "@tommy/contracts/team-protocol/agent-
 import { AGENT_NOTIFICATION_LEVELS_CAPABILITY } from "@tommy/contracts/team-protocol/agent-notification-levels-v1";
 import { AGENT_PLAN_CARD_CAPABILITY } from "@tommy/contracts/team-protocol/agent-plan-card-v1";
 import { AGENT_SESSION_SETTINGS_CAPABILITY } from "@tommy/contracts/team-protocol/agent-session-settings-v1";
+import { AGENT_SPEED_CAPABILITY } from "@tommy/contracts/team-protocol/agent-speed-v1";
 import { AGENT_TASK_LIMIT_CAPABILITY } from "@tommy/contracts/team-protocol/agent-task-limit-v1";
 import { AGENT_TASK_UI_BLOCKS_CAPABILITY } from "@tommy/contracts/team-protocol/agent-task-ui-blocks-v1";
 import { AGENT_TASKS_CAPABILITY } from "@tommy/contracts/team-protocol/agent-tasks-v1";
@@ -37,10 +39,12 @@ import { AGENT_THREAD_FILES_CAPABILITY } from "@tommy/contracts/team-protocol/ag
 import { AGENT_THREAD_READS_CAPABILITY } from "@tommy/contracts/team-protocol/agent-thread-reads-v1";
 import { AGENT_THREADS_CAPABILITY } from "@tommy/contracts/team-protocol/agent-threads-v1";
 import { BROWSER_PAGE_STATE_CAPABILITY } from "@tommy/contracts/team-protocol/browser-page-state-v1";
+import { BROWSER_PROFILE_PROXY_CAPABILITY } from "@tommy/contracts/team-protocol/browser-profile-proxy-v1";
 import { BROWSER_PROFILES_EVENTS_CAPABILITY } from "@tommy/contracts/team-protocol/browser-profiles-events-v1";
 import { BROWSER_PROFILES_CAPABILITY } from "@tommy/contracts/team-protocol/browser-profiles-v1";
 import { BROWSER_SECRET_LOGIN_CAPABILITY } from "@tommy/contracts/team-protocol/browser-secret-login-v1";
 import { BROWSER_USER_CONTROL_CAPABILITY } from "@tommy/contracts/team-protocol/browser-user-control-v1";
+import { CHAT_HISTORY_CAPABILITY } from "@tommy/contracts/team-protocol/chat-history-v1";
 import { CLAUDE_API_KEY_CAPABILITY } from "@tommy/contracts/team-protocol/claude-api-key-v1";
 import {
   AGENT_ADMIN_CAPABILITY,
@@ -118,20 +122,29 @@ import {
   type HostRestartState,
 } from "@tommy/contracts/team-protocol/host-update-v1";
 import { teamHttpCodec } from "@tommy/contracts/team-protocol/http-codecs";
+import { LIVE_VOICE_CAPABILITY, liveVoiceEvent } from "@tommy/contracts/team-protocol/live-voice-v1";
 import {
   MACHINE_RESOURCES_CAPABILITY,
   type MachineAlertEvent,
 } from "@tommy/contracts/team-protocol/machine-resources-v1";
+import { MESSAGE_DELETE_CAPABILITY } from "@tommy/contracts/team-protocol/message-delete-v1";
 import { type OptionalTeamEvent, optionalTeamEvent } from "@tommy/contracts/team-protocol/optional-events";
+import { PROVIDER_ACCOUNT_MODELS_CAPABILITY } from "@tommy/contracts/team-protocol/provider-account-models-v1";
 import { PROVIDERS_V8_CAPABILITY } from "@tommy/contracts/team-protocol/providers-v8";
 import {
   TEAM_REASONING_EFFORTS_CAPABILITY,
   withLegacyReasoningEfforts,
 } from "@tommy/contracts/team-protocol/reasoning-efforts-v1";
+import {
+  ROUTINE_RUN_PLACE_CAPABILITY,
+  routineThreadTurnEvent,
+  withRoutineTaskReferences,
+} from "@tommy/contracts/team-protocol/routine-run-place-v1";
 import { SERVER_AUDIT_CAPABILITY } from "@tommy/contracts/team-protocol/server-audit-v1";
 import { teamSideRouteCodec } from "@tommy/contracts/team-protocol/side-routes";
 import { SIDEBAR_FOLDERS_CAPABILITY, sidebarFoldersEvent } from "@tommy/contracts/team-protocol/sidebar-folders-v1";
 import { SIDEBAR_PINS_CAPABILITY } from "@tommy/contracts/team-protocol/sidebar-pins-v1";
+import { SKILL_LEARNING_CAPABILITY, withSkillSuggestionNames } from "@tommy/contracts/team-protocol/skill-learning-v1";
 import { STORAGE_DISK_CAPABILITY } from "@tommy/contracts/team-protocol/storage-disk-v1";
 import {
   TEAM_UI_BLOCK_AUTO_ANSWER_CAPABILITY,
@@ -156,6 +169,9 @@ import {
 import { TEAM_OPEN_PROVIDERS_CAPABILITY } from "@tommy/contracts/team-protocol/v8";
 import { encodeTeamProtocolV8BaseCurrentEvent } from "@tommy/contracts/team-protocol/v8-base-adapter";
 import { TEAM_PROTOCOL_V9 } from "@tommy/contracts/team-protocol/v9";
+import { VAULT_V3_CAPABILITY } from "@tommy/contracts/team-protocol/vault-v3";
+import { WEBHOOK_SENDER_SECRET_CAPABILITY } from "@tommy/contracts/team-protocol/webhook-sender-secret-v1";
+import { WORKFLOWS_EXTENSIONS_CAPABILITY } from "@tommy/contracts/team-protocol/workflows-extensions-v1";
 import { isFixedSourceText, sourceText } from "@tommy/i18n/source";
 import { createTommyLogger, toLogValue } from "@tommy/logging";
 import { Deferred, Effect, Exit, Scope } from "effect";
@@ -172,6 +188,7 @@ import { RemoteWorkflowError, remoteCall, toRemoteWorkflowError } from "./remote
 import { isClientUse } from "./team-api/client-use";
 import type { TeamApiOptions, TeamApiSidebarLayout } from "./team-api/dependencies";
 import { HttpError } from "./team-api/http-error";
+import { TeamLiveVoiceAccess } from "./team-api/live-voice-access";
 import {
   hiddenAgentView,
   hiddenProviderAgentIds,
@@ -205,6 +222,7 @@ import { routeAgentMemoryPage } from "./team-api/route-agent-memories";
 import { routeAgentMemoryLimit } from "./team-api/route-agent-memory-limit";
 import { routeAgentNotificationLevels } from "./team-api/route-agent-notification-levels";
 import { routeAgentSessionSettings } from "./team-api/route-agent-session-settings";
+import { routeAgentSpeed } from "./team-api/route-agent-speed";
 import { routeAgentTasks } from "./team-api/route-agent-tasks";
 import {
   routeAgentThreadBranches,
@@ -214,6 +232,7 @@ import {
 } from "./team-api/route-agent-threads";
 import { routeAgents } from "./team-api/route-agents";
 import { routeBrowser } from "./team-api/route-browser";
+import { routeBrowserProfileProxy } from "./team-api/route-browser-profile-proxy";
 import { routeBrowserProfiles } from "./team-api/route-browser-profiles";
 import { routeChannels } from "./team-api/route-channels";
 import { routeContextCompact } from "./team-api/route-context-compact";
@@ -229,12 +248,15 @@ import { routeHostKeyRotation } from "./team-api/route-host-key-rotation";
 import { routeHostTimezone } from "./team-api/route-host-timezone";
 import { routeHostUpdate } from "./team-api/route-host-update";
 import { routeInstanceTransfer } from "./team-api/route-instance-transfer";
+import { routeLiveVoice, teamLiveVoiceOwner } from "./team-api/route-live-voice";
 import { routeMachineResources } from "./team-api/route-machine-resources";
 import { routeMcpServers } from "./team-api/route-mcp";
 import { routeMcpSignIn } from "./team-api/route-mcp-sign-in";
 import { routeMcpSignInApp } from "./team-api/route-mcp-sign-in-app";
 import { routeMemoryReview } from "./team-api/route-memory-review";
+import { routeMessageDeletion } from "./team-api/route-message-deletion";
 import { routePromptCacheTtl } from "./team-api/route-prompt-cache-ttl";
+import { routeProviderAccountModels } from "./team-api/route-provider-account-models";
 import { routeProviderAccounts } from "./team-api/route-provider-accounts";
 import { routeProviderDefault } from "./team-api/route-provider-default";
 import { routeProviderHostSignIn } from "./team-api/route-provider-host-sign-in";
@@ -244,18 +266,21 @@ import { routeProviders } from "./team-api/route-providers";
 import { routePushNotifications } from "./team-api/route-push-notifications";
 import { routeRoutineFlows } from "./team-api/route-routine-flows";
 import { routeRoutineResults } from "./team-api/route-routine-results";
+import { routeRoutineRunPlace } from "./team-api/route-routine-run-place";
 import { routeServerAudit } from "./team-api/route-server-audit";
 import { routeSharedTables } from "./team-api/route-shared-tables";
 import { routeSideQuestion } from "./team-api/route-side-question";
 import { routeSidebarFolders } from "./team-api/route-sidebar-folders";
 import { routeSidebarPins } from "./team-api/route-sidebar-pins";
 import { routeSignInRelay } from "./team-api/route-sign-in-relay";
+import { routeSkillLearning } from "./team-api/route-skill-learning";
 import { routeSkillsAdmin } from "./team-api/route-skills-admin";
 import { routeStorage } from "./team-api/route-storage";
 import { routeTeam } from "./team-api/route-team";
 import { routeVault } from "./team-api/route-vault";
 import { routeVaultImport } from "./team-api/route-vault-import";
 import { routeVoice } from "./team-api/route-voice";
+import { routeWebhookSenderSecret } from "./team-api/route-webhook-sender-secret";
 import { routeWorkflows } from "./team-api/route-workflows";
 import { routeWorkspaceDirectory } from "./team-api/route-workspace-directory";
 import { TeamStoreError } from "./team-store";
@@ -313,6 +338,7 @@ interface TeamProtocolIssue {
 export class TeamApiServer {
   readonly #options: Omit<TeamApiOptions, "sidebarLayout"> & { sidebarLayout: TeamApiSidebarLayout };
   readonly #eventClients = new Map<Ws.WebSocket, EventClientState>();
+  readonly #liveVoice: TeamLiveVoiceAccess | undefined;
   readonly #pendingLegacyConversationReads = new Map<string, PendingLegacyConversationRead>();
   #legacyConversationScope = Scope.makeUnsafe();
   #hostRestart: HostRestartEvent = { type: HOST_RESTART_EVENT, state: "none", version: null };
@@ -360,6 +386,17 @@ export class TeamApiServer {
   constructor(options: TeamApiOptions) {
     this.#options = { ...options, sidebarLayout: options.sidebarLayout ?? unavailableSidebarLayout() };
     this.#now = options.now ?? Date.now;
+    this.#liveVoice =
+      options.liveVoice &&
+      new TeamLiveVoiceAccess(options.liveVoice, (token, agentId) => {
+        const member = this.#options.store.authenticate(token);
+        if (!member || member.disabled) return false;
+        const level = this.agentLevel(member, agentId);
+        return (
+          (level === "chat" || level === "manage") &&
+          this.#options.agents.listAgents().some((agent) => agent.id === agentId)
+        );
+      });
   }
 
   get port(): number | null {
@@ -448,6 +485,7 @@ export class TeamApiServer {
     this.#stopSidebarPinsListener =
       this.#options.sidebarPins?.subscribe((memberId) => this.#sendSidebarPins(memberId)) ?? null;
     this.#heartbeat = setInterval(() => {
+      if (this.#liveVoice) Effect.runFork(this.#liveVoice.stopUnavailable());
       for (const [client, connection] of this.#eventClients) {
         if (!this.#options.store.authenticate(connection.token)) {
           client.close(1008, "Team access was revoked");
@@ -474,6 +512,7 @@ export class TeamApiServer {
     this.#stopNotificationLevelsListener = null;
     this.#stopSidebarPinsListener?.();
     this.#stopSidebarPinsListener = null;
+    if (this.#liveVoice) yield* this.#liveVoice.stopAll();
     yield* Scope.close(this.#legacyConversationScope, Exit.void);
     this.#legacyConversationScope = Scope.makeUnsafe();
     for (const [client, connection] of this.#eventClients) {
@@ -587,6 +626,7 @@ export class TeamApiServer {
   }
 
   refreshPresence(): void {
+    if (this.#liveVoice) Effect.runFork(this.#liveVoice.stopUnavailable());
     for (const [client, connection] of this.#eventClients) {
       if (!this.#options.store.authenticate(connection.token)) {
         client.close(1008, "Team access was revoked");
@@ -812,10 +852,32 @@ export class TeamApiServer {
         return;
       if ((await routeSignInRelay(context, this.#options.mcpServers && this.#options.signInRelay)) === "handled")
         return;
+      if ((await routeWebhookSenderSecret(context, this.#options.webhookSenderSecrets)) === "handled") return;
+      if (
+        (await routeLiveVoice(context, this.#liveVoice?.forSession(context), this.#options.agents, hidden)) ===
+        "handled"
+      )
+        return;
+      if (
+        (await routeMessageDeletion(
+          context,
+          this.#options.messageDeletion,
+          this.#options.agents,
+          this.#options.channels,
+          hidden,
+        )) === "handled"
+      )
+        return;
+      if ((await routeRoutineRunPlace(context, this.#options.agents, this.#options.events, hidden)) === "handled")
+        return;
       if ((await routeVault(context, this.#options.vault)) === "handled") return;
+      if ((await routeBrowserProfileProxy(context, this.#options.browserProfiles)) === "handled") return;
+      if ((await routeSkillLearning(context, this.#options.skillLearning, hidden)) === "handled") return;
+      if ((await routeAgentSpeed(context, this.#options.admin, hidden)) === "handled") return;
       if ((await routeVaultImport(context, this.#options.vault)) === "handled") return;
       if ((await routeProviderHostSignIn(context, this.#options.providerHostSignIns)) === "handled") return;
       if ((await routeProviderAccounts(context, this.#options.providerAccounts)) === "handled") return;
+      if ((await routeProviderAccountModels(context, this.#options.providerAccountModels)) === "handled") return;
       if ((await routeProviderUsageReset(context, this.#options.providerUsageResets)) === "handled") return;
       if ((await routeProviderSignOut(context, this.#options.providerSignOut)) === "handled") return;
       if ((await routeStorage(context, this.#options.storage)) === "handled") return;
@@ -890,7 +952,17 @@ export class TeamApiServer {
       if ((await routeSideQuestion(context, this.#options.agents, hidden)) === "handled") return;
       if ((await routeRoutineFlows(context, this.#options.routineFlows, this.#options.agents, hidden)) === "handled")
         return;
-      if ((await routeWorkflows(context, this.#options.workflows, this.#options.agents, hidden)) === "handled") return;
+      if (
+        (await routeWorkflows(
+          context,
+          this.#options.workflows,
+          this.#options.agents,
+          hidden,
+          this.#options.workflowIntegrations,
+          this.#options.channels,
+        )) === "handled"
+      )
+        return;
       if ((await this.#routeEvents(context)) === "handled") return;
       if ((await routeInstanceTransfer(context, this.#options.instanceTransfer, newAgentHidden)) === "handled") return;
       if ((await routePushNotifications(context, this.#options.pushNotifications)) === "handled") return;
@@ -1010,7 +1082,15 @@ export class TeamApiServer {
       const answered = capabilities.has(TEAM_UI_BLOCK_AUTO_ANSWER_CAPABILITY)
         ? withUiBlockAutoAnswers(encoded, visible)
         : encoded;
-      return capabilities.has(TEAM_UI_BLOCK_VAULT_CAPABILITY) ? withUiBlockVaultRequests(answered, visible) : answered;
+      const withVault = capabilities.has(TEAM_UI_BLOCK_VAULT_CAPABILITY)
+        ? withUiBlockVaultRequests(answered, visible)
+        : answered;
+      const withSkills = capabilities.has(SKILL_LEARNING_CAPABILITY)
+        ? withSkillSuggestionNames(withVault, visible)
+        : withVault;
+      return capabilities.has(ROUTINE_RUN_PLACE_CAPABILITY)
+        ? withRoutineTaskReferences(withSkills, visible)
+        : withSkills;
     }
     return encodeTeamProtocolV1CurrentEvent(visible, options);
   }
@@ -1127,6 +1207,13 @@ export class TeamApiServer {
       }
       const encodingOptions = { preserveSemanticTags: supportsTeamSemanticTags(connection.capabilities) };
       const supportsRuntimeSnapshots = connection.capabilities.has("agent-runtime-snapshots");
+      const deletion = event.type === "conversation-messages-deleted" || event.type === "channel-messages-deleted";
+      if (
+        deletion &&
+        !connection.capabilities.has(MESSAGE_DELETE_CAPABILITY) &&
+        !connection.capabilities.has(CHAT_HISTORY_CAPABILITY)
+      )
+        continue;
       const requiredCapability = eventCapability(event);
       if (requiredCapability && !connection.capabilities.has(requiredCapability)) continue;
       // A task conversation follows the conversation scope too: a desktop asks for it only for its active server.
@@ -1160,37 +1247,45 @@ export class TeamApiServer {
       let optional: OptionalTeamEvent | null;
       try {
         optional =
-          event.type === "turn-completed" && event.quiet && connection.capabilities.has(QUIET_TURN_CAPABILITY)
-            ? {
-                type: "quiet-turn-completed" as const,
-                agentId: event.agentId,
-                threadId: event.threadId,
-                turnId: event.turnId,
-                status: event.status,
-                ...(event.origin === undefined ? {} : { origin: event.origin }),
-              }
-            : event.type === "sidebar-layout-changed" && connection.capabilities.has(SIDEBAR_FOLDERS_CAPABILITY)
-              ? // The layout with the parents. `sidebar-layout-changed` goes through the frozen adapter, which drops them.
-                // The layout leaves out the agents that this peer cannot see, as the read route does.
-                sidebarFoldersEvent({
-                  type: "sidebar-folders-changed",
-                  layout: this.#peerView(event.layout, connection.capabilities, blocked),
-                })
-              : optionalTeamEvent(
-                  event.type === "agent-task-conversation"
-                    ? {
-                        ...event,
-                        snapshot: conversationSnapshotForCapabilities(event.snapshot, connection.capabilities),
-                      }
-                    : event,
-                  { agentTaskUiBlocks: connection.capabilities.has(AGENT_TASK_UI_BLOCKS_CAPABILITY) },
-                );
+          event.type === "routine-thread-turn-completed" && connection.capabilities.has(ROUTINE_RUN_PLACE_CAPABILITY)
+            ? routineThreadTurnEvent(event)
+            : event.type === "turn-completed" && event.quiet && connection.capabilities.has(QUIET_TURN_CAPABILITY)
+              ? {
+                  type: "quiet-turn-completed" as const,
+                  agentId: event.agentId,
+                  threadId: event.threadId,
+                  turnId: event.turnId,
+                  status: event.status,
+                  ...(event.origin === undefined ? {} : { origin: event.origin }),
+                }
+              : event.type === "sidebar-layout-changed" && connection.capabilities.has(SIDEBAR_FOLDERS_CAPABILITY)
+                ? // The layout with the parents. `sidebar-layout-changed` goes through the frozen adapter, which drops them.
+                  // The layout leaves out the agents that this peer cannot see, as the read route does.
+                  sidebarFoldersEvent({
+                    type: "sidebar-folders-changed",
+                    layout: this.#peerView(event.layout, connection.capabilities, blocked),
+                  })
+                : optionalTeamEvent(
+                    event.type === "agent-task-conversation"
+                      ? {
+                          ...event,
+                          snapshot: conversationSnapshotForCapabilities(event.snapshot, connection.capabilities),
+                        }
+                      : event,
+                    { agentTaskUiBlocks: connection.capabilities.has(AGENT_TASK_UI_BLOCKS_CAPABILITY) },
+                  );
       } catch (error) {
         // As for `encodeEvent`: a malformed optional event is skipped for this client only.
         (this.#options.logger ?? logger).warn("Team API event could not be encoded:", toLogValue(error));
         continue;
       }
       if (optional) {
+        if (optional.type === "channel-messages-deleted") {
+          const channels = this.#options.channels;
+          // Shared channel reads survive hidden members. This event carries only committed IDs,
+          // so those readers must also remove the text from their cache.
+          if (!channels?.store.exists(optional.channelId)) continue;
+        }
         // The base events go through the provider view; an optional event that names a hidden agent is left out.
         // A task event uses the hidden agents of the task routes, so a task of an agent that answers 404 does not arrive.
         const agentId = optionalEventAgentId(optional);
@@ -1216,6 +1311,10 @@ export class TeamApiServer {
               }
             : optional,
         );
+        if (connection.capabilities.has(SKILL_LEARNING_CAPABILITY))
+          outgoing = withSkillSuggestionNames(outgoing, event);
+        if (connection.capabilities.has(ROUTINE_RUN_PLACE_CAPABILITY))
+          outgoing = withRoutineTaskReferences(outgoing, event);
       } else if (event.type === "conversation" && supportsRuntimeSnapshots) {
         conversationInvalidation ??=
           encodeEvent({
@@ -1237,7 +1336,7 @@ export class TeamApiServer {
           event.snapshot.messages.some((message) => message.itemType === ROUTINE_QUIET_ANSWER_ITEM_TYPE))
       ) {
         // The payloads are shared between clients, so the key holds what the roles allow too.
-        const key = `${blockedKey}:${eventProtocol(connection.capabilities)}:${connection.capabilities.has("opencode")}:${connection.capabilities.has("routine-event-markers")}:${connection.capabilities.has("routine-run-event-markers")}:${connection.capabilities.has("hosted-site-event-markers")}:${connection.capabilities.has(TEAM_PROMPT_MULTI_SELECT_CAPABILITY)}:${connection.capabilities.has(TEAM_UI_BLOCK_AUTO_ANSWER_CAPABILITY)}:${connection.capabilities.has(TEAM_UI_BLOCK_VAULT_CAPABILITY)}:${encodingOptions.preserveSemanticTags}`;
+        const key = `${blockedKey}:${eventProtocol(connection.capabilities)}:${connection.capabilities.has("opencode")}:${connection.capabilities.has("routine-event-markers")}:${connection.capabilities.has("routine-run-event-markers")}:${connection.capabilities.has("hosted-site-event-markers")}:${connection.capabilities.has(TEAM_PROMPT_MULTI_SELECT_CAPABILITY)}:${connection.capabilities.has(TEAM_UI_BLOCK_AUTO_ANSWER_CAPABILITY)}:${connection.capabilities.has(TEAM_UI_BLOCK_VAULT_CAPABILITY)}:${connection.capabilities.has(SKILL_LEARNING_CAPABILITY)}:${connection.capabilities.has(ROUTINE_RUN_PLACE_CAPABILITY)}:${encodingOptions.preserveSemanticTags}`;
         let filtered = filteredConversationPayloads.get(key);
         if (!filtered) {
           filtered =
@@ -1428,6 +1527,11 @@ export class TeamApiServer {
         this.#options.pushNotifications?.disconnected(sessionId);
         this.#desktopFocus.delete(sessionId);
         this.#options.browser.releaseUserControlHeldBy({ kind: "session", sessionId });
+        const voice = this.#liveVoice;
+        if (voice)
+          Effect.runFork(
+            voice.stopOwner(teamLiveVoiceOwner(connection.memberId, sessionId)).pipe(Effect.catch(() => Effect.void)),
+          );
       }
       this.#publishPresence();
     });
@@ -1552,6 +1656,30 @@ export class TeamApiServer {
     });
   }
 
+  /** Voice transcripts never use the broadcast path or another device's event session. */
+  publishLiveVoice(ownerId: string, event: VoiceLiveEvent): void {
+    const voice = this.#liveVoice;
+    if (!voice) return;
+    // End is emitted by teardown itself. Starting another teardown first can remove its owner
+    // record before this non-content notification reaches the still-authenticated client.
+    if (event.type !== "ended") Effect.runFork(voice.stopUnavailable());
+    if (!voice.permitsEvent(ownerId, event)) return;
+    const wire = liveVoiceEvent({ ...event, type: "live-voice", kind: event.type });
+    if (!wire) return;
+    const encoded = JSON.stringify(wire);
+    for (const [client, connection] of this.#eventClients) {
+      if (
+        !connection.sessionId ||
+        teamLiveVoiceOwner(connection.memberId, connection.sessionId) !== ownerId ||
+        !connection.capabilities.has(LIVE_VOICE_CAPABILITY) ||
+        !this.#options.store.authenticate(connection.token)
+      )
+        continue;
+      if (client.readyState === webSockets.WebSocket.OPEN) client.send(encoded);
+    }
+    if (event.type === "ended") voice.ended(ownerId, event.sessionId);
+  }
+
   #json(response: ServerResponse, status: number, value: object | null): RouteOutcome {
     const route = this.#responseRoutes.get(response);
     if (!route) throw new Error("Team API response route is unavailable.");
@@ -1591,9 +1719,15 @@ export class TeamApiServer {
     const answered = route.capabilities.has(TEAM_UI_BLOCK_AUTO_ANSWER_CAPABILITY)
       ? withUiBlockAutoAnswers(encoded, effortValue)
       : encoded;
-    const body = route.capabilities.has(TEAM_UI_BLOCK_VAULT_CAPABILITY)
+    const withVault = route.capabilities.has(TEAM_UI_BLOCK_VAULT_CAPABILITY)
       ? withUiBlockVaultRequests(answered, effortValue)
       : answered;
+    const withSkills = route.capabilities.has(SKILL_LEARNING_CAPABILITY)
+      ? withSkillSuggestionNames(withVault, effortValue)
+      : withVault;
+    const body = route.capabilities.has(ROUTINE_RUN_PLACE_CAPABILITY)
+      ? withRoutineTaskReferences(withSkills, effortValue)
+      : withSkills;
     response.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
     response.end(`${body}\n`);
     return "handled";
@@ -1702,6 +1836,7 @@ export class TeamApiServer {
    * the runtime and the presence. A client of an older build gets only the agent list.
    */
   agentAccessChanged(): void {
+    if (this.#liveVoice) Effect.runFork(this.#liveVoice.stopUnavailable());
     const serverId = this.#options.store.getIdentity()?.serverId;
     if (!this.#options.agentAccess || !serverId) return;
     const revision = this.#options.agentAccess.get(serverId).revision;
@@ -1735,8 +1870,7 @@ export class TeamApiServer {
           if (
             capability === "remote-desktop-setup" ||
             capability === "connectors-v1" ||
-            capability === "discord-access-v1" ||
-            capability === "workflows-github-v1"
+            capability === "discord-access-v1"
           )
             return false;
           if (capability === MCP_SERVERS_CAPABILITY) return this.#options.mcpServers !== undefined;
@@ -1755,11 +1889,24 @@ export class TeamApiServer {
               this.#options.signInRelay !== undefined &&
               this.#options.providerAccounts !== undefined
             );
+          if (capability === WEBHOOK_SENDER_SECRET_CAPABILITY) return this.#options.webhookSenderSecrets !== undefined;
+          if (capability === LIVE_VOICE_CAPABILITY) return this.#options.liveVoice !== undefined;
+          if (capability === MESSAGE_DELETE_CAPABILITY || capability === CHAT_HISTORY_CAPABILITY)
+            return this.#options.messageDeletion !== undefined;
+          if (capability === ROUTINE_RUN_PLACE_CAPABILITY)
+            return this.#options.events !== undefined && this.#options.agentTasks !== undefined;
           if (capability === VAULT_CAPABILITY) return this.#options.vault !== undefined;
           if (capability === BROWSER_SECRET_VAULT_CAPABILITY) return this.#options.vault !== undefined;
           if (capability === VAULT_IMPORT_CAPABILITY) return this.#options.vault !== undefined;
-          if (capability === VAULT_V2_CAPABILITY) return this.#options.vault !== undefined;
+          if (capability === VAULT_V2_CAPABILITY || capability === VAULT_V3_CAPABILITY)
+            return this.#options.vault !== undefined;
+          if (capability === SKILL_LEARNING_CAPABILITY) return this.#options.skillLearning !== undefined;
+          if (capability === WORKFLOWS_EXTENSIONS_CAPABILITY) return this.#options.workflowIntegrations !== undefined;
+          if (capability === AGENT_SPEED_CAPABILITY) return this.#options.admin?.agentHost !== undefined;
+          if (capability === BROWSER_PROFILE_PROXY_CAPABILITY) return this.#options.browserProfiles !== undefined;
           if (capability === PROVIDER_HOST_SIGN_IN_CAPABILITY) return this.#options.providerHostSignIns !== undefined;
+          if (capability === PROVIDER_ACCOUNT_MODELS_CAPABILITY)
+            return this.#options.providerAccountModels !== undefined;
           if (capability === PROVIDER_ACCOUNTS_CAPABILITY) return this.#options.providerAccounts !== undefined;
           if (capability === PROVIDER_USAGE_RESET_CAPABILITY) return this.#options.providerUsageResets !== undefined;
           if (capability === PROVIDER_SIGN_OUT_CAPABILITY) return this.#options.providerSignOut !== undefined;
@@ -1826,6 +1973,12 @@ export class TeamApiServer {
           if (capability === INSTANCE_TRANSFER_CAPABILITY) return this.#options.instanceTransfer !== undefined;
           if (capability === ROUTINE_FLOWS_CAPABILITY) return this.#options.routineFlows !== undefined;
           if (capability === WORKFLOWS_CAPABILITY) return this.#options.workflows !== undefined;
+          if (capability === "workflows-github-v1")
+            return (
+              this.#options.workflows !== undefined &&
+              this.#options.workflowIntegrations?.githubCatalog !== undefined &&
+              this.#options.workflowIntegrations.catalog().github
+            );
           if (capability === ANDROID_PUSH_NOTIFICATIONS_CAPABILITY)
             return this.#options.pushNotifications !== undefined;
           if (capability === FOCUS_USE_CAPABILITY) return this.#options.focusUse === true;
@@ -1964,6 +2117,7 @@ function isLegacyConversationClient(connection: EventClientState): boolean {
 
 /** The agent that an optional event names. The task list and a task conversation name it in their snapshot. */
 function optionalEventAgentId(event: OptionalTeamEvent): string | null {
+  if (event.type === "routine-thread-turn-completed") return event.turn.agentId;
   if (event.type === "agent-tasks-changed" || event.type === "agent-task-conversation") return event.snapshot.agentId;
   return "agentId" in event ? event.agentId : null;
 }
@@ -1988,6 +2142,7 @@ function eventCapability(event: AgentEvent): TeamCurrentCapability | null {
     return AGENT_TASKS_CAPABILITY;
   if (event.type === "skills-changed") return SKILLS_EVENTS_CAPABILITY;
   if (event.type === "routine-flows-changed") return ROUTINE_FLOWS_CAPABILITY;
+  if (event.type === "routine-thread-turn-completed") return ROUTINE_RUN_PLACE_CAPABILITY;
   if (event.type === "workflows-changed") return WORKFLOWS_CAPABILITY;
   if (event.type === "vault-changed") return VAULT_CAPABILITY;
   if (event.type === "browser-profiles-changed") return BROWSER_PROFILES_EVENTS_CAPABILITY;

@@ -14,6 +14,10 @@
         "@modelcontextprotocol/sdk": "1.32.1",
         "@noble/hashes": "catalog:",
         "@norbert_bodziony/bloub": "catalog:",
+        "@paper-design/shaders": "catalog:",
+        "@solidjs/web": "catalog:",
+        "@speed-highlight/core": "catalog:",
+        "@tanstack/virtual-core": "catalog:",
         "@tommy/brand": "workspace:*",
         "@tommy/contracts": "workspace:*",
         "@tommy/i18n": "workspace:*",
@@ -21,10 +25,6 @@
         "@tommy/team-client": "workspace:*",
         "@tommy/ui": "workspace:*",
         "@tommy/user-errors": "workspace:*",
-        "@paper-design/shaders": "catalog:",
-        "@solidjs/web": "catalog:",
-        "@speed-highlight/core": "catalog:",
-        "@tanstack/virtual-core": "catalog:",
         "class-variance-authority": "catalog:",
         "cuelume": "0.2.8",
         "effect": "catalog:",
@@ -73,21 +73,22 @@
       "name": "@tommy/mobile",
       "version": "1.4.5",
       "dependencies": {
+        "@config-plugins/react-native-webrtc": "15.0.2",
         "@expo/metro-runtime": "~58.0.15",
         "@expo/ui": "~58.0.22",
         "@legendapp/list": "3.6.0",
         "@noble/hashes": "catalog:",
         "@norbert_bodziony/bloub": "catalog:",
+        "@react-native-masked-view/masked-view": "0.3.2",
+        "@shopify/react-native-skia": "2.14.0",
+        "@speed-highlight/core": "catalog:",
+        "@tanstack/react-query": "^5.104.5",
         "@tommy/brand": "workspace:*",
         "@tommy/contracts": "workspace:*",
         "@tommy/i18n": "workspace:*",
         "@tommy/logging": "workspace:*",
         "@tommy/team-client": "workspace:*",
         "@tommy/user-errors": "workspace:*",
-        "@react-native-masked-view/masked-view": "0.3.2",
-        "@shopify/react-native-skia": "2.14.0",
-        "@speed-highlight/core": "catalog:",
-        "@tanstack/react-query": "^5.104.5",
         "effect": "catalog:",
         "expo": "~58.0.17",
         "expo-application": "~58.1.2",
@@ -123,7 +124,6 @@
         "expo-system-ui": "~58.0.6",
         "expo-updates": "~58.0.18",
         "expo-video": "~58.0.12",
-        "expo-widgets": "~58.0.22",
         "heroui-native": "^1.0.11",
         "katex": "catalog:",
         "lucide-react-native": "^1.61.0",
@@ -142,6 +142,7 @@
         "react-native-svg": "15.16.0",
         "react-native-uitextview": "2.7.1",
         "react-native-web": "~0.21.4",
+        "react-native-webrtc": "155.0.1",
         "react-native-webview": "14.0.1",
         "react-native-worklets": "0.13.0",
         "tailwind-merge": "^3.7.0",
@@ -228,13 +229,13 @@
       "dependencies": {
         "@kobalte/core": "catalog:",
         "@norbert_bodziony/bloub": "catalog:",
+        "@speed-highlight/core": "catalog:",
+        "@tanstack/virtual-core": "catalog:",
         "@tommy/brand": "workspace:*",
         "@tommy/contracts": "workspace:*",
         "@tommy/i18n": "workspace:*",
         "@tommy/team-client": "workspace:*",
         "@tommy/user-errors": "workspace:*",
-        "@speed-highlight/core": "catalog:",
-        "@tanstack/virtual-core": "catalog:",
         "class-variance-authority": "catalog:",
         "katex": "catalog:",
         "lucide-solid": "catalog:",
@@ -270,16 +271,16 @@
   "patchedDependencies": {
     "react-native-reserved-regions@0.2.0": "patches/react-native-reserved-regions@0.2.0.patch",
     "expo-splash-screen@58.0.11": "patches/expo-splash-screen@58.0.11.patch",
-    "expo@58.0.17": "patches/expo@58.0.17.patch",
-    "@kobalte/core@2.0.0-alpha.0": "patches/@kobalte%2Fcore@2.0.0-alpha.0.patch",
-    "dmg-builder@26.18.0": "patches/dmg-builder@26.18.0.patch",
     "lucide-solid@1.33.0": "patches/lucide-solid@1.33.0.patch",
     "solid-recharts@1.0.1": "patches/solid-recharts@1.0.1.patch",
     "@react-native-masked-view/masked-view@0.3.2": "patches/@react-native-masked-view%2Fmasked-view@0.3.2.patch",
+    "expo@58.0.17": "patches/expo@58.0.17.patch",
     "react-native-uitextview@2.7.1": "patches/react-native-uitextview@2.7.1.patch",
-    "solid-sonner@0.3.2": "patches/solid-sonner@0.3.2.patch",
+    "@kobalte/core@2.0.0-alpha.0": "patches/@kobalte%2Fcore@2.0.0-alpha.0.patch",
     "cuelume@0.2.8": "patches/cuelume@0.2.8.patch",
+    "solid-sonner@0.3.2": "patches/solid-sonner@0.3.2.patch",
     "react-native-keyboard-controller@1.22.7": "patches/react-native-keyboard-controller@1.22.7.patch",
+    "dmg-builder@26.18.0": "patches/dmg-builder@26.18.0.patch",
   },
   "catalog": {
     "@fontsource-variable/inter": "5.3.0",
@@ -526,6 +527,8 @@
     "@chevrotain/types": ["@chevrotain/types@13.2.0", "", {}, "sha512-7qrYHRlKfWf2AvBfJi5eVOrKAkbxvMFsy/iIHTGIiApNcEecCaVIdR+mIQhyCBsTDJxBz4JWXHMo6krbhR9hVg=="],
 
     "@chevrotain/utils": ["@chevrotain/utils@13.2.0", "", {}, "sha512-SzKYY68rseOrb9KILVzPsl6SjkQtdWw01SRGB5aCVI5kFcHltQsOYV3JB0Ffst72DgkvHCyDQ0NLwxtmCCf97Q=="],
+
+    "@config-plugins/react-native-webrtc": ["@config-plugins/react-native-webrtc@15.0.2", "", { "peerDependencies": { "expo": ">=56" } }, "sha512-sH4T7Z4P2RowV91k9CEwEr0unn+396NBexxCNZwRXuJXwguDU1qZWpE6fcwN0730B8uiS83F7+CLTyhpC7qRHQ=="],
 
     "@csstools/color-helpers": ["@csstools/color-helpers@6.1.2", "", {}, "sha512-grhRy3OKmniaAEKXMjua5z/EODX0MSqBGjunw8+j/3HQjOnahs2AGhvEOIYVUWcU6ScApbhLhVrQTX8XqrMrow=="],
 
@@ -847,22 +850,6 @@
 
     "@noxcturnal/noxcturnal-win32-x64-msvc": ["@noxcturnal/noxcturnal-win32-x64-msvc@0.1.8", "", { "os": "win32", "cpu": "x64" }, "sha512-A39bKv270jJnC5NN6mAy46E2d3LPywjrbmNJhgckPQNldV9acTYUKZcySCYeLgP/2yAVUh3UFSjo84pFX2npVw=="],
 
-    "@tommy/brand": ["@tommy/brand@workspace:packages/brand"],
-
-    "@tommy/contracts": ["@tommy/contracts@workspace:packages/contracts"],
-
-    "@tommy/i18n": ["@tommy/i18n@workspace:packages/i18n"],
-
-    "@tommy/logging": ["@tommy/logging@workspace:packages/logging"],
-
-    "@tommy/mobile": ["@tommy/mobile@workspace:apps/mobile"],
-
-    "@tommy/team-client": ["@tommy/team-client@workspace:packages/team-client"],
-
-    "@tommy/ui": ["@tommy/ui@workspace:packages/ui"],
-
-    "@tommy/user-errors": ["@tommy/user-errors@workspace:packages/user-errors"],
-
     "@opentelemetry/api": ["@opentelemetry/api@1.10.0", "", {}, "sha512-lMkyes8iHrG+mk6WH7X70MdCLI2RS0FwNBY1PyQ8UemaijE2m5mv5A0Niy3HtbYTFrgkUEQjFMXmSAk2hQDuPQ=="],
 
     "@oxc-parser/binding-android-arm-eabi": ["@oxc-parser/binding-android-arm-eabi@0.154.0", "", { "os": "android", "cpu": "arm" }, "sha512-sDdEtDl7vKdCvf54j72RJbowE3jCmyRz/+oOB6IAwQxAHZ0eI+Dcj4hvVnm0b9Dy31plUkdmfds9C+/Zt895Tg=="],
@@ -1170,6 +1157,22 @@
     "@testing-library/dom": ["@testing-library/dom@10.4.2", "", { "dependencies": { "@babel/code-frame": "^7.10.4", "@babel/runtime": "^7.12.5", "@types/aria-query": "^5.0.1", "aria-query": "5.3.0", "dom-accessibility-api": "^0.5.9", "lz-string": "^1.5.0", "picocolors": "1.1.1", "pretty-format": "^27.0.2" } }, "sha512-yzr2S9HyAIdhz2/6qHgbs665Q7PKVcDF05vsOlHPxG1mo36gKVesdYVeDLnXgfjJ03CrKRk08knc6+E/9m8v2Q=="],
 
     "@testing-library/jest-dom": ["@testing-library/jest-dom@7.0.1", "", { "dependencies": { "@adobe/css-tools": "^4.4.0", "aria-query": "^5.0.0", "css.escape": "^1.5.1", "dom-accessibility-api": "^0.6.3", "picocolors": "^1.1.1", "redent": "^3.0.0" }, "peerDependencies": { "@testing-library/dom": ">=10 <11", "vitest": ">= 0.32" }, "optionalPeers": ["vitest"] }, "sha512-oMDTC3oA+6CXSO2JZnvOI7CA6oVub6kij5ggk9ohwye5slmkwxYDXcPOVxgMw/RQlticjtO0C1RZkR97HgrWMw=="],
+
+    "@tommy/brand": ["@tommy/brand@workspace:packages/brand"],
+
+    "@tommy/contracts": ["@tommy/contracts@workspace:packages/contracts"],
+
+    "@tommy/i18n": ["@tommy/i18n@workspace:packages/i18n"],
+
+    "@tommy/logging": ["@tommy/logging@workspace:packages/logging"],
+
+    "@tommy/mobile": ["@tommy/mobile@workspace:apps/mobile"],
+
+    "@tommy/team-client": ["@tommy/team-client@workspace:packages/team-client"],
+
+    "@tommy/ui": ["@tommy/ui@workspace:packages/ui"],
+
+    "@tommy/user-errors": ["@tommy/user-errors@workspace:packages/user-errors"],
 
     "@tsrs/darwin-arm64": ["@tsrs/darwin-arm64@0.16.0-ts7.1.0-dev.20260929", "", { "os": "darwin", "cpu": "arm64" }, "sha512-9e7ZeELv0Fq06PL7xr0w7jeU45cd2UcDAejH3uloTPD37Vm6h099u/hAj90CPbY88ky15eXCiKE5hJzqvSvCBA=="],
 
@@ -1907,8 +1910,6 @@
 
     "expo-video": ["expo-video@58.0.12", "", { "peerDependencies": { "expo": "*", "react": "*", "react-native": "*" } }, "sha512-OmtZXbzlM1evzf29/WHOGm7fpdvUB/BjTRiJyHDKEftTVeAoUI5GLkQ/gmzXfyWrYXNOPomxIQ3dxgiIcDf98Q=="],
 
-    "expo-widgets": ["expo-widgets@58.0.22", "", { "dependencies": { "@expo/plist": "^0.10.1", "@expo/ui": "~58.0.22" }, "peerDependencies": { "expo": "*", "react": "*", "react-native": "*" } }, "sha512-7YUkvcIXg83n7cTs6yAQ0fuceJkxLYnec9xJHvpgiuk67N2qSaHeiT+o9aTFcYbIzIpmlvCFYljWYWtivnkkUQ=="],
-
     "exponential-backoff": ["exponential-backoff@3.1.3", "", {}, "sha512-ZgEeZXj30q+I0EN+CbSSpIyPaJ5HVQD18Z1m+u1FXbAeT94mr1zw50q4q6jiiC447Nl/YTcIYSAftiGqetwXCA=="],
 
     "express": ["express@5.2.1", "", { "dependencies": { "accepts": "^2.0.0", "body-parser": "^2.2.1", "content-disposition": "^1.0.0", "content-type": "^1.0.5", "cookie": "^0.7.1", "cookie-signature": "^1.2.1", "debug": "^4.4.0", "depd": "^2.0.0", "encodeurl": "^2.0.0", "escape-html": "^1.0.3", "etag": "^1.8.1", "finalhandler": "^2.1.0", "fresh": "^2.0.0", "http-errors": "^2.0.0", "merge-descriptors": "^2.0.0", "mime-types": "^3.0.0", "on-finished": "^2.4.1", "once": "^1.4.0", "parseurl": "^1.3.3", "proxy-addr": "^2.0.7", "qs": "^6.14.0", "range-parser": "^1.2.1", "router": "^2.2.0", "send": "^1.1.0", "serve-static": "^2.2.0", "statuses": "^2.0.1", "type-is": "^2.0.1", "vary": "^1.1.2" } }, "sha512-hIS4idWWai69NezIdRt2xFVofaF4j+6INOpJlVOLDO8zXGpUVEVzIYk12UUi2JzjEzWL3IOAxcTubgz9Po0yXw=="],
@@ -2490,6 +2491,8 @@
     "react-native-uitextview": ["react-native-uitextview@2.7.1", "", { "peerDependencies": { "react": "*", "react-native": ">=0.81.5" } }, "sha512-BT4agx2Gg/idbbqUyCudg/Ml0qB7ar0pwKImgSrzspPAaYNCz6fFh9zypF0GUMGUbGrrlq1PHtXHh1oTSXCYkg=="],
 
     "react-native-web": ["react-native-web@0.21.4", "", { "dependencies": { "@babel/runtime": "^7.18.6", "@react-native/normalize-colors": "^0.74.1", "fbjs": "^3.0.4", "inline-style-prefixer": "^7.0.1", "memoize-one": "^6.0.0", "nullthrows": "^1.1.1", "postcss-value-parser": "^4.2.0", "styleq": "^0.1.3" }, "peerDependencies": { "react": "^18.0.0 || ^19.0.0", "react-dom": "^18.0.0 || ^19.0.0" } }, "sha512-77B6KlalB4osNIck91TNFixPkYPsTbuNEvw8P7IV+4v4/5wZSBRKZnw0Zhx6YjuauDTz71gc8IW+fVhcBMjr5A=="],
+
+    "react-native-webrtc": ["react-native-webrtc@155.0.1", "", { "dependencies": { "base64-js": "1.5.1", "debug": "4.3.4" }, "peerDependencies": { "react-native": ">=0.60.0" } }, "sha512-xQ71L3l1yE9o7H0VWupktdib08OXt5hnGspQYTSW1S3sYqXQHkYx8ZY9HNjw8o1FfBZuoFJ/ypGTUzky6YHnsQ=="],
 
     "react-native-webview": ["react-native-webview@14.0.1", "", { "dependencies": { "escape-string-regexp": "^4.0.0", "invariant": "2.2.4" }, "peerDependencies": { "react": "*", "react-native": "*" } }, "sha512-lBUuvFk459Mo+5vUNqwzGvn+I8rDJE6zvOulG2hWWudeEOJfWTsQwOfuYnRu+27djUIXrESFfC+EQE3PGu+FWA=="],
 
@@ -3151,6 +3154,8 @@
 
     "react-native-web/memoize-one": ["memoize-one@6.0.0", "", {}, "sha512-rkpe71W0N0c0Xz6QD0eJETuWAJGnJ9afsl1srmwPrI+yBCkge5EycXXbYRyvL29zZVUWQCY7InPRCv3GDXuZNw=="],
 
+    "react-native-webrtc/debug": ["debug@4.3.4", "", { "dependencies": { "ms": "2.1.2" }, "peerDependencies": { "supports-color": "*" }, "optionalPeers": ["supports-color"] }, "sha512-PRWFHuSU3eDtQJPvnNY7Jcket1j0t5OuOsFzPPzsekD52Zl8qUfFIPEiswXqIvHWGVHOgX+7G/vCNNhehwxfkQ=="],
+
     "react-reconciler/scheduler": ["scheduler@0.25.0", "", {}, "sha512-xFVuu11jh+xcO7JOAGJNOXld8/TcEHK/4CituBUeUb5hqxJLj9YuemAEuvm9gQ/+pgXYfbQuqAkiYu+u7YEsNA=="],
 
     "readable-stream/safe-buffer": ["safe-buffer@5.1.2", "", {}, "sha512-Gd2UZBJDkXlY7GbJxfsE8/nvKkUEU1G38c1siN6QP6a9PT9MmHB8GnpscSmMJSoF8LOIrt8ud/wPtojys4G6+g=="],
@@ -3368,6 +3373,8 @@
     "react-native-svg/css-tree/mdn-data": ["mdn-data@2.0.14", "", {}, "sha512-dn6wd0uw5GsdswPFfsgMp5NSB0/aDe6fK94YJV/AJDYXL6HVLWBsxeq7js7Ad+mU2K9LAlwpk6kN2D5mwCPVow=="],
 
     "react-native-svg/css-tree/source-map": ["source-map@0.6.1", "", {}, "sha512-UjgapumWlbMhkBgzT7Ykc5YXUT46F0iKu8SGXq0bcwP5dz/h0Plj6enJqjz1Zbq2l5WaqYnrVbwWOWMyF3F47g=="],
+
+    "react-native-webrtc/debug/ms": ["ms@2.1.2", "", {}, "sha512-sGkPx+VjMtmA6MX27oA4FBFELFCZZ4S4XqeGOXCv68tT+jb3vk/RyaKWP0PTKyWtmLSM0b+adUTEvbs1PEaH2w=="],
 
     "rimraf/glob/minimatch": ["minimatch@3.1.5", "", { "dependencies": { "brace-expansion": "^1.1.7" } }, "sha512-VgjWUsnnT6n+NUk6eZq77zeFdpW2LWDzP6zFGrCbHXiYNul5Dzqk2HHQ5uFH2DNW5Xbp8+jVzaeNt94ssEEl4w=="],
 

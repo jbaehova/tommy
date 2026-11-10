@@ -12,6 +12,7 @@ export interface ConversationHeaderProps {
   agent: AgentProfile | null | undefined;
   /** The title of a chat that has no one agent, such as a channel. It shows when `agent` is missing. */
   title?: JSX.Element | undefined;
+  actions?: JSX.Element | undefined;
   modelPicker: ComponentProps<typeof ProviderModelPicker>;
   /** A model, effort, provider or account chosen during the running turn. It applies from the next turn. */
   pendingModel?: ConversationHeaderPendingModel | undefined;
@@ -73,6 +74,7 @@ export function ConversationHeader(props: ConversationHeaderProps) {
         {props.threads}
       </div>
       <div class="conversation-header-actions no-drag">
+        {props.actions}
         <Show when={props.agent && props.pendingModel}>
           {(change) => {
             const detail = () => t("conversation.header.modelNextTurnDetail", change());

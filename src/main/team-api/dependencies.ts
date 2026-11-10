@@ -1,5 +1,18 @@
+import type {
+  HostSkillLearning,
+  RestoreLearnedSkillInput,
+  RestoreLearnedSkillResult,
+  SaveSkillSuggestionInput,
+  SaveSkillSuggestionResult,
+  SkillLearningPreference,
+} from "@tommy/contracts/ipc-skill-learning";
+import type { LocalSkillRevisionInput, MarketplaceSkillDetail } from "@tommy/contracts/ipc-skills";
+import type { VoiceLiveSession, VoiceLiveStart } from "@tommy/contracts/ipc-voice";
+import type { WorkflowGitHubCatalog } from "@tommy/contracts/ipc-workflow-github";
+import type { WorkflowIntegrationCatalog } from "@tommy/contracts/ipc-workflows";
 import type { Effect } from "effect";
 import type { ChannelService } from "../../backend/channel-service";
+import type { WorkflowGitHubApi } from "../../backend/workflows/workflow-github-api";
 import type { AgentAccessStore } from "../agent-access-store";
 import type { AgentAdminSettingsService } from "../agent-admin-settings";
 import type { AgentFolders } from "../agent-folders";
@@ -184,6 +197,8 @@ export type TeamApiSignInRelay = Pick<
 export type TeamApiProviderHostSignIns = Pick<ProviderHostSignIns, "start" | "status" | "cancel">;
 
 /** Its presence is what `#protocolSupport` advertises `provider-accounts-v1` on. The routes are admin-only. */
+export type TeamApiProviderAccountModels = Pick<AgentService, "listAgentModels" | "getStatus">;
+
 export type TeamApiProviderAccounts = Pick<
   ProviderAccountsHost,
   "list" | "usage" | "startSignIn" | "signInStatus" | "cancelSignIn" | "rename" | "remove" | "setAgentAccount"
@@ -464,7 +479,40 @@ export type TeamApiVault = VaultService;
 export type TeamApiAgentAccess = Pick<AgentAccessStore, "copyAgent" | "get" | "levels" | "set" | "subscribe">;
 export type TeamApiServerAudit = Pick<ServerAuditStore, "read">;
 
+export interface TeamApiSkillLearning {
+  listLocalSkills(): Effect.Effect<MarketplaceSkillDetail[], { readonly cause: unknown }>;
+  readLocalSkill(input: LocalSkillRevisionInput): Effect.Effect<MarketplaceSkillDetail, { readonly cause: unknown }>;
+  snapshot(): HostSkillLearning;
+  set(input: SkillLearningPreference): Effect.Effect<HostSkillLearning, { readonly cause: unknown }>;
+  save(input: SaveSkillSuggestionInput): Effect.Effect<SaveSkillSuggestionResult, { readonly cause: unknown }>;
+  restore(input: RestoreLearnedSkillInput): Effect.Effect<RestoreLearnedSkillResult, { readonly cause: unknown }>;
+}
+
+export interface TeamApiWorkflowIntegrations {
+  catalog(): WorkflowIntegrationCatalog;
+  githubCatalog?: () => Effect.Effect<WorkflowGitHubCatalog, { readonly message: string }>;
+  githubOptions?: WorkflowGitHubApi["options"];
+}
+
+export interface TeamApiLiveVoice {
+  start(input: VoiceLiveStart, ownerId: string): Effect.Effect<VoiceLiveSession, { readonly cause: unknown }>;
+  stop(sessionId: string, ownerId: string): Effect.Effect<void, { readonly cause: unknown }>;
+  stopOwner(ownerId: string): Effect.Effect<void, { readonly cause: unknown }>;
+  cancel(requestId: string, ownerId: string): Effect.Effect<void, { readonly cause: unknown }>;
+}
+
+export type TeamApiMessageDeletion = Pick<
+  AgentService,
+  "deleteMessage" | "deleteTaskMessage" | "deleteChannelMessage" | "deleteAgentHistory" | "deleteChannelHistory"
+>;
+
 export interface TeamApiOptions {
+  messageDeletion?: TeamApiMessageDeletion;
+  liveVoice?: TeamApiLiveVoice;
+  skillLearning?: TeamApiSkillLearning;
+  workflowIntegrations?: TeamApiWorkflowIntegrations;
+  webhookSenderSecrets?: Pick<HostEventsService, "setRoutineSenderSecret" | "setWorkflowSenderSecret">;
+
   /** `events-v1`: admin-only event source and routine management. */
   events?: HostEventsApi | undefined;
   channels?: ChannelService | undefined;
@@ -474,6 +522,7 @@ export interface TeamApiOptions {
   vault?: TeamApiVault | undefined;
   providerHostSignIns?: TeamApiProviderHostSignIns | undefined;
   providerAccounts?: TeamApiProviderAccounts | undefined;
+  providerAccountModels?: TeamApiProviderAccountModels | undefined;
   providerUsageResets?: TeamApiProviderUsageResets | undefined;
   providerSignOut?: TeamApiProviderSignOut | undefined;
   /** Starts and waits for the managed tool runtimes behind the MCP save, enable, and test routes. */

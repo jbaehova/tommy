@@ -42,6 +42,7 @@ import { type McpPanelDetail, type McpPanelSignIn, ServerMcpPanel } from "./Serv
 import type { ServerMemoryLimitOptions } from "./ServerMemoryLimitSetting";
 import type { ServerMemoryReviewOptions } from "./ServerMemoryReviewSetting";
 import { type ServerRoutineFeedOptions, ServerRoutineFeedPanel } from "./ServerRoutineFeedPanel";
+import type { ServerSkillLearningOptions } from "./ServerSkillLearningSetting";
 import type { ServerTimezoneOptions } from "./ServerTimezoneSetting";
 import { type ServerTransferOptions, ServerTransferPanel } from "./ServerTransferPanel";
 import { serverCanAdminister, serverRoleCanAdminister } from "./server-capabilities";
@@ -128,6 +129,7 @@ export interface ServerSettingsModalProps {
    * only for the local server or a remote host with `memory-review-v1` that this member administers.
    */
   memoryReview?: ServerMemoryReviewOptions | undefined;
+  skillLearning?: ServerSkillLearningOptions | undefined;
   /**
    * The Claude provider page shows how long Claude keeps the prompt cache only when a caller supplies
    * this, and only for the local server or a remote host with `prompt-cache-ttl-v1` that this member

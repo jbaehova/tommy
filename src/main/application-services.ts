@@ -1,10 +1,13 @@
 import { isManagedRuntimeProvider } from "@tommy/contracts/agent-providers";
 import { Effect } from "effect";
 import { toAgentRemovalFailed } from "../backend/agent/agent-removal";
+import { MemoryReviewCursors } from "../backend/agent/memory-review-store";
+import { SkillLearningFailed } from "../backend/agent/skill-learning";
 import { AgentApiKeys } from "../backend/agent-api-keys";
 import { AgentDatabaseSupervisor } from "../backend/agent-data/agent-database-supervisor";
 import { AgentTables } from "../backend/agent-data/agent-tables";
 import { AgentRoutineStore } from "../backend/agent-routine-store";
+import { BrowserProfileProxyStore } from "../backend/browser-profiles/browser-profile-proxy-store";
 import { routineFlowRoutines } from "../backend/routine-flows/routine-flow-routines";
 import { RoutineFlowStore } from "../backend/routine-flows/routine-flow-store";
 import { createRoutineFlows, type RoutineFlowsHandle } from "../backend/routine-flows/routine-flows";
@@ -23,6 +26,7 @@ import { type AgentFolders, createAgentFolders } from "./agent-folders";
 import { type AgentHostSettingsService, createAgentHostSettings } from "./agent-host-settings";
 import { type AgentInstructionsFiles, createAgentInstructionsFiles } from "./agent-instructions-files";
 import { type BrowserProfileService, createBrowserProfileService } from "./browser-profile-service";
+import { DirectWebhookIngress, DirectWebhookRoutes } from "./direct-webhook-ingress";
 import { HostReleaseService, readInstallationMode } from "./host-release-service";
 import { LocalSignInWindows } from "./local-sign-in-window";
 import { LocalSkillLibrary } from "./local-skill-library";
@@ -31,6 +35,10 @@ import { PushNotificationStore } from "./push-notification-store";
 import type { NotificationRelayRequest } from "./push-notifications";
 import { DESKTOP_USE_MS } from "./push-notifications";
 import { RemoteWorkflowError } from "./remote-service-effects";
+import { createSecretStorage, SECRET_STORAGE_KEY_FILE } from "./secret-storage-cipher";
+import { SkillLearningService } from "./skill-learning-service";
+import { readWebhookPublicOrigin, readWorkflowConnectorSettings } from "./workflow-connector-config";
+import { WorkflowConnectors } from "./workflow-connectors";
 /**
  * The composition root. Every long-lived service the desktop app owns is built here, in one
  * function, in dependency order, and handed back as a single record.
@@ -73,7 +81,7 @@ import {
   latestTurnAnswer,
 } from "@tommy/contracts/ipc";
 import { sourceText } from "@tommy/i18n/source";
-import { createTommyLogger, toLogValue } from "@tommy/logging";
+import { createTommyLogger, redactText, toLogValue } from "@tommy/logging";
 import { installRemoteSyncProfileSink } from "@tommy/team-client/sync-profile";
 import {
   app,
@@ -135,7 +143,7 @@ import {
 } from "./external-link-opener";
 import { FcmSender } from "./fcm-sender";
 import { HostEventsRuntime } from "./host-events-runtime";
-import { agentWebhookRoutineWriter, HostEventsService, type HostWebhookRelay } from "./host-events-service";
+import { agentWebhookRoutineWriter, HostEventsService } from "./host-events-service";
 import { HostService } from "./host-service";
 import { HostVoice } from "./host-voice";
 import { HostedServerStartRetry } from "./hosted-server-start-retry";
@@ -256,15 +264,6 @@ const INTERFACE_SIZE_PREFERENCE_FILE = "tommy-interface-size-preference-v1.json"
 const BUSY_MESSAGE_MODE_PREFERENCE_FILE = "tommy-busy-message-mode-v1.json";
 const PROVIDER_CLI_APP_VERSION_FILE = "tommy-provider-cli-app-version-v1.json";
 const PUSH_NOTIFICATION_FILE = "tommy-push-notifications-v1.json";
-/** No outside server forwards webhooks to this host, so a webhook trigger has no public address. */
-const NO_WEBHOOK_RELAY: HostWebhookRelay = {
-  connected: () => false,
-  setEnabled: () => {},
-  setAccountActive: () => {},
-  refresh: () => {},
-  registerRoute: () => Effect.fail({ cause: new Error("This server has no webhook relay.") }),
-  revokeRoute: () => Effect.void,
-};
 const DIRECT_DEVICES_FILE = "tommy-devices-v1.json";
 const DIRECT_PAIRED_SERVER_FILE = "tommy-paired-server-v1.bin";
 /** The port that the reverse proxy forwards to on loopback. */
@@ -396,6 +395,8 @@ export interface ApplicationServiceContext {
 
 /** Everything the entry point wires up, registers IPC handlers against, and shuts down. */
 export interface ApplicationServices {
+  /** Starts the shared database host after the first screen is ready. */
+  prewarmAgentDatabase: Effect.Effect<void>;
   service: AgentService;
   routineFlows: RoutineFlowsHandle;
   workflows: WorkflowsHandle;
@@ -453,6 +454,8 @@ export interface ApplicationServices {
   remoteServers: RemoteServerManager;
   centralAuth: LocalAccount;
   skills: SkillMarketplaceService;
+  skillLearning: SkillLearningService;
+  workflowConnectors: WorkflowConnectors;
   routineFeed: RoutineFeedServer;
   events: HostEventsService;
   eventsRuntime: HostEventsRuntime;
@@ -475,20 +478,6 @@ export interface ApplicationServices {
 }
 
 /** How the driver's own state reads as the capability the Team API projects. */
-/** The Electron secret storage cipher that every encrypted file in userData uses. */
-function safeStorageCipher(
-  unavailableKey: "error.app.secretStorageUnavailable" | "error.app.macSecureStorageUnavailable",
-) {
-  return {
-    canPersist: () => safeStorage.isEncryptionAvailable(),
-    encrypt: (value: string) => {
-      if (!safeStorage.isEncryptionAvailable()) throw new Error(sourceText(unavailableKey));
-      return safeStorage.encryptString(value);
-    },
-    decrypt: (value: Buffer) => safeStorage.decryptString(value),
-  };
-}
-
 /** What the account service did. Tommy has none, and one owner. */
 export async function createApplicationServices({
   mainWindow,
@@ -503,6 +492,23 @@ export async function createApplicationServices({
   forwardProviderRuntimeStatus,
   forwardWorkflowNotice,
 }: ApplicationServiceContext): Promise<ApplicationServices> {
+  const secretStorage = createSecretStorage({
+    keyPath: join(app.getPath("userData"), SECRET_STORAGE_KEY_FILE),
+    storage: safeStorage,
+    isReady: () => app.isReady(),
+    allowKeyFileFallback: process.env.TOMMY_SECRET_STORAGE_FALLBACK === "key-file",
+  });
+  const safeStorageCipher = (key: "error.app.secretStorageUnavailable" | "error.app.macSecureStorageUnavailable") =>
+    secretStorage.cipher(() => sourceText(key));
+  const secretCipher = safeStorageCipher("error.app.secretStorageUnavailable");
+  const publicWebhookOrigin = readWebhookPublicOrigin();
+  const webhookRoutes = new DirectWebhookRoutes(publicWebhookOrigin);
+  const connectorSettings = readWorkflowConnectorSettings();
+  // The settings are in memory now. Remove the source, so a process that inherits the environment of
+  // the host without the child filter cannot read the connector credentials.
+  delete process.env.TOMMY_WORKFLOW_CONNECTORS_JSON;
+  if (connectorSettings.invalid)
+    logger.warn("Workflow connectors are disabled because their configuration is invalid.");
   // First, so the provider lines of the whole startup reach the file.
   teardown.push(
     TEARDOWN_ORDER.providerLog,
@@ -650,6 +656,7 @@ export async function createApplicationServices({
     teardown.push(TEARDOWN_ORDER.serverMemory, "the server memory reading", () => Effect.runPromise(hostMemory.stop()));
   }
   const browserProfileStore = new BrowserProfileStore(store.database);
+  const browserProfileProxies = new BrowserProfileProxyStore(store.database, secretCipher);
   const browser = new BrowserHost(mainWindow, store.downloadsRoot, join(app.getPath("userData"), BROWSER_STATE_FILE), {
     memoryLow: () => (hostMemory?.level() ?? "ok") !== "ok",
     browserProfile: (agentId) => {
@@ -657,6 +664,7 @@ export async function createApplicationServices({
       return agent ? agentBrowserProfile(agent) : { kind: "shared" };
     },
     profileExists: (profileId) => browserProfileStore.get(profileId) !== undefined,
+    profileProxy: (profileId) => browserProfileProxies.connection(profileId),
     quitShortcut: (input) => windows.handleQuitShortcut(mainWindow, input),
   });
   teardown.push(TEARDOWN_ORDER.browser, "the browser", () => runCauseEffect(browser.destroy()));
@@ -860,7 +868,6 @@ export async function createApplicationServices({
   );
   // Before `new AgentService`, which reads every `executablePath` eagerly.
   await runCauseEffect(providerRuntimes.initialize());
-  const secretCipher = safeStorageCipher("error.app.secretStorageUnavailable");
   /*
    * Loaded before the service, not on first use: a provider spawn reads its key synchronously, so
    * the decrypted map has to already exist by the time any client is built. A machine with no
@@ -1000,6 +1007,23 @@ export async function createApplicationServices({
     headed: hasSeparateAgentDisplay(process.platform),
   });
   await Effect.runPromise(agentDesktop.check());
+  const skills = new SkillMarketplaceService(
+    () => service.listAgents(),
+    // Every skill change ends here: install, update, uninstall, turning one on or off, and a skill
+    // an agent creates. The event reaches this computer's windows and the joined clients.
+    (agentId) =>
+      service
+        .refreshAgentRuntime(agentId)
+        .pipe(Effect.ensuring(Effect.sync(() => service.notifySkillsChanged(agentId)))),
+    new LocalSkillLibrary(join(app.getPath("userData"), "local-skills"), () => service.listAgents()),
+  );
+
+  const skillLearning = new SkillLearningService({
+    preferencePath: join(app.getPath("userData"), "skill-learning.json"),
+    skills,
+    redact: redactText,
+  });
+  await runCauseEffect(skillLearning.load());
   const service: AgentService = new AgentService({
     store,
     mailbox,
@@ -1080,6 +1104,15 @@ export async function createApplicationServices({
     agentApiKeys,
     localSkillTools: () => localSkillTools(skills),
     routineFlowTools: () => routineFlowRuntime,
+    workflowTools: () => workflowRuntime,
+    reviewSkills: (agentId) =>
+      skills.listInstalled(agentId).pipe(
+        Effect.map((installed) => installed.map(({ skillId, name, description }) => ({ skillId, name, description }))),
+        Effect.mapError((cause) => new SkillLearningFailed({ cause })),
+      ),
+    skillLearning: () => skillLearning.get().mode,
+    skillLearner: skillLearning.learner(),
+    memoryReviewCursors: new MemoryReviewCursors(join(app.getPath("userData"), "memory-review-cursors.json")),
     // `events` is built later, after the account service and the relay.
     webhookRoutines: () => agentWebhookRoutineWriter(events),
     approvalAutomation,
@@ -1108,6 +1141,10 @@ export async function createApplicationServices({
       }),
     tables,
   });
+  const stopSkillLearningListener = skillLearning.onChange(() => {
+    Effect.runFork(service.skillLearningChanged());
+  });
+  teardown.push(TEARDOWN_ORDER.service - 1, "skill learning settings", stopSkillLearningListener);
   service.setComputerUseCapability(agentDesktop.capability());
   teardown.push(TEARDOWN_ORDER.service, "the agent service", () => runCauseEffect(service.stop()));
   const agentMemoryLimitSetting = reloadingAgentMemoryLimit(agentMemoryLimit, service);
@@ -1161,14 +1198,26 @@ export async function createApplicationServices({
     database: store.database,
     nextDueAt: workflowScheduleDueAt(() => serverTimezone.effective()),
   });
+  let connectorWorkflows: WorkflowsHandle | null = null;
+  const workflowConnectors = new WorkflowConnectors({
+    config: connectorSettings.config,
+    publicWebhookOrigin,
+    workflows: () => connectorWorkflows,
+  });
+  await runCauseEffect(workflowConnectors.start());
+  teardown.push(TEARDOWN_ORDER.messaging, "workflow connectors", () => runCauseEffect(workflowConnectors.stop()));
   const workflowRuntime = await Effect.runPromise(
     createWorkflows({
       store: workflowStore,
       runs: new WorkflowRunStore({ database: store.database }),
       github: new WorkflowGitHubStore({ database: store.database }),
-      githubApp: () => null,
-      connectionOn: () => false,
-      post: () => Effect.succeed({ failure: "not-running" as const }),
+      githubApp: () => workflowConnectors.githubApp(),
+      githubApi: workflowConnectors.githubApi(),
+      connectionOn: (connectionId) => workflowConnectors.connectionOn(connectionId),
+      post: (connectionId, placeId, markdown) => workflowConnectors.post(connectionId, placeId, markdown),
+      slackSend: (connectionId, send) => workflowConnectors.slackSend(connectionId, send),
+      telegramSend: (connectionId, send) => workflowConnectors.telegramSend(connectionId, send),
+      channelPost: (input) => service.channels.postNote(input),
       delivery: (deliveryId) => {
         const found = mailbox.getDelivery(deliveryId)?.delivery;
         return found ? { status: found.status, turnId: found.turnId, error: found.error } : null;
@@ -1191,12 +1240,13 @@ export async function createApplicationServices({
         ),
       notify: forwardWorkflowNotice,
       // An agent event, so this window, joined clients and the web app hear it the same way.
-      changed: (workflowId) => service.notifyWorkflowsChanged(workflowId),
+      changed: (workflowId, agentId) => service.notifyWorkflowsChanged(workflowId, agentId),
       rearm: () => service.armRoutines(),
       timezone: () => serverTimezone.effective(),
       runEnded: (end) => service.notifyWorkflowRunEnded(end),
     }),
   );
+  connectorWorkflows = workflowRuntime;
   workflowTriggers = new WorkflowTriggers({
     store: workflowStore,
     timezone: () => serverTimezone.effective(),
@@ -1327,17 +1377,6 @@ export async function createApplicationServices({
   });
   // A grant changed on this computer must reach the phones and web clients that show it.
   approvalAutomation.subscribe(() => service.notifyAgentsChanged());
-  const skills = new SkillMarketplaceService(
-    () => service.listAgents(),
-    // Every skill change ends here: install, update, uninstall, turning one on or off, and a skill
-    // an agent creates. The event reaches this computer's windows and the joined clients.
-    (agentId) =>
-      service
-        .refreshAgentRuntime(agentId)
-        .pipe(Effect.ensuring(Effect.sync(() => service.notifySkillsChanged(agentId)))),
-    new LocalSkillLibrary(join(app.getPath("userData"), "local-skills"), () => service.listAgents()),
-  );
-
   const teamStore = new TeamStore(
     join(app.getPath("userData"), TEAM_FILE_V2),
     join(app.getPath("userData"), TEAM_FILE),
@@ -1367,13 +1406,18 @@ export async function createApplicationServices({
       changed: (workflowId) => service.notifyWorkflowsChanged(workflowId),
     },
     cipher: secretCipher,
-    relay: NO_WEBHOOK_RELAY,
+    relay: webhookRoutes,
     accountPrincipal: () => {
       const state = centralAuth.getState();
       return state.status === "signed_in" ? state.user.id : null;
     },
   });
   const eventsRuntime = new HostEventsRuntime(events);
+  const webhookIngress = new DirectWebhookIngress({
+    events: () => events,
+    connectors: workflowConnectors,
+    enabled: () => publicWebhookOrigin !== null,
+  });
   teardown.push(TEARDOWN_ORDER.hostEvents, "the event service", async () => {
     await Effect.runPromise(eventsRuntime.stop());
   });
@@ -1384,6 +1428,7 @@ export async function createApplicationServices({
   const agentInstructions = createAgentInstructionsFiles(service);
   const browserProfiles = createBrowserProfileService({
     store: browserProfileStore,
+    proxies: browserProfileProxies,
     agents: service,
     browser,
     onChanged: () => service.notifyBrowserProfilesChanged(),
@@ -1468,12 +1513,38 @@ export async function createApplicationServices({
   const fcm = serverModeEnvironment ? await FcmSender.load(join(homedir(), FCM_SERVICE_ACCOUNT_FILE)) : null;
   const host = new HostService({
     voice: hostVoice,
+    providerAccountModels: service,
+    liveVoice: service.liveVoice,
+    messageDeletion: {
+      deleteMessage: (input, access) => service.deleteMessage(input, access),
+      deleteTaskMessage: (input, access) => service.deleteTaskMessage(input, access),
+      deleteChannelMessage: (input, access) => service.deleteChannelMessage(input, access),
+      deleteAgentHistory: (input) => service.deleteAgentHistory(input),
+      deleteChannelHistory: (input) => service.deleteChannelHistory(input),
+    },
+    skillLearning: {
+      snapshot: () => skillLearning.snapshot(),
+      set: (preference) => skillLearning.set(preference),
+      save: (input) => service.saveSkillSuggestion(input).pipe(Effect.map((saved) => ({ saved }))),
+      restore: (input) => skillLearning.restore(input),
+      listLocalSkills: () => skillLearning.listLocalSkills(),
+      readLocalSkill: (input) => skillLearning.readLocalSkill(input),
+    },
+    workflowIntegrations: {
+      catalog: () => workflowConnectors.catalog(),
+      githubCatalog: () => workflowConnectors.githubCatalog(),
+      githubOptions: (repository) =>
+        workflowConnectors.githubApi()?.options(repository) ??
+        Effect.fail({ code: "noAccess" as const, message: sourceText("error.workflow.outputRefused") }),
+    },
+    webhookSenderSecrets: events,
     ...(directDevices
       ? {
           directConnection: {
             devices: directDevices,
             listen: { host: "127.0.0.1", port: readDirectPort(process.env.TOMMY_DIRECT_PORT) },
             publicUrl: readDirectPublicUrl(process.env.TOMMY_PUBLIC_URL),
+            publicHttp: (request, response) => webhookIngress.handle(request, response),
           },
         }
       : {}),
@@ -1666,6 +1737,7 @@ export async function createApplicationServices({
         pairedServer.forget().pipe(Effect.andThen(Effect.sync(() => centralAuth.refresh())), Effect.ignore),
       ),
   });
+  host.on("changed", (status) => webhookRoutes.setListening(status.phase === "online"));
   const remoteServers = new RemoteServerManager(
     join(app.getPath("userData"), REMOTE_SERVERS_FILE),
     safeStorageCipher("error.app.macSecureStorageUnavailable"),
@@ -1762,6 +1834,9 @@ export async function createApplicationServices({
 
   return {
     service,
+    prewarmAgentDatabase: tables.prewarm(),
+    skillLearning,
+    workflowConnectors,
     routineFlows: routineFlowRuntime,
     workflows: workflowRuntime,
     routineResults: routineResultRuntime,

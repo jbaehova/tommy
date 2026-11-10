@@ -55,6 +55,7 @@ export interface DirectHostOwner {
 }
 
 export interface DirectHostGatewayOptions extends Omit<TeamWebRtcHostPeerOptions, "bridge" | "verifyClientTicket"> {
+  publicHttp?: (request: IncomingMessage, response: ServerResponse) => Effect.Effect<boolean>;
   devices: DirectDeviceStore;
   owner: () => DirectHostOwner | null;
   /** The address of the reverse proxy's upstream. It must stay on loopback: the proxy holds TLS. */
@@ -243,6 +244,30 @@ export class DirectHostGateway extends EventEmitter<TeamWebRtcBridgeEvents> {
   }
 
   #handleRequest(request: IncomingMessage, response: ServerResponse): void {
+    const ingress = this.#options.publicHttp;
+    if (!ingress) {
+      this.#handlePairRequest(request, response);
+      return;
+    }
+    this.#run(
+      ingress(request, response).pipe(
+        Effect.tap((handled) =>
+          Effect.sync(() => {
+            if (!handled) this.#handlePairRequest(request, response);
+          }),
+        ),
+        // A defect in a public route must not leave the sender waiting for the proxy deadline.
+        Effect.catchCause(() =>
+          Effect.sync(() => {
+            if (response.headersSent || response.destroyed) response.destroy();
+            else answer(response, 500, { error: "failed" });
+          }),
+        ),
+      ),
+    );
+  }
+
+  #handlePairRequest(request: IncomingMessage, response: ServerResponse): void {
     const path = new URL(request.url ?? "/", "http://loopback").pathname;
     if (request.method !== "POST" || path !== DIRECT_PAIR_PATH) {
       answer(response, 404, { error: "not_found" });

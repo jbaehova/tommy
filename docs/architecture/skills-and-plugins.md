@@ -183,3 +183,15 @@ The backend local skill tools derive the agent from the calling provider session
 A plugin is one developer's bundle: an MCP server, shown as an app, the skills that drive it, and the listing text. The catalog of available plugins is a static file set that the Account Worker serves from `example.com` without an account, and the main process keeps a copy in the user-data directory rather than in SQLite, because a remote catalog is a cache and not the source of truth. An install saves the app as a host-global MCP server and installs the pinned skills into the chosen agent. A share link at `example.com/plugins/<slug>` opens a public page, and `tommy://plugins/<slug>` opens the listing in the app; neither one installs anything.
 
 See plugin distribution and sharing for the catalog shape, the fetch and cache rules, the install and uninstall order, the deep-link parser rules, and the security review. Three parts of that design run today. The Apps tab installs the listing's pinned skills into the chosen agent and saves its app as a host-global MCP server. The links work: `example.com/marketplace/apps` (which `example.com/plugins` redirects to) and `example.com/plugins/<slug>` are pages on the public site, and `tommy://plugins/<slug>` opens that listing in the app, which is one of the link kinds that `src/main/deep-link-router.ts` recognises beside an invitation. Both sides read one catalog, generated from `marketplace/plugin-catalog/`, because a listing that said one thing on the page and another in the app would be two catalogs. The Apps tab also uninstalls a listing. The catalog files, the Worker routes that serve them, and the cache in the main process are still design.
+
+Skill learning is a host preference with Ask first as its default. It can be automatic or off.
+A background writer has no tools and accepts only a general reusable procedure. Before publishing,
+it rejects secrets and installation-specific identifiers. A Save names a stored suggestion message;
+clients cannot send generated skill contents or a filesystem path through that endpoint. Manual
+skill tools keep their existing human-request gates.
+
+Each learned publication keeps an operation receipt beside its immutable bundle. A duplicate Save,
+including a retry after restart, reuses that receipt and cannot overwrite a later installed
+revision. Updates require the expected revision. Restore copies an older bundle into a new revision.
+Off cancels pending publication; a revision that already committed stays intact. Review cursors are
+host-local disposable state, scoped by agent and thread. Removing one scope preserves other cursors.

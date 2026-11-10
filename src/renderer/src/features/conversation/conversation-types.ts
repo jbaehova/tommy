@@ -102,6 +102,8 @@ export interface ConversationChannelSource {
   readOnly: () => boolean;
   /** The agent that wrote an agent row, with the name the channel keeps for it. */
   author: (message: AgentMessage) => ChatMessageAuthor;
+  /** A person's message that this user sent, not another member's. */
+  ownMessage: (message: AgentMessage) => boolean;
   /** The agents that work now. */
   workers: () => ChannelWorker[];
   /** The turns of the workers that run now, whose steps show under the activity line. */
@@ -352,7 +354,7 @@ export interface ConversationProps {
 }
 
 /** `messageId` is the conversation message the host stored: the delivery id of the receipt. */
-export type SendMessageResult = { messageId: string } | { error: string };
+export type SendMessageResult = { messageId: string } | { error: string; reference?: string | null };
 
 export interface ComposerDraft {
   text: string;
@@ -407,6 +409,7 @@ export type { SidePanelPane } from "@tommy/ui/features/conversation/SidePanel";
  * main thread. Each action applies to the open thread.
  */
 export interface ConversationThreads {
+  tasks: readonly AgentTask[];
   header: ThreadHeaderProps;
   /** The side threads with a tab in the side panel. */
   side: SideThreads;
@@ -442,6 +445,8 @@ export interface ConversationThreads {
   onBranch?: ((sourceTaskId: string | null, messageId: string) => Promise<boolean>) | undefined;
   /** Where a side thread came from, when it is a branch. Undefined for a thread that is no branch. */
   branchSource: (task: AgentTask) => ConversationBranchSource | undefined;
+  routineThread: (routineId: string) => (() => void) | undefined;
+  onOpenRoutineThread: (routineId: string) => Promise<boolean>;
   /** The message that a side thread scrolls to once, after a click on "Branched from". */
   focusMessage: { taskId: string; messageId: string; nonce: number } | null;
 }

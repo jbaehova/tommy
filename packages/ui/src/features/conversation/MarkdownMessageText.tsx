@@ -248,6 +248,7 @@ export function MarkdownMessageText(props: MarkdownMessageTextProps) {
       onOpenSharedFile: props.onOpenSharedFile,
       onOpenWorkspaceFile: props.onOpenWorkspaceFile,
       onOpenQuote: props.onOpenQuote,
+      onOpenTag: props.onOpenTag,
       linkFavicons: props.linkFavicons,
       fileDirectory: fileDirectory(),
     }),
@@ -286,6 +287,7 @@ export function MarkdownInlineText(
     onOpenSharedFile: props.onOpenSharedFile,
     onOpenWorkspaceFile: props.onOpenWorkspaceFile,
     onOpenQuote: props.onOpenQuote,
+    onOpenTag: props.onOpenTag,
     linkFavicons: props.linkFavicons,
     fileDirectory: messageFileDirectory(props.body),
   });

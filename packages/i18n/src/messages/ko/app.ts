@@ -68,4 +68,5 @@ export const messages = {
     "{name}이(가) 전체 접근 권한으로 전환돼요. 이후에는 다시 묻지 않고 명령과 도구를 실행하고, 파일을 변경하고, 사이트를 게시하고, 실행 중인 컴퓨터에서 파일 시스템과 네트워크 접근 범위를 스스로 넓혀요. 에이전트의 권한 설정에서 변경할 수 있어요.",
   "app.standingApproval.descriptionUnnamed":
     "이 에이전트가 전체 접근 권한으로 전환돼요. 이후에는 다시 묻지 않고 명령과 도구를 실행하고, 파일을 변경하고, 사이트를 게시하고, 실행 중인 컴퓨터에서 파일 시스템과 네트워크 접근 범위를 스스로 넓혀요. 에이전트의 권한 설정에서 변경할 수 있어요.",
+  "app.rail.library": "라이브러리",
 } as const satisfies PartialTranslation<typeof source>;

@@ -105,6 +105,8 @@ export function WorkspaceSidebar() {
   };
   const {
     sidebarLayout,
+    sidebarChatOrder,
+    setSidebarChatOrder,
     collapsedSidebarSectionIds,
     mutateSidebarLayout,
     toggleSidebarSection,
@@ -273,6 +275,8 @@ export function WorkspaceSidebar() {
       channelPreviewsPending={!channels.state.listed}
       agentMoods={agentMoods()}
       layout={sidebarLayout()}
+      chatOrder={sidebarChatOrder()}
+      onChatOrderChange={setSidebarChatOrder}
       layoutMutable={activeServerSupportsCapability("sidebar-layout")}
       foldersSupported={activeServerSupportsCapability("sidebar-folders-v1")}
       collapsedSectionIds={collapsedSidebarSectionIds()}

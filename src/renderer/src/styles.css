@@ -38,6 +38,7 @@
 @import "@tommy/ui/features/tasks/tasks.css";
 @import "@tommy/ui/styles/chart.css";
 @import "@tommy/ui/features/files/files.css";
+@import "./features/files/library.css";
 @import "@tommy/ui/features/import/agent-import.css";
 @import "@tommy/ui/features/transfer/instance-transfer.css";
 @import "@tommy/ui/features/settings/settings-modal.css";

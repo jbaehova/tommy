@@ -56,6 +56,7 @@ export function WorkspacePageRail(props: { hidden: boolean }) {
       onWorkflows={() => windowPage.openWorkflows(null)}
       onSchedule={windowPage.openSchedule}
       onTasks={tasksAvailable() ? windowPage.openTasks : undefined}
+      onLibrary={serverSupportsCapability(activeServer(), "storage-v1") ? windowPage.openLibrary : undefined}
       onUsage={windowPage.openUsage}
       onSettings={(button) => windowPage.openSettings(button)}
       logo={logo()}

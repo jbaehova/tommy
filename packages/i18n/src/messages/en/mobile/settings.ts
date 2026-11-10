@@ -167,4 +167,10 @@ export const messages = defineMessages("mobile.settings", {
   "mobile.settings.voice.recognition.removeBody": "The phone recognizer listens until you download the model again.",
   "mobile.settings.voice.tab.listening": "Listening",
   "mobile.settings.voice.tab.speaking": "Speaking",
+  "mobile.settings.voice.gptLive.title": "GPT live voice",
+  "mobile.settings.voice.gptLive.footer":
+    "In a voice conversation with an agent, GPT live voice listens and speaks instead of this phone. It uses the Codex (ChatGPT) sign-in of the computer that runs the server. Your voice goes between this phone and OpenAI, and OpenAI speaks the agent's replies. It needs a server that supports it; other servers use the voice of this phone.",
+  "mobile.settings.voice.gptLive.automatic": "Automatic",
+  "mobile.settings.voice.gptLive.cost":
+    "A supported Codex account is required. Provider usage limits and charges can apply.",
 });

@@ -8,6 +8,7 @@ export interface CsvLogin {
   username: string;
   password: string;
   notes: string;
+  twoStepKey: string;
 }
 
 const COLUMNS = {
@@ -16,6 +17,7 @@ const COLUMNS = {
   password: ["password", "login_password"],
   notes: ["notes", "note", "extra", "comments"],
   type: ["type"],
+  twoStepKey: ["login_totp", "totp", "otpauth", "otp", "one-time password"],
 } as const;
 
 /** RFC 4180 rows: quoted fields may hold commas, line breaks and doubled quotes. */
@@ -65,6 +67,7 @@ export function parseLoginCsv(source: string): { logins: CsvLogin[]; otherRows: 
   const username = column(COLUMNS.username);
   const notes = column(COLUMNS.notes);
   const type = column(COLUMNS.type);
+  const twoStepKey = column(COLUMNS.twoStepKey);
   const logins: CsvLogin[] = [];
   let otherRows = 0;
   for (const cells of rows) {
@@ -77,6 +80,7 @@ export function parseLoginCsv(source: string): { logins: CsvLogin[]; otherRows: 
       username: username < 0 ? "" : (cells[username]?.trim() ?? ""),
       password: cells[password] ?? "",
       notes: notes < 0 ? "" : (cells[notes]?.trim() ?? ""),
+      twoStepKey: twoStepKey < 0 ? "" : (cells[twoStepKey]?.trim() ?? ""),
     });
   }
   return { logins, otherRows };

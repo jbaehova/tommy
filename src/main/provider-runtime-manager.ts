@@ -39,6 +39,7 @@ import { createTommyLogger, type LogValue, redactText, toLogValue } from "@tommy
 import { Deferred, Effect, Exit, Fiber, Result, Scope, Stream } from "effect";
 import lockValue from "../../native-runtime.lock.json";
 import { type AgentRuntimeLock, parseAgentRuntimeLock } from "../../scripts/agent-runtime-lock";
+import { childProcessEnvironment } from "../backend/child-process-environment";
 import {
   type BundledProviderExecutables,
   compareReleases,
@@ -1664,8 +1665,13 @@ const verifyInstalledRuntime = Effect.fn("ProviderRuntime.verifyInstalledRuntime
   const versionFile = descriptor.versionFile;
   const output = versionFile
     ? yield* runtimeIO(() => readFile(join(root, versionFile), "utf8"))
-    : (yield* runtimeIO(() => execFileAsync(executable, ["--version"], { encoding: "utf8", windowsHide: true })))
-        .stdout;
+    : (yield* runtimeIO(() =>
+        execFileAsync(executable, ["--version"], {
+          encoding: "utf8",
+          windowsHide: true,
+          env: childProcessEnvironment(),
+        }),
+      )).stdout;
   if ((yield* runtimeSync(() => descriptor.parseVersion(output))) !== spec.version) {
     return yield* new ProviderRuntimeFailure({ cause: new Error(sourceText("error.provider.unexpectedVersion")) });
   }

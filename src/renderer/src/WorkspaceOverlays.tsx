@@ -11,6 +11,7 @@ import { appPort } from "./app-port";
 import { useAgents } from "./features/agents/agents-context";
 import { desktopBrowserProfileCalls } from "./features/browser/browser-profiles-port";
 import { createBrowserProfilesStore } from "./features/browser/stores/browser-profiles-store";
+import { useConversation } from "./features/conversation/conversation-context";
 import { conversationPort } from "./features/conversation/conversation-port";
 import type { ServerStorageOptions } from "./features/files/ServerStoragePanel";
 import { useSetup } from "./features/onboarding/onboarding-context";
@@ -155,6 +156,7 @@ function ServerSettings() {
   });
   // A host that updates or rolls back keeps its id, so the API key kind follows this capability too.
   const vaultApiKeys = createMemo(() => serverCanAdminister(serverSettingsTarget(), VAULT_V2_CAPABILITY));
+  const vaultTwoStep = createMemo(() => serverCanAdminister(serverSettingsTarget(), "vault-v3"));
   const vault = createMemo(() => {
     const serverId = vaultServerId();
     if (serverId === undefined) return undefined;
@@ -162,6 +164,7 @@ function ServerSettings() {
     return {
       store: createVaultStore(local ? desktopVaultCalls() : hostVaultCalls(serverId)),
       apiKeys: vaultApiKeys(),
+      twoStep: local || vaultTwoStep(),
     };
   });
   // The workspace belongs to the selected server. For another server, the switch comes first and
@@ -370,6 +373,7 @@ function ServerSettings() {
           hostTimezone={{}}
           hostMemoryLimit={{}}
           memoryReview={{}}
+          skillLearning={{}}
           hostPromptCacheTtl={{}}
           initialSection={serverSettingsSection()}
           // Owners and admins move this computer's server, or a remote host with `instance-transfer-v1`.
@@ -388,7 +392,13 @@ function ServerSettings() {
           }
           browserProfiles={
             serverCanAdminister(server(), BROWSER_PROFILES_CAPABILITY)
-              ? { store: browserProfiles(), listAgents: () => appPort().agent.listAgents(server().id) }
+              ? {
+                  store: browserProfiles(),
+                  proxy: serverCanAdminister(server(), "browser-profile-proxy-v1")
+                    ? desktopBrowserProfileCalls(server().id).proxy
+                    : undefined,
+                  listAgents: () => appPort().agent.listAgents(server().id),
+                }
               : undefined
           }
           vault={vault()}
@@ -447,6 +457,7 @@ function AppSettings() {
 
 /** Search across the agents, channels, conversations, routines and commands of the active server. */
 function GlobalMessageSearch() {
+  const { deletedSearchMessageIds } = useConversation();
   const { agentList, userHiddenAgentIds } = useAgents();
   const { sidebarLayout, pinnedSidebarItems } = useSidebar();
   // In sidebar order, so that ⌘1-9 opens the agents the user put at the top.
@@ -482,6 +493,7 @@ function GlobalMessageSearch() {
       routinesLoading={sources.routinesLoading()}
       actions={sources.actions()}
       onSearchMessages={searchGlobalMessages}
+      deletedMessageIds={deletedSearchMessageIds}
       onSearchFiles={sources.searchFiles()}
       onOpenChange={setGlobalSearchVisibility}
       onSelectAgent={selectAgent}

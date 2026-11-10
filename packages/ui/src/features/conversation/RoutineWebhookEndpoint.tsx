@@ -2,6 +2,7 @@ import { MASKED_WEBHOOK_SECRET } from "@tommy/contracts/event-filter-value";
 import { Button, ConfirmDialog, CopyButton, IconButton, RefreshCw, Text } from "@tommy/ui";
 import { createSignal, Show } from "solid-js";
 import { useText } from "../../text";
+import { RoutineWebhookSenderKey } from "./RoutineWebhookSenderKey";
 
 export interface RoutineWebhookUrlFieldProps {
   /** The URL the host made. Null until the relay registers the route. */
@@ -51,6 +52,8 @@ export interface RoutineWebhookSecretFieldProps {
   onSecretDismiss: () => void;
   /** Makes a new secret. The parent shows it through `secret`. */
   onRegenerateSecret: () => Promise<void>;
+  senderKeyScope?: string | undefined;
+  onSetSenderSecret?: ((secret: string) => Promise<void>) | undefined;
   onCopy?: (() => void) | undefined;
 }
 
@@ -122,6 +125,18 @@ export function RoutineWebhookSecretField(props: RoutineWebhookSecretFieldProps)
         </div>
       </Show>
 
+      <Show when={props.onSetSenderSecret && props.senderKeyScope ? props.senderKeyScope : null} keyed>
+        {(scopeKey) => (
+          <RoutineWebhookSenderKey
+            scopeKey={scopeKey}
+            onSave={(secret) =>
+              props.onSetSenderSecret?.(secret) ?? Promise.reject(new Error("Webhook sender keys are unavailable."))
+            }
+            onSaved={props.onSecretDismiss}
+          />
+        )}
+      </Show>
+
       <ConfirmDialog
         open={confirm() !== null}
         tone="destructive"
@@ -149,6 +164,8 @@ export interface RoutineWebhookEndpointProps {
   onSecretDismiss: () => void;
   /** Makes a new secret. The parent shows it through `secret`. */
   onRegenerateSecret: () => Promise<void>;
+  senderKeyScope?: string | undefined;
+  onSetSenderSecret?: ((secret: string) => Promise<void>) | undefined;
 }
 
 /** The URL and the signing secret of a saved webhook trigger, each with one action beside it. */
@@ -166,6 +183,8 @@ export function RoutineWebhookEndpoint(props: RoutineWebhookEndpointProps) {
         secret={props.secret}
         onSecretDismiss={props.onSecretDismiss}
         onRegenerateSecret={props.onRegenerateSecret}
+        senderKeyScope={props.senderKeyScope}
+        onSetSenderSecret={props.onSetSenderSecret}
       />
     </>
   );

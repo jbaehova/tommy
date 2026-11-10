@@ -8,16 +8,24 @@ import {
   type WorkflowRunPage,
   type WorkflowStep,
 } from "@tommy/contracts/ipc";
-import { WORKFLOWS_GITHUB_ROUTES } from "@tommy/contracts/team-protocol/workflows-github-v1";
+import {
+  WORKFLOWS_EXTENSIONS_CAPABILITY,
+  WORKFLOWS_EXTENSIONS_ROUTES,
+} from "@tommy/contracts/team-protocol/workflows-extensions-v1";
+import {
+  WORKFLOWS_GITHUB_CAPABILITY,
+  WORKFLOWS_GITHUB_ROUTES,
+} from "@tommy/contracts/team-protocol/workflows-github-v1";
 import {
   WORKFLOW_RUN_STEP_LIMIT,
   WORKFLOW_STEP_TEXT_LIMIT,
   WORKFLOWS_CAPABILITY,
   WORKFLOWS_ROUTES,
 } from "@tommy/contracts/team-protocol/workflows-v1";
-import { sourceText } from "@tommy/i18n/source";
+import { isFixedSourceText, sourceText } from "@tommy/i18n/source";
 import { RoutineInputError } from "@tommy/team-client/routine-schedule";
-import type { Effect } from "effect";
+import { Effect, Result } from "effect";
+import type { ChannelService } from "../../backend/channel-service";
 import { runCauseEffect } from "../../backend/effect-boundary";
 import { WorkflowStoreError } from "../../backend/workflows/workflow-store";
 import {
@@ -28,11 +36,13 @@ import {
   parseRunWorkflowStep,
   parseSaveWorkflowGraph,
   parseStartWorkflowRun,
+  parseWorkflowGitHubLastEvent,
+  parseWorkflowGitHubRepository,
   parseWorkflowRuns,
   parseWorkflowTrigger,
   parseWorkflowVersion,
 } from "../ipc/workflow-inputs";
-import type { TeamApiAgents, TeamApiWorkflows } from "./dependencies";
+import type { TeamApiAgents, TeamApiWorkflowIntegrations, TeamApiWorkflows } from "./dependencies";
 import { HttpError } from "./http-error";
 import { isPeerHiddenProvider } from "./provider-visibility";
 import type { RouteOutcome, TeamApiRequestContext } from "./request-context";
@@ -88,7 +98,8 @@ function adminNodes(graph: WorkflowGraph): Map<string, string> {
   const nodes = new Map<string, string>();
   for (const node of graph.nodes) {
     const kind = node.kind === "trigger" ? node.fields.trigger : node.kind === "output" ? node.fields.target : null;
-    if (kind !== "github" && kind !== "discord") continue;
+    if (kind !== "github" && kind !== "discord" && kind !== "slack" && kind !== "telegram" && kind !== "chat-channel")
+      continue;
     const fields = Object.keys(node.fields)
       .sort()
       .map((key) => [key, node.fields[key] ?? null]);
@@ -144,16 +155,27 @@ export async function routeWorkflows(
   workflows: TeamApiWorkflows | undefined,
   agents: Pick<TeamApiAgents, "listAgents">,
   hiddenAgentIds: ReadonlySet<string>,
+  integrations?: TeamApiWorkflowIntegrations,
+  channels?: ChannelService,
 ): Promise<RouteOutcome> {
   const { method, url, capabilities, member, request, json, protocol } = context;
   const path = url.pathname;
   const githubPath = WORKFLOW_GITHUB_PATHS.has(path);
-  if (method !== "POST" || !(githubPath || WORKFLOW_PATHS.has(path))) return "unmatched";
+  const integrationPath = path === WORKFLOWS_EXTENSIONS_ROUTES.integrationCatalog;
+  if (method !== "POST" || !(githubPath || integrationPath || WORKFLOW_PATHS.has(path))) return "unmatched";
   if (!workflows || !capabilities.has(WORKFLOWS_CAPABILITY))
     throw new HttpError(400, sourceText("error.workflow.serverTooOld"));
-  if (githubPath) throw new HttpError(400, sourceText("error.workflow.serverTooOld"));
+  if (githubPath && (!integrations?.githubCatalog || !capabilities.has(WORKFLOWS_GITHUB_CAPABILITY)))
+    throw new HttpError(400, sourceText("error.workflow.serverTooOld"));
+  if (integrationPath && (!integrations || !capabilities.has(WORKFLOWS_EXTENSIONS_CAPABILITY)))
+    throw new HttpError(400, sourceText("error.workflow.serverTooOld"));
+  if (integrationPath) requireAdmin(member);
   // `readJson` has already run the body through the workflows wire codec.
   const body = await readJson(request);
+  if (integrationPath) {
+    if (!integrations) throw new HttpError(400, sourceText("error.workflow.serverTooOld"));
+    return json(200, integrations.catalog());
+  }
   const admin = canAdministerServer(member.role);
   const listed = () => new Set(agents.listAgents().map((agent) => agent.id));
 
@@ -161,7 +183,14 @@ export async function routeWorkflows(
     agentIds.every((agentId) => !hiddenAgentIds.has(agentId) && (admin || known.has(agentId)));
   const visibleGraph = (graph: WorkflowGraph, known: ReadonlySet<string>) =>
     visibleAgents(graphAgentIds(graph), known) &&
-    graph.nodes.every((node) => !isPeerHiddenProvider(node.fields.provider, protocol));
+    graph.nodes.every((node) => {
+      if (isPeerHiddenProvider(node.fields.provider, protocol)) return false;
+      if (node.kind !== "output" || node.fields.target !== "chat-channel") return true;
+      const channelId = node.fields.channelId;
+      if (typeof channelId !== "string" || !channels?.store.exists(channelId)) return admin;
+      const channel = channels.store.get(channelId);
+      return channel.members.every(({ agentId }) => !hiddenAgentIds.has(agentId));
+    });
   /** A graph that the member can read and use at `level`, or a 404 as for a missing workflow. */
   const requireUsable = (graph: WorkflowGraph, level: Exclude<AgentAccessLevel, "none">) => {
     if (!visibleGraph(graph, listed())) workflowMissing();
@@ -243,6 +272,26 @@ export async function routeWorkflows(
   };
 
   switch (path) {
+    case WORKFLOWS_GITHUB_ROUTES.catalog:
+      requireAdmin(member);
+      if (!integrations?.githubCatalog) throw new HttpError(400, sourceText("error.workflow.githubNotConnected"));
+      return json(200, await githubRead(integrations.githubCatalog()));
+    case WORKFLOWS_GITHUB_ROUTES.options: {
+      requireAdmin(member);
+      if (!integrations?.githubOptions) throw new HttpError(400, sourceText("error.workflow.githubNotConnected"));
+      const input = parse(parseWorkflowGitHubRepository, body);
+      return json(200, await githubRead(integrations.githubOptions(input.repository)));
+    }
+    case WORKFLOWS_GITHUB_ROUTES.history: {
+      const workflowId = stringField(body, "workflowId");
+      await visibleDetail(workflowId);
+      return json(200, await run(workflows.githubHistory(workflowId)));
+    }
+    case WORKFLOWS_GITHUB_ROUTES.runLastEvent: {
+      const input = parse(parseWorkflowGitHubLastEvent, body);
+      await usableDetail(input.workflowId, "chat");
+      return json(200, fittedRun(await run(workflows.githubLastEvent(input))));
+    }
     case WORKFLOWS_ROUTES.list: {
       const known = listed();
       const all = await run(workflows.listWithGraphs());
@@ -350,4 +399,14 @@ export async function routeWorkflows(
     }
   }
   return "unmatched";
+}
+
+/** Adapter failures contain catalog text only. They never expose a remote URL or response body. */
+async function githubRead<A>(operation: Effect.Effect<A, { readonly message: string }>): Promise<A> {
+  const result = await Effect.runPromise(Effect.result(operation));
+  if (Result.isFailure(result)) {
+    if (isFixedSourceText(result.failure.message)) throw new HttpError(400, result.failure.message);
+    throw result.failure;
+  }
+  return result.success;
 }

@@ -431,17 +431,7 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
         );
         if (!replaced) return live;
       }
-      if (!isAbsolute(requestedId)) return yield* providerFailure(new MissingPiSessionError());
-      // Only a file that is gone retires the session. Another failure, such as no permission, can pass.
-      yield* providerCall(() => access(requestedId)).pipe(
-        Effect.mapError(({ cause }) =>
-          providerFailure(
-            isMissingFileError(cause)
-              ? new MissingPiSessionError()
-              : new Error(sourceText("error.provider.piSessionMissing")),
-          ),
-        ),
-      );
+      yield* requireSessionFile(requestedId);
     }
     const cwd = yield* providerSync(() => requiredString(params, "cwd"));
     let thread: PiThread | null = null;
@@ -948,16 +938,15 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
       yield* stored.read(request, consume);
       return;
     }
-    const thread = yield* this.#thread(request.threadId, {
-      cwd: request.cwd ?? this.options.discoveryCwd?.() ?? process.cwd(),
-    });
-    const response = yield* thread.rpc.request({ type: "get_messages" });
-    const messages = getArray(response, "messages");
+    const messages = yield* this.#readMessages(
+      request.threadId,
+      request.cwd ?? this.options.discoveryCwd?.() ?? process.cwd(),
+    );
     // get_messages follows the active branch. get_entries also contains abandoned branches.
     for (let index = messages.length - 1; index >= 0; index--) {
       const message = messages[index];
       const fragment: ProviderHistoryFragment = {
-        turnId: `${thread.id}:history:${index}`,
+        turnId: `${request.threadId}:history:${index}`,
         recordsOnly: true,
         status: "completed",
         ...(isRecord(message) && typeof message.timestamp === "number" ? { startedAt: message.timestamp / 1_000 } : {}),
@@ -968,6 +957,66 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
     }
   });
 
+  /**
+   * The messages of a session. A session that no thread has open is read on a process with no
+   * tools, extensions or MCP servers, which ends after the read. An open thread started every MCP
+   * server and Computer Use, and kept them for `PI_THREAD_IDLE_RELEASE_MS`. The history import at
+   * startup opened one for each Pi agent, and the computer stopped responding (#6012).
+   */
+  readonly #readMessages = Effect.fn("PiAgentClient.readMessages")(function* (
+    this: PiAgentClient,
+    sessionFile: string,
+    cwd: string,
+  ) {
+    const fromThread = (thread: PiThread) =>
+      thread.rpc.request({ type: "get_messages" }).pipe(Effect.map((response) => getArray(response, "messages")));
+    const live = this.#threads.get(sessionFile);
+    if (live) return yield* fromThread(live);
+    // The permit keeps a thread from opening this session while the short process has it open.
+    return yield* this.#opening.withPermit(
+      Effect.suspend(() => {
+        // A thread can open the session while this read waits for the permit.
+        const opened = this.#threads.get(sessionFile);
+        return opened ? fromThread(opened) : this.#readOnShortProcess(sessionFile, cwd);
+      }),
+    );
+  });
+
+  readonly #readOnShortProcess = Effect.fn("PiAgentClient.readOnShortProcess")(function* (
+    this: PiAgentClient,
+    sessionFile: string,
+    cwd: string,
+  ) {
+    yield* requireSessionFile(sessionFile);
+    if (!this.#running) return yield* providerFailure(new Error(sourceText("error.provider.piStopped")));
+    const rpc = new PiRpc(this.#redact, this.provider);
+    // What Pi writes after the read, while Tommy stops it, is not an error for the user.
+    let stopping = false;
+    rpc.on("diagnostic", (text) => this.emit("diagnostic", text, { duringStop: stopping }));
+    return yield* Effect.acquireUseRelease(
+      providerSync(() => {
+        this.#spawn(rpc, cwd, ["--no-tools", "--no-extensions", "--no-mcp"], {});
+        // `stop` ends the processes in this set before it waits for the read.
+        this.#starting.add(rpc);
+      }),
+      () =>
+        Effect.gen(function* () {
+          const loaded = yield* rpc.request({ type: "switch_session", sessionPath: sessionFile });
+          if (loaded.cancelled === true)
+            return yield* providerFailure(new Error(sourceText("error.provider.piResumeCancelled")));
+          return getArray(yield* rpc.request({ type: "get_messages" }), "messages");
+        }),
+      () =>
+        Effect.sync(() => {
+          stopping = true;
+        }).pipe(
+          Effect.andThen(rpc.stop()),
+          Effect.ensuring(Effect.sync(() => this.#starting.delete(rpc))),
+          Effect.orDie,
+        ),
+    );
+  });
+
   #safeItems(items: ThreadItem[]): ThreadItem[] {
     const values = this.#secretValues();
     return items.flatMap((item) => {
@@ -975,6 +1024,20 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
       return isRecord(value) && isString(value.type) ? [{ ...value, type: value.type }] : [];
     });
   }
+}
+
+/** Only a file that is gone retires the session. Another failure, such as no permission, can pass. */
+function requireSessionFile(sessionFile: string): Effect.Effect<void, ProviderClientOperationError> {
+  if (!isAbsolute(sessionFile)) return Effect.fail(providerFailure(new MissingPiSessionError()));
+  return providerCall(() => access(sessionFile)).pipe(
+    Effect.mapError(({ cause }) =>
+      providerFailure(
+        isMissingFileError(cause)
+          ? new MissingPiSessionError()
+          : new Error(sourceText("error.provider.piSessionMissing")),
+      ),
+    ),
+  );
 }
 
 function isNamespace(value: unknown): value is DynamicToolNamespace {

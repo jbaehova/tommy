@@ -18,6 +18,7 @@ import { AGENT_NOTIFICATION_LEVELS_CODECS } from "./agent-notification-levels-v1
 import { AGENT_PLAN_CARD_CODECS } from "./agent-plan-card-v1";
 import { AGENT_PUBLISH_CODECS } from "./agent-publish-v1";
 import { AGENT_SESSION_SETTINGS_CODECS } from "./agent-session-settings-v1";
+import { AGENT_SPEED_CODECS } from "./agent-speed-v1";
 import { AGENT_TASK_LIMIT_CODECS } from "./agent-task-limit-v1";
 import { AGENT_TASKS_CODECS } from "./agent-tasks-v1";
 import { AGENT_THREAD_BRANCHES_CODECS } from "./agent-thread-branches-v1";
@@ -26,11 +27,13 @@ import { AGENT_THREAD_READS_CODECS } from "./agent-thread-reads-v1";
 import { AGENT_THREADS_CODECS } from "./agent-threads-v1";
 import { AGENT_UPDATE_CODECS } from "./agent-update-v1";
 import { BROWSER_PAGE_STATE_CODECS } from "./browser-page-state-v1";
+import { BROWSER_PROFILE_PROXY_CODECS } from "./browser-profile-proxy-v1";
 import { BROWSER_PROFILES_CODECS } from "./browser-profiles-v1";
 import { BROWSER_SECRET_LOGIN_CODECS } from "./browser-secret-login-v1";
 import { BROWSER_SECRET_VAULT_CODECS } from "./browser-secret-vault-v1";
 import { BROWSER_SIGN_IN_CODECS } from "./browser-sign-in-v1";
 import { BROWSER_USER_CONTROL_CODECS } from "./browser-user-control-v1";
+import { CHAT_HISTORY_CODECS } from "./chat-history-v1";
 import { CONNECTORS_CODECS } from "./connectors-v1";
 import { CONTEXT_COMPACT_CODECS } from "./context-compact-v1";
 import { CONTEXT_RESET_CODECS } from "./context-reset-v1";
@@ -49,11 +52,14 @@ import { HOST_TIMEZONE_CODECS } from "./host-timezone-v1";
 import { HOST_UPDATE_CODECS } from "./host-update-v1";
 import { HOST_VOICE_CODECS } from "./host-voice-v1";
 import { INSTANCE_TRANSFER_CODECS } from "./instance-transfer-v1";
+import { LIVE_VOICE_CODECS } from "./live-voice-v1";
 import { MACHINE_RESOURCES_CODECS } from "./machine-resources-v1";
 import { MCP_SIGN_IN_APP_CODECS } from "./mcp-sign-in-app-v1";
 import { MCP_SIGN_IN_CODECS } from "./mcp-sign-in-v1";
 import { MEMORY_REVIEW_CODECS } from "./memory-review-v1";
+import { MESSAGE_DELETE_CODECS } from "./message-delete-v1";
 import { PROMPT_CACHE_TTL_CODECS } from "./prompt-cache-ttl-v1";
+import { PROVIDER_ACCOUNT_MODELS_CODECS } from "./provider-account-models-v1";
 import { PROVIDER_ACCOUNT_RELAY_CODECS } from "./provider-account-relay-v1";
 import { PROVIDER_ACCOUNT_RELAY_V2_CODECS } from "./provider-account-relay-v2";
 import { PROVIDER_ACCOUNTS_CODECS } from "./provider-accounts-v1";
@@ -71,18 +77,23 @@ import { ANDROID_PUSH_NOTIFICATIONS_CODECS } from "./push-notifications-android-
 import { ROUTINE_FLOWS_CODECS } from "./routine-flows-v1";
 import { ROUTINE_RECOVERY_CODECS } from "./routine-recovery-v1";
 import { ROUTINE_RESULTS_CODECS } from "./routine-results-v1";
+import { ROUTINE_RUN_PLACE_CODECS } from "./routine-run-place-v1";
 import { SERVER_AUDIT_CODECS } from "./server-audit-v1";
 import { SHARED_TABLES_CODECS } from "./shared-tables-v1";
 import { SIDE_QUESTION_CODECS } from "./side-question-v1";
 import { SIDEBAR_FOLDERS_CODECS } from "./sidebar-folders-v1";
 import { SIDEBAR_PINS_CODECS } from "./sidebar-pins-v1";
 import { SIGN_IN_RELAY_CODECS } from "./sign-in-relay-v1";
+import { SKILL_LEARNING_CODECS } from "./skill-learning-v1";
 import { SKILLS_ADMIN_CODECS } from "./skills-admin-v1";
 import { STORAGE_DISK_CODECS } from "./storage-disk-v1";
 import { VAULT_IMPORT_CODECS } from "./vault-import-v1";
 import { VAULT_CODECS } from "./vault-v1";
 import { VAULT_V2_CODECS } from "./vault-v2";
+import { VAULT_V3_CODECS } from "./vault-v3";
+import { WEBHOOK_SENDER_SECRET_CODECS } from "./webhook-sender-secret-v1";
 import { WEBHOOK_TESTS_CODECS } from "./webhook-tests-v1";
+import { WORKFLOWS_EXTENSIONS_CODECS } from "./workflows-extensions-v1";
 import { WORKFLOWS_GITHUB_CODECS } from "./workflows-github-v1";
 import { WORKFLOWS_CODECS } from "./workflows-v1";
 import { WORKSPACE_DIRECTORY_CODECS } from "./workspace-directory-v1";
@@ -90,6 +101,17 @@ import { WORKSPACE_DIRECTORY_CODECS } from "./workspace-directory-v1";
 export type { OptionalRouteCodec } from "./admin-wire";
 
 const CODECS: ReadonlyMap<string, OptionalRouteCodec> = new Map([
+  ...ROUTINE_RUN_PLACE_CODECS,
+  ...CHAT_HISTORY_CODECS,
+  ...MESSAGE_DELETE_CODECS,
+  ...LIVE_VOICE_CODECS,
+  ...WEBHOOK_SENDER_SECRET_CODECS,
+  ...PROVIDER_ACCOUNT_MODELS_CODECS,
+  ...AGENT_SPEED_CODECS,
+  ...BROWSER_PROFILE_PROXY_CODECS,
+  ...SKILL_LEARNING_CODECS,
+  ...VAULT_V3_CODECS,
+  ...WORKFLOWS_EXTENSIONS_CODECS,
   ...AGENT_ADMIN_CODECS,
   ...AGENT_MEMORIES_CODECS,
   ...SKILLS_ADMIN_CODECS,

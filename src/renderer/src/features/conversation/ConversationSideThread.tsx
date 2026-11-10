@@ -29,6 +29,11 @@ export function ConversationSideThread(props: { threadId: string }) {
     attachmentAction,
     attachmentDownloads,
     installedSkills,
+    skillLearningFor,
+    messageDeletion,
+    taggableBrowserTabs,
+    taggableThreads,
+    openTaggedReference,
     installedSkillsLoadFailed,
     mcpServers,
     threadComposer,
@@ -131,6 +136,17 @@ export function ConversationSideThread(props: { threadId: string }) {
             agents={view.agents}
             messages={messages}
             skills={installedSkills()}
+            onDeleteMessage={
+              messageDeletion.available()
+                ? (message) => messageDeletion.requestMessage(message, thread()?.task.id)
+                : undefined
+            }
+            canDeleteMessage={messageDeletion.canDeleteMessage}
+            deleteDisabled={messageDeletion.busy()}
+            skillLearning={(messageId) => skillLearningFor(messageId, thread()?.task.threadId)}
+            browserTabs={taggableBrowserTabs()}
+            threads={taggableThreads().filter((task) => task.id !== thread()?.task.id)}
+            onOpenTag={openTaggedReference}
             skillsLoadFailed={installedSkillsLoadFailed()}
             mcpServers={mcpServers()}
             draft={draft()?.text ?? ""}

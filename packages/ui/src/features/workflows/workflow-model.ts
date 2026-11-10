@@ -9,6 +9,7 @@ import {
   type AgentProviderRef,
   type AgentStatus,
   type ClientAgentModelOption,
+  type MessagingPlatform,
   type StoredFileRow,
   WORKFLOW_NODE_KINDS,
   type WorkflowNodeKind,
@@ -29,6 +30,8 @@ export interface WorkflowFeatures {
   uploads: boolean;
   /** Whether the canvas shows the other people on it. */
   presence: boolean;
+  /** The host can run one GitHub trigger on more than one repository. */
+  multiRepositoryGitHub?: boolean;
 }
 
 /** Image and file steps, file outputs and message triggers do not run in this version. */
@@ -46,6 +49,10 @@ export interface WorkflowPlace {
   placeId: string;
   /** The name of the place, as the user knows it, such as "#general". */
   label: string;
+  /** The app, the connection and the place name alone, so a list can group the places by connection. */
+  platform?: MessagingPlatform;
+  connection?: string;
+  name?: string;
 }
 
 /** A Discord server that a Discord trigger listens to or that a Discord output acts on. */
@@ -55,6 +62,27 @@ export interface WorkflowDiscordServer {
   name: string;
   channels: readonly { id: string; name: string }[];
   roles: readonly { id: string; name: string }[];
+}
+
+/** A Telegram chat that a Telegram trigger listens to or that a Telegram output acts on. */
+export interface WorkflowTelegramChat {
+  /** The messaging connection of the chat. One connection is one chat. */
+  connectionId: string;
+  name: string;
+}
+
+/** A Slack workspace that a Slack trigger listens to or that a Slack output acts on. */
+export interface WorkflowSlackWorkspace {
+  /** The messaging connection of the workspace. */
+  connectionId: string;
+  name: string;
+  channels: readonly { id: string; name: string }[];
+}
+
+/** A Tommy channel that an output posts its result to. */
+export interface WorkflowChannel {
+  id: string;
+  name: string;
 }
 
 /** A model that an image step can draw with. */
@@ -79,6 +107,12 @@ export interface WorkflowCatalogs {
   places: readonly WorkflowPlace[];
   /** The Discord servers of the host. Only the host that runs the workflow has them. */
   discord?: readonly WorkflowDiscordServer[] | undefined;
+  /** The Telegram chats linked to the host. Only the host that runs the workflow has them. */
+  telegram?: readonly WorkflowTelegramChat[] | undefined;
+  /** The Slack workspaces of the host. Only the host that runs the workflow has them. */
+  slack?: readonly WorkflowSlackWorkspace[] | undefined;
+  /** The open Tommy channels that this host allows the account to read. */
+  channels?: readonly WorkflowChannel[] | undefined;
   imageModels: readonly WorkflowImageModel[];
   /** The workspace files that an asset node can take, and the images that image steps made. */
   files: readonly StoredFileRow[];

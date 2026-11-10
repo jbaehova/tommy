@@ -34,9 +34,13 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { AGENT_PROVIDERS, type AgentEvent, type ChannelMessage } from "@tommy/contracts/ipc";
+import { isDynamicRecord } from "@tommy/contracts/runtime-values";
+import { sourceText } from "@tommy/i18n/source";
 import { Effect } from "effect";
 import type { AgentBrowserHost } from "../src/backend/agent/turn-lifecycle";
 import type { boundedHistoryPage, historyMessagePart } from "../src/backend/channel-history";
+import { DirectWebhookRoutes } from "../src/main/direct-webhook-ingress";
+import { HostEventsService } from "../src/main/host-events-service";
 
 type HistoryPage = ReturnType<typeof boundedHistoryPage>;
 type HistoryPart = ReturnType<typeof historyMessagePart>;
@@ -47,6 +51,7 @@ const userData = join(root, "user-data");
 const home = join(root, "home");
 const fakeCodex = join(root, "codex");
 const fakeLog = join(root, "codex.jsonl");
+const limitControl = join(root, "usage-limit-control.json");
 // A HOLD turn of the fake stays open until this file exists, so the check can call a channel tool.
 // The file stays, so a later turn of the same task ends at once.
 const release = join(root, "release");
@@ -84,13 +89,14 @@ const MEASURE_SUMMARY = `${SUMMARY_TEXT} ${"The members checked one more step of
  * with its thread, answers a summary request with a short summary, and every other turn with "Done.".
  */
 const FAKE_CODEX = `#!/usr/bin/env node
-const { appendFileSync, existsSync } = require("node:fs");
+const { appendFileSync, existsSync, readFileSync } = require("node:fs");
 if (process.argv.includes("--version")) {
   process.stdout.write("codex-cli 0.160.1\\n");
   process.exit(0);
 }
 const LOG = ${JSON.stringify(fakeLog)};
 const RELEASE = ${JSON.stringify(release)};
+const LIMIT_CONTROL = ${JSON.stringify(limitControl)};
 const config = { config: { mcp_servers: {} }, layers: [{ name: { type: "user", file: "/fake/.codex/config.toml", profile: null }, version: "1", config: { mcp_servers: {} } }] };
 let buffer = "";
 let threads = 0;
@@ -125,7 +131,7 @@ const answer = (message) => {
     case "initialize": return write({ id: message.id, result: {} });
     case "account/read": return write({ id: message.id, result: { account: { type: "chatgpt", email: "codex@example.com" } } });
     case "account/rateLimits/read": return write({ id: message.id, result: { rateLimits: { limitId: "codex", primary: null, secondary: null }, rateLimitsByLimitId: null } });
-    case "model/list": return write({ id: message.id, result: { data: [{ model: "gpt-6-luna", displayName: "GPT-6 Luna" }, { model: "gpt-6-sol", displayName: "GPT-6 Sol" }] } });
+    case "model/list": return write({ id: message.id, result: { data: [{ model: "gpt-6-luna", displayName: "GPT-6 Luna" }, { model: "gpt-6-sol", displayName: "GPT-6 Sol" }, { model: "example-unlimited", displayName: "Example unlimited model" }] } });
     case "plugin/list": return write({ id: message.id, result: { marketplaces: [] } });
     case "config/read": return write({ id: message.id, result: config });
     case "config/batchWrite": return write({ id: message.id, result: {} });
@@ -139,15 +145,25 @@ const answer = (message) => {
       const turnId = "turn-" + (++turns);
       const threadId = params.threadId;
       const text = (params.input || []).map((item) => item.text || "").join("\\n");
-      log({ threadId, turnId, text, model: params.model });
+      const control = existsSync(LIMIT_CONTROL) ? JSON.parse(readFileSync(LIMIT_CONTROL, "utf8")) : {};
+      const routing = text.includes("Select the channel members who respond.");
+      const limited = (control.models || []).includes(params.model) && !(routing && control.allowRouting);
+      log({ threadId, turnId, text, model: params.model, routing, limited });
       write({ id: message.id, result: { turn: { id: turnId, status: "inProgress", items: [] } } });
       write({ method: "turn/started", params: { threadId, turn: { id: turnId } } });
       // Only the current assignment selects a behavior: the transcript repeats earlier ones.
       const assignment = (text.match(/Current assignment:\\n([^\\n]*)/) || [])[1] || "";
-      const reply = text.includes(${JSON.stringify(SUMMARY_REQUEST)})
+      const reply = routing && control.targets
+        ? JSON.stringify({ agentIds: control.targets })
+        : text.includes(${JSON.stringify(SUMMARY_REQUEST)})
         ? ${JSON.stringify(MEASURE ? MEASURE_SUMMARY : SUMMARY_TEXT)}
         : assignment.startsWith("MEASURE") ? ${JSON.stringify(MEASURE_REPLY)} : "Done.";
       const steps = [];
+      if (limited) return run([() => {
+        const error = { message: "You've hit your usage limit. Try again later.", codexErrorInfo: "usageLimitExceeded" };
+        write({ method: "error", params: { threadId, turnId, willRetry: false, error } });
+        write({ method: "turn/completed", params: { threadId, turn: { id: turnId, status: "failed", error } } });
+      }]);
       if (assignment.startsWith("STUCK")) {
         // Codex compacts by itself twice, and each time the session stays at 84% of its window.
         for (let index = 0; index < 2; index++) {
@@ -171,15 +187,23 @@ const answer = (message) => {
         write({ method: "turn/completed", params: { threadId, turn: { id: turnId, status: "completed" } } });
       };
       // An agent saves a fact with tommy.remember: first with a memoryId, then without one.
-      const call = (args, then) => {
+      const callTool = (tool, args, then) => {
         const id = "tool-" + (++calls);
         waiting.set(id, (response) => {
           log({ threadId, turnId, method: "tool/result", text: JSON.stringify(response.result ?? response.error) });
           then();
         });
-        write({ id, method: "item/tool/call", params: { threadId, turnId, callId: "call-" + calls, namespace: "tommy", tool: "remember", arguments: args } });
+        write({ id, method: "item/tool/call", params: { threadId, turnId, callId: "call-" + calls, namespace: "tommy", tool, arguments: args } });
       };
-      if (assignment.startsWith("REMEMBER")) {
+      const call = (args, then) => callTool("remember", args, then);
+      const privateTaskId = assignment.startsWith("PRIVATE_TOOLS:")
+        ? assignment.slice("PRIVATE_TOOLS: ".length).trim()
+        : (text.match(/PRIVATE_HISTORY_CHECK: ([a-z0-9-]+)/) || [])[1];
+      if (assignment.startsWith("PRIVATE_TOOLS:")) {
+        steps.push(() => callTool("list_workflows", {}, () => callTool("history_read", { taskId: privateTaskId }, finish)));
+      } else if (privateTaskId) {
+        steps.push(() => callTool("history_read", { taskId: privateTaskId }, finish));
+      } else if (assignment.startsWith("REMEMBER")) {
         const text = assignment.slice("REMEMBER: ".length);
         steps.push(() => call({ text, memoryId: "memory-1" }, () => call({ text }, finish)));
       } else if (assignment.startsWith("HOLD"))
@@ -238,6 +262,8 @@ process.stdin.on("data", (chunk) => {
 
 interface TurnLog {
   threadId: string;
+  routing?: boolean;
+  limited?: boolean;
   model?: string;
   turnId?: string;
   method?: string;
@@ -273,6 +299,9 @@ const report: {
 
 const unused = () => Effect.die(new Error("Not used by this check."));
 const browser: AgentBrowserHost = {
+  shareTab: () => {},
+  unshareThread: () => {},
+  agentTab: () => null,
   listTabs: () => [],
   beginTakeover: unused,
   endTakeover: () => {},
@@ -383,6 +412,7 @@ const agents = new AgentService({
   preferredProvider: "codex",
   offProviders: AGENT_PROVIDERS.filter((provider) => provider !== "codex"),
   timezone: () => "UTC",
+  channelRemotePerson: (memberId) => memberId !== PERSON.id,
 });
 const channels = () => agents.channels;
 const events: { code: string; agentId?: string; message: string }[] = [];
@@ -903,6 +933,494 @@ try {
         sharedPacket.includes("no longer isolated") &&
         !sharedPacket.includes("tommy.remember saves a channel memory here"),
     );
+  }
+  if (!MEASURE) {
+    const command = (text: string) =>
+      runCauseEffect(
+        channels().command(
+          {
+            type: "send",
+            operationId: randomUUID(),
+            channelId,
+            text,
+            recipientAgentId: null,
+            replyToMessageId: null,
+            attachmentDraftIds: [],
+          },
+          PERSON,
+        ),
+      );
+    const priorTasks = channels().store.tasks(channelId).length;
+    const note = {
+      operationId: "workflow-note",
+      channelId,
+      author: { id: "workflow:example", name: "Workflow" },
+      text: "Workflow output.",
+    };
+    assert.equal(await runCauseEffect(channels().postNote(note)), "posted");
+    assert.equal(await runCauseEffect(channels().postNote(note)), "posted");
+    const notes = messages(channelId).filter((entry) => entry.author.id === note.author.id);
+    pass(
+      "A workflow note is idempotent and starts no task",
+      notes.length === 1 && notes[0]?.taskId === null && channels().store.tasks(channelId).length === priorTasks,
+    );
+
+    await command("@Lead @Tester, say one word each.");
+    await settled(channelId);
+    const addressed = messages(channelId).find((entry) => entry.message.text === "@Lead @Tester, say one word each.");
+    assert.ok(addressed);
+    const owners = channels()
+      .store.tasks(channelId)
+      .filter((task) => task.requestMessageId === addressed.id)
+      .map((task) => task.ownerAgentId);
+    pass(
+      "Typed member names reach each named member",
+      owners.length === 2 && owners.includes(lead.id) && owners.includes(tester.id),
+    );
+
+    await command("Choose the lead for this unclear request.");
+    await settled(channelId);
+    const unclear = messages(channelId).find(
+      (entry) => entry.message.text === "Choose the lead for this unclear request.",
+    );
+    pass(
+      "A malformed routing answer goes to the lead",
+      channels()
+        .store.tasks(channelId)
+        .some(
+          (task) =>
+            task.requestMessageId === unclear?.id && task.ownerAgentId === lead.id && task.state === "completed",
+        ),
+    );
+
+    await runCauseEffect(agents.updateAgent({ agentId: tester.id, computerUse: false }));
+    await rm(release, { force: true });
+    await send(channelId, tester.id, "HOLD: ask another member before answering.", null, true);
+    const caller = await waitFor("the reply caller to run", () =>
+      channels()
+        .store.assignments(channelId)
+        .find(
+          (item) =>
+            item.agentId === tester.id &&
+            item.turnId &&
+            channels()
+              .store.tasks(channelId)
+              .some((task) => task.id === item.taskId && task.state === "running"),
+        ),
+    );
+    const ownReceipt = await runCauseEffect(
+      agents.sendMessage({ agentId: tester.id, text: "OWN CHAT runs beside the channel." }),
+    );
+    const ownId = ownReceipt.deliveries[0]?.id;
+    assert.ok(ownId);
+    await waitFor(
+      "the personal chat beside the channel",
+      () => mailbox.getDelivery(ownId)?.delivery.status === "completed",
+    );
+    pass(
+      "The personal chat completes while its channel turn runs",
+      channels()
+        .store.tasks(channelId)
+        .some((task) => task.id === caller.taskId && task.state === "running") &&
+        agents.listQueue(tester.id).hold == null,
+    );
+    const target = messages(channelId).findLast(
+      (entry) =>
+        entry.author.id === lead.id && entry.message.author === "assistant" && entry.message.itemType !== "commentary",
+    );
+    assert.ok(target);
+    const tool = (name: string, args: Record<string, string>) =>
+      runCauseEffect(channels().tool(channelId, tester.id, caller.turnId ?? "", randomUUID(), name, args));
+    const first = await tool("channel_reply", { messageId: target.id, text: "HOLD: confirm the first detail." });
+    const second = await tool("channel_reply", { messageId: target.id, text: "HOLD: confirm the second detail." });
+    const third = await tool("channel_reply", { messageId: target.id, text: "Confirm a third detail." });
+    pass(
+      "A request accepts two member replies and refuses a third",
+      isDynamicRecord(first) &&
+        first.accepted === true &&
+        isDynamicRecord(second) &&
+        second.accepted === true &&
+        isDynamicRecord(third) &&
+        third.accepted === false,
+    );
+    const premature = await tool("channel_result", { text: "This must wait for the member answer." });
+    pass("A member cannot publish before its reply answer", isDynamicRecord(premature) && premature.accepted === false);
+    const replies = channels()
+      .store.tasks(channelId)
+      .filter((task) => task.parentTaskId === caller.taskId && task.requestMessageId.startsWith("channel-reply-"));
+    const stopped = replies[0];
+    assert.ok(stopped);
+    await runCauseEffect(
+      channels().command(
+        { type: "stop", operationId: randomUUID(), channelId, taskId: stopped.id, recipientAgentId: null },
+        PERSON,
+      ),
+    );
+    writeFileSync(release, "");
+    await waitFor(
+      "the parent to wait for a paused reply",
+      () =>
+        channels()
+          .store.tasks(channelId)
+          .find((task) => task.id === caller.taskId)?.state === "waiting",
+    );
+    await rm(release, { force: true });
+    await command("continue");
+    await waitFor(
+      "the paused reply to continue",
+      () =>
+        channels()
+          .store.tasks(channelId)
+          .find((task) => task.id === stopped.id)?.state === "running",
+    );
+    pass(
+      "Continue resumes a paused reply and keeps its identity",
+      channels()
+        .store.tasks(channelId)
+        .find((task) => task.id === stopped.id)?.requestMessageId === stopped.requestMessageId,
+    );
+    writeFileSync(release, "");
+    await settled(channelId);
+    pass(
+      "The caller finishes after both member replies",
+      channels()
+        .store.tasks(channelId)
+        .find((task) => task.id === caller.taskId)?.state === "completed",
+    );
+
+    await runCauseEffect(agents.updateAgent({ agentId: tester.id, computerUse: true }));
+    await rm(release, { force: true });
+    await send(channelId, tester.id, "HOLD: keep the shared desktop until this channel turn ends.", null, true);
+    await waitFor("the desktop channel turn", () =>
+      channels()
+        .store.assignments(channelId)
+        .some(
+          (assignment) =>
+            assignment.agentId === tester.id &&
+            assignment.turnId &&
+            channels()
+              .store.tasks(channelId)
+              .some((task) => task.id === assignment.taskId && task.state === "running"),
+        ),
+    );
+    const screenReceipt = await runCauseEffect(
+      agents.sendMessage({ agentId: tester.id, text: "Continue in the personal chat after screen work." }),
+    );
+    const screenDelivery = screenReceipt.deliveries[0]?.id;
+    assert.ok(screenDelivery);
+    const screenBarrier = await runCauseEffect(
+      agents.sendMessage({ agentId: lead.id, text: "An independent event barrier for the shared screen." }),
+    );
+    const barrierId = screenBarrier.deliveries[0]?.id;
+    assert.ok(barrierId);
+    await waitFor(
+      "the independent desktop queue barrier",
+      () => mailbox.getDelivery(barrierId)?.delivery.status === "completed",
+    );
+    pass(
+      "Computer Use preserves channel screen access and serializes the personal chat",
+      mailbox.getDelivery(screenDelivery)?.delivery.status === "queued",
+    );
+    writeFileSync(release, "");
+    await settled(channelId);
+    await waitFor(
+      "the personal chat after screen release",
+      () => mailbox.getDelivery(screenDelivery)?.delivery.status === "completed",
+    );
+    pass("Ending a Computer Use channel turn releases the personal chat", true);
+
+    const createRoutine = (name: string, runIn?: "chat" | "thread") =>
+      agents.createRoutine({
+        agentId: tester.id,
+        name,
+        instruction: `ROUTINE ${name}`,
+        active: false,
+        timezone: "UTC",
+        schedule: { kind: "daily", time: "09:00" },
+        ...(runIn ? { runIn } : {}),
+      });
+    const mainRoutine = createRoutine("Main routine");
+    const sideRoutine = createRoutine("Side routine", "thread");
+    const eventRoutines = new HostEventsService({
+      routines: agents.routineRecords,
+      cipher: {
+        encrypt: () => {
+          throw new Error("This routine check does not store a webhook secret.");
+        },
+        decrypt: () => {
+          throw new Error("This routine check does not read a webhook secret.");
+        },
+      },
+      relay: new DirectWebhookRoutes(null),
+      accountPrincipal: () => null,
+    });
+    for (const runIn of ["chat", "thread"] as const) {
+      const saved = await runCauseEffect(
+        eventRoutines.saveRoutine({
+          owner: { kind: "agent", id: tester.id },
+          id: sideRoutine.id,
+          name: sideRoutine.name,
+          instruction: sideRoutine.instruction,
+          active: false,
+          timezone: sideRoutine.timezone,
+          trigger: { kind: "schedule", schedule: sideRoutine.trigger.schedule },
+          runIn,
+        }),
+      );
+      pass(
+        `The events service saves the ${runIn} routine run place`,
+        saved.routine.runIn === runIn &&
+          agents.listRoutines(tester.id).find(({ id }) => id === sideRoutine.id)?.runIn === runIn,
+      );
+    }
+    for (const routine of [mainRoutine, sideRoutine, sideRoutine]) {
+      const run = await runCauseEffect(agents.testRoutine({ agentId: tester.id, routineId: routine.id }));
+      await waitFor(
+        "the routine run to complete",
+        () =>
+          agents.listRoutineRuns({ agentId: tester.id, routineId: routine.id }).find((item) => item.id === run.id)
+            ?.status === "succeeded",
+      );
+    }
+    const routineThreads = agents.listTasks(tester.id).tasks.filter((task) => task.routineId != null);
+    pass(
+      "A routine defaults to the chat and optional runs reuse one side thread",
+      mainRoutine.runIn === "chat" && routineThreads.length === 1 && routineThreads[0]?.routineId === sideRoutine.id,
+    );
+    const routineTurns = turnLogs().filter((entry) => entry.text.includes("ROUTINE Side routine"));
+    pass(
+      "Each run in the routine thread gets a fresh provider session",
+      routineTurns.length === 2 && routineTurns[0]?.threadId !== routineTurns[1]?.threadId,
+    );
+    const privateText = "A private owner task with a private result.";
+    const privateTask = await runCauseEffect(agents.startTask({ agentId: tester.id, text: privateText }));
+    await waitFor(
+      "the private task to finish",
+      () => agents.listTasks(tester.id).tasks.find((task) => task.id === privateTask.id)?.state === "idle",
+    );
+    const beforeChannelTools = turnLogs().length;
+    await send(channelId, tester.id, `PRIVATE_TOOLS: ${privateTask.id}`);
+    const channelToolResults = turnLogs()
+      .slice(beforeChannelTools)
+      .filter((entry) => entry.method === "tool/result");
+    pass(
+      "A channel turn cannot read a host workflow graph or an owner's private task",
+      channelToolResults.length === 2 &&
+        channelToolResults[0]?.text.includes("Workflow tools are not available in a channel") === true &&
+        channelToolResults[1]?.text.includes(sourceText("error.agent.historyUnavailable")) === true &&
+        channelToolResults.every((entry) => !entry.text.includes(privateText)),
+    );
+    const readFromMain = async (sender: { id: string; name: string }) => {
+      const before = turnLogs().length;
+      await runCauseEffect(
+        agents.sendMessage({ agentId: tester.id, text: `PRIVATE_HISTORY_CHECK: ${privateTask.id}` }, sender),
+      );
+      await waitFor(
+        "the main-chat history call to finish",
+        () =>
+          turnLogs()
+            .slice(before)
+            .some((entry) => entry.method === "tool/result") &&
+          agents
+            .listQueue(tester.id)
+            .deliveries.every((delivery) => !["queued", "starting", "running"].includes(delivery.status)),
+      );
+      return turnLogs()
+        .slice(before)
+        .filter((entry) => entry.method === "tool/result");
+    };
+    const memberRead = await readFromMain({ id: "member-example", name: "Member" });
+    pass(
+      "A remote member's main-chat message cannot select an owner's different task history",
+      memberRead.length === 1 &&
+        memberRead[0]?.text.includes(sourceText("error.agent.historyUnavailable")) === true &&
+        !memberRead[0].text.includes(privateText),
+    );
+    const ownerRead = await readFromMain(PERSON);
+    pass(
+      "The owner can still read their agent's private task from its own chat",
+      ownerRead.length === 1 && ownerRead[0]?.text.includes(privateText) === true,
+    );
+
+    await runCauseEffect(agents.deleteRoutine({ agentId: tester.id, routineId: sideRoutine.id }));
+    pass(
+      "Deleting a routine archives its thread and keeps its messages",
+      agents.listTasks(tester.id).tasks.find((task) => task.routineId === sideRoutine.id)?.state === "closed",
+    );
+
+    // A person can have bought usage before a provider reports its reset. Each reached member
+    // gets one turn, while replayed commands and ordinary channel wakes give no further turn.
+    const retryLead = await create("RetryLead", "gpt-6-sol");
+    const retryPeer = await create("RetryPeer", "gpt-6-luna");
+    const barrierAgent = await create("Barrier", "example-unlimited");
+    const retryChannelId = randomUUID();
+    await runCauseEffect(
+      channels().command(
+        {
+          type: "save",
+          operationId: randomUUID(),
+          channelId: retryChannelId,
+          draft: {
+            name: "retry",
+            title: "",
+            instructions: "Check each request.",
+            members: [retryLead, retryPeer].map((agent) => ({ agentId: agent.id })),
+            leadAgentId: retryLead.id,
+          },
+        },
+        PERSON,
+      ),
+    );
+    const controls = (allowRouting: boolean, targets: string[] = []) =>
+      writeFile(
+        limitControl,
+        JSON.stringify({ models: ["gpt-6-sol", "gpt-6-luna"], allowRouting, ...(targets.length ? { targets } : {}) }),
+      );
+    const retrySend = (text: string, recipientAgentId: string | null, operationId = randomUUID()) => {
+      const request = {
+        type: "send" as const,
+        operationId,
+        channelId: retryChannelId,
+        text,
+        recipientAgentId,
+        replyToMessageId: null,
+        attachmentDraftIds: [],
+      };
+      return { request, send: () => runCauseEffect(channels().command(request, PERSON)) };
+    };
+    const retryTurns = (start: number) =>
+      turnLogs()
+        .slice(start)
+        .filter((turn) => turn.text.includes(retryChannelId));
+    const refused = () =>
+      channels()
+        .store.tasks(retryChannelId)
+        .some((task) => task.state === "queued") &&
+      channels()
+        .store.assignments(retryChannelId)
+        .every((assignment) => assignment.state === "interrupted");
+    const clearRetryTasks = async () => {
+      for (const task of channels()
+        .store.tasks(retryChannelId)
+        .filter((task) => task.state === "queued")) {
+        await runCauseEffect(
+          channels().command(
+            {
+              type: "stop",
+              operationId: randomUUID(),
+              channelId: retryChannelId,
+              taskId: task.id,
+              recipientAgentId: null,
+            },
+            PERSON,
+          ),
+        );
+        await runCauseEffect(
+          channels().command(
+            {
+              type: "cancel",
+              operationId: randomUUID(),
+              channelId: retryChannelId,
+              taskId: task.id,
+              recipientAgentId: null,
+            },
+            PERSON,
+          ),
+        );
+      }
+    };
+    const barrier = async () => {
+      const receipt = await runCauseEffect(agents.sendMessage({ agentId: barrierAgent.id, text: "A state barrier." }));
+      const deliveryId = receipt.deliveries[0]?.id;
+      assert.ok(deliveryId);
+      await waitFor(
+        "the independent state barrier",
+        () => mailbox.getDelivery(deliveryId)?.delivery.status === "completed",
+      );
+    };
+    await controls(false);
+    for (const member of [retryLead, retryPeer]) {
+      await retrySend("Establish the model's limit.", member.id).send();
+      await waitFor(
+        "a refused channel turn",
+        () => refused() && agents.getRuntimeSnapshot().usageLimits?.some((limit) => limit.agentId === member.id),
+      );
+      await clearRetryTasks();
+    }
+    const directStart = turnLogs().length;
+    const direct = retrySend("Try the selected member once.", retryPeer.id);
+    await direct.send();
+    await waitFor(
+      "the selected member's refused retry",
+      () => retryTurns(directStart).some((turn) => turn.limited) && refused(),
+    );
+    await direct.send();
+    await runCauseEffect(channels().wake(retryChannelId));
+    await barrier();
+    const directTurns = retryTurns(directStart).filter((turn) => turn.model !== "example-unlimited");
+    pass(
+      "A directed channel send retries only its member, and replay or wake adds no turn",
+      directTurns.length === 1 && directTurns[0]?.model === retryPeer.model && !directTurns[0]?.routing,
+    );
+    await clearRetryTasks();
+
+    await controls(true, [retryPeer.id]);
+    const routedStart = turnLogs().length;
+    const routed = retrySend("Choose a member for a fresh request.", null);
+    await routed.send();
+    await waitFor(
+      "the routed member's refused retry",
+      () => retryTurns(routedStart).some((turn) => turn.limited) && refused(),
+    );
+    await routed.send();
+    await runCauseEffect(channels().wake(retryChannelId));
+    await barrier();
+    const routedTurns = retryTurns(routedStart).filter((turn) => turn.model !== "example-unlimited");
+    pass(
+      "The lead routes once and the selected member gets its own one try",
+      routedTurns.length === 2 &&
+        routedTurns.filter((turn) => turn.routing && turn.model === retryLead.model).length === 1 &&
+        routedTurns.filter((turn) => !turn.routing && turn.model === retryPeer.model).length === 1,
+    );
+    await clearRetryTasks();
+
+    await controls(true, [retryLead.id, retryPeer.id]);
+    const siblingsStart = turnLogs().length;
+    await retrySend("Choose each relevant area for this request.", null).send();
+    await waitFor(
+      "both routed members to reach their limits",
+      () => retryTurns(siblingsStart).filter((turn) => turn.limited).length === 2 && refused(),
+    );
+    await runCauseEffect(channels().wake(retryChannelId));
+    await barrier();
+    const siblingTurns = retryTurns(siblingsStart).filter((turn) => turn.model !== "example-unlimited");
+    pass(
+      "Every additional member selected by routing gets one try",
+      siblingTurns.length === 3 &&
+        siblingTurns.filter((turn) => turn.routing).length === 1 &&
+        siblingTurns.filter((turn) => turn.limited && turn.model === retryLead.model).length === 1 &&
+        siblingTurns.filter((turn) => turn.limited && turn.model === retryPeer.model).length === 1,
+    );
+    await clearRetryTasks();
+
+    await controls(false);
+    const routingStart = turnLogs().length;
+    const failedRoute = retrySend("Try routing once while its model remains limited.", null);
+    await failedRoute.send();
+    await waitFor("the routing refusal", () => retryTurns(routingStart).some((turn) => turn.routing && turn.limited));
+    await failedRoute.send();
+    await runCauseEffect(channels().wake(retryChannelId));
+    await barrier();
+    const failedRoutes = retryTurns(routingStart).filter((turn) => turn.model !== "example-unlimited");
+    pass(
+      "A refused routing try is consumed before the turn and cannot loop on a wake",
+      failedRoutes.length === 1 &&
+        failedRoutes[0]?.routing === true &&
+        channels()
+          .store.tasks(retryChannelId)
+          .some((task) => task.state === "queued" && task.ownerAgentId === null),
+    );
+    await clearRetryTasks();
   }
   report.passed = true;
 } catch (error) {

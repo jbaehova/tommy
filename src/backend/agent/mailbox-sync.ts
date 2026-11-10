@@ -9,6 +9,7 @@ import type {
 } from "@tommy/contracts/ipc";
 import { Effect, type Scope } from "effect";
 import { isMailboxMessageCopy } from "../conversation-snapshots";
+import { withoutDeletedConversationMessages } from "../database/deleted-thread-messages";
 import type { MailboxStore } from "../mailbox-store";
 import type { TommyDatabase } from "../tommy-database";
 import type { ConversationRuntime } from "./conversation-runtime";
@@ -76,9 +77,18 @@ export class MailboxSync {
   syncMailboxMessages(snapshot: ConversationSnapshot, mailboxMessages?: readonly ConversationMessage[]): void {
     if (this.#conversation.isExecutionThread(snapshot.threadId)) return;
     const fromCreatedAt = snapshot.messages[0]?.createdAt;
-    const incomingMailboxMessages =
+    const supplied =
       mailboxMessages ??
       this.#mailbox.conversationMessages(snapshot.agentId, fromCreatedAt === undefined ? {} : { fromCreatedAt });
+    const incomingMailboxMessages = snapshot.threadId
+      ? withoutDeletedConversationMessages(this.#database.connection, snapshot.threadId, supplied)
+      : supplied;
+    if (snapshot.threadId)
+      snapshot.messages = withoutDeletedConversationMessages(
+        this.#database.connection,
+        snapshot.threadId,
+        snapshot.messages,
+      );
     const incomingMessages = new Map(
       incomingMailboxMessages.flatMap((message) =>
         message.exchange?.direction === "incoming" ? [[message.exchange.messageId, message] as const] : [],
@@ -103,6 +113,22 @@ export class MailboxSync {
       message.reaction = message.reactions.find((reaction) => reaction.actor.kind === "user")?.emoji ?? null;
     }
     sortConversationMessages(snapshot.messages);
+  }
+
+  /**
+   * Puts the current queue positions on the stored messages of a page. A move of the queue alone is
+   * not saved, so a stored row can keep an older position.
+   */
+  refreshQueuePositions(messages: readonly ConversationMessage[]): void {
+    const queued = (delivery: { status: string } | undefined) => delivery?.status === "queued";
+    if (!messages.some((message) => queued(message.delivery) || message.exchange?.deliveries.some(queued))) return;
+    const positions = this.#mailbox.queuedPositions();
+    for (const message of messages) {
+      if (message.delivery && queued(message.delivery))
+        message.delivery.position = positions.get(message.delivery.id) ?? message.delivery.position;
+      for (const delivery of message.exchange?.deliveries ?? [])
+        if (queued(delivery)) delivery.position = positions.get(delivery.id) ?? delivery.position;
+    }
   }
 
   reconcilePersistedMailboxMessages(agent: AgentSummary): void {
@@ -167,7 +193,8 @@ export class MailboxSync {
   emitQueue(agentId: string): void {
     const queue = this.queueSnapshot(agentId);
     let routinesChanged = false;
-    for (const delivery of queue.deliveries) {
+    // A run in a routine's side thread is not in the queue of the chat, but its run still follows it.
+    for (const delivery of [...queue.deliveries, ...this.#mailbox.taskRoutineDeliveries(agentId)]) {
       if (this.#routines.reconcileDelivery(delivery)) routinesChanged = true;
     }
     this.#hooks.emit({ type: "queue-changed", snapshot: queue });

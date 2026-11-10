@@ -88,6 +88,9 @@ export function ConversationComposer() {
     props,
     quoteRequest,
     openQuote,
+    taggableBrowserTabs,
+    taggableThreads,
+    openTaggedReference,
     queuePanelVisible,
     releaseCutAttachments,
     removeAttachment,
@@ -114,6 +117,7 @@ export function ConversationComposer() {
     dismissVoiceLimitNotice,
     voiceLiveText,
     voicePhase,
+    liveVoiceActive,
     voiceModelProgress,
     sideQuestionAvailable,
     openSideQuestion,
@@ -169,7 +173,7 @@ export function ConversationComposer() {
   const waitsVisible = () => waitItems().length > 0 && Boolean(props.onCancelWait) && !pickerOpen();
   const slotOpen = () => queueVisible() || awaitingVisible() || waitsVisible();
   // A channel has many speakers, so it has no voice input.
-  const voiceAvailable = () => !channel && !props.runtime;
+  const voiceAvailable = () => !channel && !props.runtime && !liveVoiceActive();
   const context = () =>
     props.contextState?.agentId === props.agent?.id && props.contextState?.threadId === props.agent?.threadId
       ? props.contextState
@@ -593,9 +597,8 @@ export function ConversationComposer() {
           data-has-attachments={composerAttachmentRow() ? "" : undefined}
           onPointerDown={(event) => {
             if (!(event.target instanceof Element)) return;
-            // The "+" menu is in a portal, but its events come here too. Focus taken from it closes the menu
-            // before the item gets the pointerup.
-            if (event.target.closest("button, .composer-editor-surface, .ui-action-menu")) return;
+            // Portal events also reach the composer. Keep focus in the menu and image viewer.
+            if (event.target.closest("button, .composer-editor-surface, .ui-action-menu, .image-lightbox")) return;
             event.preventDefault();
             setComposerFocusRequest((current) => current + 1);
           }}
@@ -605,11 +608,15 @@ export function ConversationComposer() {
             pending={currentPastePreviews()}
             removeDisabled={voicePhase() === "transcribing" || savePending()}
             onRemove={(attachment) => removeAttachment(attachment.id)}
+            macWindowControls={props.platform === "darwin"}
           />
           <div class="composer-input-label">
             <ComposerEditor
               agentId={props.agent?.id}
               agents={props.mentionAgents ?? props.agents}
+              browserTabs={taggableBrowserTabs()}
+              threads={taggableThreads()}
+              onOpenTag={openTaggedReference}
               everyoneMention={Boolean(channel) && (props.mentionAgents ?? props.agents).length > 1}
               skills={installedSkills()}
               skillsLoadFailed={installedSkillsLoadFailed()}

@@ -196,6 +196,7 @@ function NewAgentRuntimeFields({
   return (
     <AgentRuntimeFields
       serverId={serverId}
+      modelPickerRoute="/add-agent/model-picker"
       available={showsOnline(server)}
       saving={saving}
       hostDefault

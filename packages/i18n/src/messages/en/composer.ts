@@ -133,4 +133,19 @@ export const messages = defineMessages("composer", {
   "composer.newChat.action": "New chat",
   "composer.context.compact": "Compact now",
   "composer.context.compactFailed": "Could not compact the context. Try again.",
+  "composer.picker.option.tab": "{name} Browser tab",
+  "composer.picker.option.thread": "{name} Thread",
+  "composer.picker.section.agents": "Agents",
+  "composer.picker.section.files": "Files",
+  "composer.picker.section.tabs": "Browser tabs",
+  "composer.picker.section.threads": "Threads",
+  "composer.token.tab": "Browser tab {name}",
+  "composer.token.thread": "Thread {name}",
+  "composer.token.unavailableTab": "Closed browser tab {name}",
+  "composer.token.unavailableThread": "Unavailable thread {name}",
+
+  "composer.fastMode.confirmTitle": "Turn on fast mode?",
+  "composer.fastMode.confirmDescription":
+    "Claude answers faster at a higher price per token. With a Claude subscription, fast mode uses usage credits even when your plan has usage left.",
+  "composer.fastMode.confirm": "Turn on",
 });

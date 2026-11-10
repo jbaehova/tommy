@@ -3,6 +3,7 @@ import type { AgentProviderId } from "@tommy/contracts/agent-providers";
 import {
   type AccountUsage,
   type AccountUsageLimit,
+  type AgentModelOption,
   agentProviderDescriptor,
   DEFAULT_PROVIDER_ACCOUNT_ID,
   MAX_PROVIDER_ACCOUNTS,
@@ -18,6 +19,7 @@ import { createTommyLogger } from "@tommy/logging";
 import { Cause, Effect, Fiber, Schema, type Scope } from "effect";
 import { startAcpAuthentication } from "./../acp-sign-in";
 import type { AgentClient } from "./../agent-client";
+import { childProcessEnvironment } from "../child-process-environment";
 import { type AgentCliInfo, cliPathEnvironment, cliSpawnTarget } from "./../cli";
 import { stopProcessTree } from "../process-tree";
 import type { AccountReadResult } from "./../protocol";
@@ -45,11 +47,19 @@ function accountFailure(text: string): ProviderAccountFailed {
   return new ProviderAccountFailed({ cause: new Error(text) });
 }
 
+/** Who a client is signed in as. A team and a personal login can share an email in different organizations. */
+interface AccountLogin {
+  email: string | null;
+  organization: string | null;
+}
+
 interface AccountState {
   state: ProviderAccountState;
   email: string | null;
+  organization: string | null;
   message: string | null;
   checkedAt: number;
+  models?: AgentModelOption[];
 }
 
 /** What the accounts need from the provider runtime. */
@@ -57,7 +67,8 @@ export interface ProviderAccountsHost {
   scope(): Scope.Scope;
   /** The CLI of the provider's own sign-in, or undefined when it is not connected. */
   cli(provider: AgentProviderId): AgentCliInfo | undefined;
-  defaultEmail(provider: AgentProviderId): string | null;
+  /** The login of the provider's own sign-in. */
+  defaultLogin(provider: AgentProviderId): AccountLogin | null;
   /** The provider's saved API key. */
   apiKey(provider: AgentProviderId): string | null;
   /** Whether the provider's own sign-in runs on its saved key, as it does with no account of its own. */
@@ -80,6 +91,7 @@ export interface ProviderAccountsHost {
   /** Whether an agent on this account runs a turn. */
   isAccountBusy(provider: AgentProviderId, accountId: string): boolean;
   stopAgentClients(provider: AgentProviderId, accountId: string): Effect.Effect<void>;
+  readModels(client: AgentClient): Effect.Effect<AgentModelOption[], ProviderAccountFailed>;
   readUsage(client: AgentClient, model?: string): Effect.Effect<AccountUsage, ProviderAccountFailed>;
   /** The usage reset credits that the client's last usage reading counted; undefined for a provider with none. */
   resetCredits(client: AgentClient): number | null | undefined;
@@ -172,9 +184,14 @@ export class ProviderAccounts {
             email: state?.email ?? null,
             state: state?.state ?? "checking",
             message: state?.message ?? null,
+            ...(state?.models ? { models: state.models } : {}),
           };
         }),
     ];
+  }
+
+  models(provider: AgentProviderId, accountId: string): AgentModelOption[] | undefined {
+    return this.account(provider, accountId) ? this.#states.get(accountId)?.models : undefined;
   }
 
   /**
@@ -247,13 +264,13 @@ export class ProviderAccounts {
           Effect.sync(() =>
             spawn(target.command, target.args, {
               cwd: process.cwd(),
-              env: {
+              env: childProcessEnvironment({
                 ...process.env,
                 ...cliPathEnvironment(cli),
                 ...command.env(cli),
                 ...this.environment(account),
                 ...browser,
-              },
+              }),
               stdio: "ignore",
               shell: false,
             }),
@@ -576,7 +593,8 @@ export class ProviderAccounts {
       ({ client, account: signedIn }) =>
         Effect.gen({ self: this }, function* () {
           const email = signedIn.email ?? null;
-          if (email && this.#emailTaken(provider, account.id, email))
+          const organization = signedIn.organization ?? null;
+          if (email && this.#loginTaken(provider, account.id, { email, organization }))
             return yield* accountFailure(
               sourceText("error.provider.accountAlreadyAdded", { provider: providerLabel(provider) }),
             );
@@ -602,7 +620,16 @@ export class ProviderAccounts {
                     )
                   : reading
               : null;
-          this.#setState(account.id, { state: "connected", email, message: null });
+          const models = yield* this.#host
+            .readModels(client)
+            .pipe(Effect.orElseSucceed(() => this.#states.get(account.id)?.models));
+          this.#setState(account.id, {
+            state: "connected",
+            email,
+            organization,
+            message: null,
+            ...(models ? { models } : {}),
+          });
           // The rail shows an account only with a reading, and no usage request follows a sign-in.
           if (limit) this.#host.usageChanged(limit);
         }),
@@ -700,7 +727,12 @@ export class ProviderAccounts {
           Effect.sync(() =>
             spawn(target.command, target.args, {
               cwd: process.cwd(),
-              env: { ...process.env, ...cliPathEnvironment(cli), ...command.env(cli), ...environment },
+              env: childProcessEnvironment({
+                ...process.env,
+                ...cliPathEnvironment(cli),
+                ...command.env(cli),
+                ...environment,
+              }),
               stdio: "ignore",
               shell: false,
             }),
@@ -712,12 +744,11 @@ export class ProviderAccounts {
     );
   }
 
-  #emailTaken(provider: AgentProviderId, accountId: string, email: string): boolean {
-    const normalized = email.toLowerCase();
-    if (this.#host.defaultEmail(provider)?.toLowerCase() === normalized) return true;
-    return this.#store
-      .list(provider)
-      .some((other) => other.id !== accountId && this.#states.get(other.id)?.email?.toLowerCase() === normalized);
+  #loginTaken(provider: AgentProviderId, accountId: string, login: AccountLogin): boolean {
+    const same = (other: AccountLogin | null | undefined) =>
+      other?.email?.toLowerCase() === login.email?.toLowerCase() && other?.organization === login.organization;
+    if (same(this.#host.defaultLogin(provider))) return true;
+    return this.#store.list(provider).some((other) => other.id !== accountId && same(this.#states.get(other.id)));
   }
 
   #interrupt(accountId: string): Effect.Effect<void> {
@@ -748,8 +779,11 @@ export class ProviderAccounts {
     if (patch.state && patch.state !== current?.state)
       logger.info("A provider account changed state.", { accountId, from: current?.state ?? null, to: patch.state });
     this.#states.set(accountId, {
+      ...current,
+      ...patch,
       state: patch.state ?? current?.state ?? "checking",
       email: patch.email !== undefined ? patch.email : (current?.email ?? null),
+      organization: patch.organization !== undefined ? patch.organization : (current?.organization ?? null),
       message: patch.message !== undefined ? patch.message : (current?.message ?? null),
       checkedAt: patch.state === "connected" || patch.state === "signed-out" ? Date.now() : (current?.checkedAt ?? 0),
     });

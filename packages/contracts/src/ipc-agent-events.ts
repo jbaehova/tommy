@@ -26,6 +26,7 @@ import {
   isConversationSnapshot,
 } from "./ipc-conversations";
 import { type HiddenAgent, isHiddenAgentsSnapshot } from "./ipc-hidden-agents";
+import { isMessageDeletionEvent, type MessageDeletionEvent } from "./ipc-message-deletion";
 import { isQueueSnapshot, type QueueSnapshot } from "./ipc-queue";
 import { isSidebarLayoutSnapshot, type SidebarLayoutSnapshot } from "./ipc-sidebar-layout";
 import { isSidebarPinsSnapshot, type SidebarPin } from "./ipc-sidebar-pins";
@@ -36,6 +37,27 @@ export type AgentTurnOrigin = "user" | "routine" | "agent" | "unknown";
 
 function isAgentTurnOrigin(value: unknown): value is AgentTurnOrigin {
   return value === "user" || value === "routine" || value === "agent" || value === "unknown";
+}
+
+export interface AgentTurnCompletedEvent {
+  type: "turn-completed";
+  agentId: string;
+  threadId: string;
+  turnId: string;
+  status: string;
+  origin?: AgentTurnOrigin;
+  /**
+   * A routine run that had nothing to report and posted no message. It is not news, so it shows
+   * no notification. The Team API carries it through the optional `quiet-turn-v1` capability.
+   * Peers without that capability receive the released completion event.
+   */
+  quiet?: true;
+  /**
+   * The turn ended with open plan steps, and Tommy continues the request with one more turn.
+   * The request is not done, so this completion shows no notification, plays no sound, and is
+   * not read aloud. Only local listeners receive it; the Team API adapters leave it out.
+   */
+  continues?: true;
 }
 
 export type AgentEvent =
@@ -49,7 +71,7 @@ export type AgentEvent =
   /** The routine canvas of this agent changed, so the views showing it read it again. */
   | { type: "routine-flows-changed"; agentId: string }
   /** A workflow of this server changed: its graph, its title, a run or a step. Views showing it read it again. */
-  | { type: "workflows-changed"; workflowId: string }
+  | { type: "workflows-changed"; workflowId: string; agentId?: string }
   /** The Vault of this server changed. Server settings of a joined server read it again. */
   | { type: "vault-changed" }
   /** The named browser profiles of this server, or the profile of one of its agents, changed. */
@@ -78,6 +100,8 @@ export type AgentEvent =
   | { type: "agent-access-changed"; revision: number }
   | { type: "conversation"; snapshot: ConversationSnapshot }
   | { type: "conversation-invalidated"; agentId: string; revision: number }
+  /** Exact durable deletion IDs, so a late event cannot remove a newer message. */
+  | MessageDeletionEvent
   | { type: "conversation-page"; page: ConversationPage }
   | {
       type: "conversation-delta";
@@ -110,26 +134,8 @@ export type AgentEvent =
     }
   | { type: "turn-progress"; agentId: string; threadId: string; turnId: string; detail: string }
   | { type: "turn-started"; agentId: string; threadId: string; turnId: string; origin?: AgentTurnOrigin }
-  | {
-      type: "turn-completed";
-      agentId: string;
-      threadId: string;
-      turnId: string;
-      status: string;
-      origin?: AgentTurnOrigin;
-      /**
-       * A routine run that had nothing to report and posted no message. It is not news, so it shows
-       * no notification. The Team API carries it through the optional `quiet-turn-v1` capability.
-       * Peers without that capability receive the released completion event.
-       */
-      quiet?: true;
-      /**
-       * The turn ended with open plan steps, and Tommy continues the request with one more turn.
-       * The request is not done, so this completion shows no notification, plays no sound, and is
-       * not read aloud. Only local listeners receive it; the Team API adapters leave it out.
-       */
-      continues?: true;
-    }
+  | AgentTurnCompletedEvent
+  | { type: "routine-thread-turn-completed"; taskId: string; turn: AgentTurnCompletedEvent }
   | {
       type: "prompt";
       requestId: string | number;
@@ -203,7 +209,7 @@ export function isAgentEvent(value: unknown): value is AgentEvent {
     case "routine-flows-changed":
       return isIdentifier(value.agentId);
     case "workflows-changed":
-      return isIdentifier(value.workflowId);
+      return isIdentifier(value.workflowId) && (value.agentId === undefined || isIdentifier(value.agentId));
     case "vault-changed":
     case "browser-profiles-changed":
       return true;
@@ -229,6 +235,9 @@ export function isAgentEvent(value: unknown): value is AgentEvent {
         Number.isInteger(value.revision) &&
         value.revision >= 0
       );
+    case "conversation-messages-deleted":
+    case "channel-messages-deleted":
+      return isMessageDeletionEvent(value) && value.messageIds.length > 0;
     case "conversation-page": {
       const page = value.page;
       if (!isDynamicRecord(page)) return false;
@@ -276,6 +285,13 @@ export function isAgentEvent(value: unknown): value is AgentEvent {
         isString(value.delta) &&
         isString(value.createdAt) &&
         isNumber(value.revision)
+      );
+    case "routine-thread-turn-completed":
+      return (
+        isIdentifier(value.taskId) &&
+        isDynamicRecord(value.turn) &&
+        value.turn.type === "turn-completed" &&
+        isAgentEvent(value.turn)
       );
     case "turn-progress":
       return (

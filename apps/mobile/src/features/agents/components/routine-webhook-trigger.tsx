@@ -20,6 +20,7 @@ import { SettingsRow, SettingsSection } from "@/features/settings/components/set
 import { SheetFormField } from "@/shared/components/sheet-form-field";
 import { haptics } from "@/shared/lib/haptics";
 import { useText } from "@/shared/lib/text";
+import { RoutineWebhookSenderKey } from "./routine-webhook-sender-key";
 
 /** A filter row in the form. The ID keeps the row and its inputs mounted while the user types. */
 export interface FilterDraft extends EventFilterDraft {
@@ -97,7 +98,7 @@ function IconAction({
  * The webhook trigger as one card, as on desktop: the trigger picker in `header`, then the endpoint
  * and the signing secret. The events row shows only when an event type or a filter is set; else a
  * "Filter events" action opens it. The host makes the endpoint and the
- * signing secret; the user never types the inbound secret. `url` is undefined before the routine has
+ * signing secret, with optional write-only setup for an external sender. `url` is undefined before the routine has
  * a saved webhook trigger, and null while the host has not made it yet.
  */
 export function RoutineWebhookTrigger({
@@ -112,6 +113,8 @@ export function RoutineWebhookTrigger({
   onFiltersChange,
   onSecretDismiss,
   onRotate,
+  senderKeyScope,
+  onSetSenderSecret,
 }: {
   /** The first row of the card: the picker that changes the trigger. */
   header: ReactNode;
@@ -127,6 +130,8 @@ export function RoutineWebhookTrigger({
   onSecretDismiss: () => void;
   /** Makes a new secret. Left out, the action is hidden. */
   onRotate?: () => void;
+  senderKeyScope?: string | undefined;
+  onSetSenderSecret?: ((secret: string) => Promise<void>) | undefined;
 }) {
   const { t } = useText();
   const { copied, copy } = useCopy();
@@ -228,6 +233,14 @@ export function RoutineWebhookTrigger({
             <Button.Label>{t("common.done")}</Button.Label>
           </Button>
         </View>
+      ) : null}
+      {saved && !disabled && senderKeyScope && onSetSenderSecret ? (
+        <RoutineWebhookSenderKey
+          key={senderKeyScope}
+          scopeKey={senderKeyScope}
+          onSave={onSetSenderSecret}
+          onSaved={onSecretDismiss}
+        />
       ) : null}
       {showEvents ? null : (
         <SettingsRow disclosure={false} disabled={disabled} onPress={() => setEventsOpen(true)}>

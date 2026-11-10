@@ -5,6 +5,7 @@ import { StringDecoder } from "node:string_decoder";
 import { type DynamicRecord, isDynamicRecord } from "@tommy/contracts/runtime-values";
 import { Effect } from "effect";
 import { RequestTimeoutError } from "./agent-client";
+import { childProcessEnvironment } from "./child-process-environment";
 import type { SpawnTarget } from "./process-confinement";
 import { type ProviderClientOperationError, providerFailure } from "./provider-client-effects";
 import { registerProviderProcess } from "./provider-processes";
@@ -28,7 +29,7 @@ export class PiRpc extends EventEmitter<{ record: [DynamicRecord]; diagnostic: [
     if (this.#child) throw new Error("Pi process is already running.");
     const child = spawn(target.command, target.args, {
       cwd,
-      env,
+      env: childProcessEnvironment(env),
       stdio: "pipe",
       windowsHide: true,
       detached: true,

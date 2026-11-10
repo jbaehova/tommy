@@ -52,4 +52,8 @@ export const messages = defineMessages("channel", {
   "channel.error.update": "The channel could not be updated.",
   "channel.error.loadOlder": "Could not load earlier messages.",
   "channel.error.delete": "Could not delete this channel.",
+  "channel.stoppedTask.assignmentLoop":
+    "{names} passed this task between them too many times. It stopped to prevent a loop.",
+  "channel.stoppedTask.assignmentLoopMembers":
+    "The members passed this task between them too many times. It stopped to prevent a loop.",
 });

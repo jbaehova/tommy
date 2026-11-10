@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { cardBrand } from "@tommy/contracts/ipc";
 import { registerSecretValue, registerSecretValues } from "@tommy/logging";
 import { Effect, Result, Schema } from "effect";
+import { childProcessEnvironment } from "../backend/child-process-environment";
 import { causeHelpers } from "../backend/effect-boundary";
 import { type PasswordVault, PasswordVaultError, websiteMatchesOrigin } from "../backend/password-vault";
 import {
@@ -197,7 +198,7 @@ export class OnePasswordCliVault implements PasswordVault, SharedCards {
   #op(...args: readonly string[]): Effect.Effect<string, PasswordVaultError> {
     return opCall(async (signal) => {
       const { stdout } = await run("op", args, {
-        env: { ...process.env, OP_SERVICE_ACCOUNT_TOKEN: this.#token },
+        env: childProcessEnvironment({ ...process.env, OP_SERVICE_ACCOUNT_TOKEN: this.#token }),
         maxBuffer: 32 * 1024 * 1024,
         signal,
         timeout: OP_TIMEOUT_MS,

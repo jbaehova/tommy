@@ -10,17 +10,21 @@
 
 import { join } from "node:path";
 import { utilityProcess } from "electron";
-import type { AgentDatabaseHostProcess, AgentDatabaseResponse } from "../backend/agent-data/agent-database-protocol";
+import type { AgentDatabaseHostMessage, AgentDatabaseHostProcess } from "../backend/agent-data/agent-database-protocol";
+import { childProcessEnvironment } from "../backend/child-process-environment";
 
 export function spawnAgentDatabaseHost(): AgentDatabaseHostProcess {
   const child = utilityProcess.fork(join(__dirname, "agent-database-host.js"), [], {
     serviceName: "Tommy databases",
     stdio: "ignore",
+    env: Object.fromEntries(
+      Object.entries(childProcessEnvironment()).filter((entry): entry is [string, string] => entry[1] !== undefined),
+    ),
   });
   return {
     send: (request) => child.postMessage(request),
-    onResponse: (listener) => {
-      child.on("message", (message: AgentDatabaseResponse) => listener(message));
+    onMessage: (listener) => {
+      child.on("message", (message: AgentDatabaseHostMessage) => listener(message));
     },
     onExit: (listener) => {
       child.once("exit", () => listener());

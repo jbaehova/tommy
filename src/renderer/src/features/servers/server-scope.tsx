@@ -21,6 +21,7 @@ import { useNavigation } from "../../navigation";
 import { createSimpleContext } from "../../simple-context";
 import { useAuth } from "../account/account-context";
 import { useAgentThreads } from "../agent-threads/agent-threads-context";
+import { withAgentSpeedModels } from "../agents/agent-speed-models";
 import { useAgents } from "../agents/agents-context";
 import { useBrowserTabs } from "../browser/browser-context";
 import { useChannels } from "../channels/channels-context";
@@ -186,7 +187,9 @@ const ServerScope = createSimpleContext({
       void loadPanels();
       const [status, models, agents, reads] = await Promise.all([
         serversPort().agent.getStatus(serverId),
-        serversPort().agent.listModels(serverId),
+        serversPort()
+          .agent.listModels(serverId)
+          .then((models) => withAgentSpeedModels(models, server)),
         serversPort().agent.listAgents(serverId),
         serversPort()
           .agent.listConversationReads(serverId)

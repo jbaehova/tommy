@@ -103,6 +103,8 @@ type PersistedStoredAgent = Omit<StoredAgent, "avatarUrl" | "provider" | "access
   browserProfileId?: string;
   // Absent on every agent stored before the setting existed, which leaves the service tier to Codex.
   fastMode?: boolean;
+  // Only with `fastMode: true`. An older Tommy drops it and runs the Fast tier.
+  ultrafast?: boolean;
   // Absent means the app default, as for every agent stored before the setting existed.
   busyMessageMode?: BusyMessageMode;
   // Absent means the default task limit, as for every agent stored before tasks existed.
@@ -171,6 +173,9 @@ const DEFAULT_REASONING_EFFORT: AgentReasoningEffort = "low";
 const LEGACY_AGENTS_STATE_FILE = "bots.json";
 const LEGACY_AGENTS_STATE_KEY = "bots";
 const LEGACY_AGENTS_IMPORT_COMMAND_ID = "legacy-import:bots:v1";
+// The `command_id` of the one-time reset of Claude fast mode. Its receipt stops the reset from running
+// again, so the id never changes.
+const CLAUDE_FAST_MODE_RESET_COMMAND_ID = "agent-fast-mode:claude-reset:v1";
 
 const logger = createTommyLogger("agent-store");
 
@@ -321,6 +326,7 @@ export class AgentStore {
           this.#database.deactivateProviderSessions(threadId);
         }
       }
+      this.#resetClaudeFastModeOnce();
       yield* this.#reconcileLegacyDirectoriesEffect();
       yield* this.#recoverPendingDuplicationsEffect();
       yield* this.#profileCreationRecovery.recover(this.#database, (agentId) =>
@@ -772,7 +778,20 @@ export class AgentStore {
       if (input.fastMode !== undefined) {
         if (!isBoolean(input.fastMode)) throw new Error("Invalid fast mode value.");
         next.fastMode = input.fastMode;
+      } else if (input.provider !== undefined && input.provider !== agent.provider && next.fastMode) {
+        // The new provider has its own price, and Claude fast mode needs the user's confirmation.
+        next.fastMode = false;
       }
+      // Ultrafast is a fast mode tier, so it comes only with a fast mode change.
+      if (input.ultrafast !== undefined && (!isBoolean(input.ultrafast) || input.fastMode === undefined))
+        throw new Error("Invalid fast mode value.");
+      // Each fast mode change names the tier: a change from a client that does not know Ultrafast,
+      // such as a remote client, sets Fast.
+      if (input.fastMode !== undefined) {
+        if (input.fastMode && input.ultrafast) next.ultrafast = true;
+        else delete next.ultrafast;
+      }
+      if (!next.fastMode) delete next.ultrafast;
       // A provider change without an account returns the agent to the new provider's own sign-in.
       if (
         input.providerAccountId === null ||
@@ -858,6 +877,7 @@ export class AgentStore {
       if (next.allowAutomation === undefined) delete agent.allowAutomation;
       if (next.allowNewChat === undefined) delete agent.allowNewChat;
       if (next.quickAcknowledgement === undefined) delete agent.quickAcknowledgement;
+      if (next.ultrafast === undefined) delete agent.ultrafast;
       try {
         this.#persist(modelChange ? "agent.model-changed" : "agent.updated", modelChange);
       } catch (error) {
@@ -874,6 +894,7 @@ export class AgentStore {
         if (previous.allowAutomation === undefined) delete agent.allowAutomation;
         if (previous.allowNewChat === undefined) delete agent.allowNewChat;
         if (previous.quickAcknowledgement === undefined) delete agent.quickAcknowledgement;
+        if (previous.ultrafast === undefined) delete agent.ultrafast;
         throw error;
       }
       return { ...agent };
@@ -1643,6 +1664,45 @@ export class AgentStore {
     logger.warn("Agents were restored to the roster from the event log.", restored.length);
   }
 
+  /**
+   * Turns fast mode off one time for each Claude agent. Before Claude fast mode existed, only Codex read
+   * `fastMode`, so a Claude agent has `true` only from a provider change. The user never confirmed the
+   * Claude price for it. The receipt of the command is the marker that stops a second run: the event of
+   * its own aggregate stays, so no roster write or sweep deletes the receipt.
+   */
+  #resetClaudeFastModeOnce(): void {
+    if (this.#database.commandResult(CLAUDE_FAST_MODE_RESET_COMMAND_ID) !== undefined) return;
+    const agentIds = this.#state.agents
+      .filter((agent) => agent.provider === "claude" && agent.fastMode)
+      .map((agent) => agent.id);
+    const previous = this.#state.agents;
+    try {
+      this.#database.dispatch(
+        CLAUDE_FAST_MODE_RESET_COMMAND_ID,
+        [
+          {
+            aggregateType: "agent-fast-mode",
+            aggregateId: "claude-reset",
+            eventType: "agent-fast-mode.claude-reset",
+            payload: { agentIds },
+          },
+        ],
+        () => {
+          if (agentIds.length === 0) return null;
+          this.#state.agents = previous.map((agent) =>
+            agentIds.includes(agent.id) ? { ...agent, fastMode: false } : agent,
+          );
+          this.#persist("agents.claude-fast-mode-reset");
+          return null;
+        },
+      );
+    } catch (cause) {
+      this.#state.agents = previous;
+      throw cause;
+    }
+    if (agentIds.length > 0) logger.info("Fast mode was turned off for Claude agents.", { count: agentIds.length });
+  }
+
   #persist(eventType: string, modelChange?: AgentModelChange): void {
     this.#database.replaceAgents(`agents:${eventType}:${randomUUID()}`, this.#state.agents, eventType, modelChange);
   }
@@ -1884,6 +1944,7 @@ function isStoredAgent(value: unknown): value is PersistedStoredAgent {
     (record.ownBrowserSession === undefined || isBoolean(record.ownBrowserSession)) &&
     (record.browserProfileId === undefined || isBrowserProfileId(record.browserProfileId)) &&
     (record.fastMode === undefined || isBoolean(record.fastMode)) &&
+    (record.ultrafast === undefined || isBoolean(record.ultrafast)) &&
     (record.busyMessageMode === undefined || isBusyMessageMode(record.busyMessageMode)) &&
     (record.taskLimit === undefined || isAgentTaskLimit(record.taskLimit)) &&
     (record.providerAccountId === undefined || isProviderAccountId(record.providerAccountId)) &&
@@ -1979,6 +2040,8 @@ function readStoredAgent(value: unknown): ReadStoredAgent | UnreadableStoredAgen
       : reset("browserProfileId", undefined);
   const fastMode =
     value.fastMode === undefined || isBoolean(value.fastMode) ? value.fastMode : reset("fastMode", undefined);
+  const ultrafast =
+    value.ultrafast === undefined || isBoolean(value.ultrafast) ? value.ultrafast : reset("ultrafast", undefined);
   const busyMessageMode =
     value.busyMessageMode === undefined || isBusyMessageMode(value.busyMessageMode)
       ? value.busyMessageMode
@@ -2056,6 +2119,7 @@ function readStoredAgent(value: unknown): ReadStoredAgent | UnreadableStoredAgen
     ...(ownBrowserSession === undefined ? {} : { ownBrowserSession }),
     ...(browserProfileId === undefined ? {} : { browserProfileId }),
     ...(fastMode === undefined ? {} : { fastMode }),
+    ...(ultrafast && fastMode ? { ultrafast } : {}),
     ...(busyMessageMode === undefined ? {} : { busyMessageMode }),
     ...(taskLimit === undefined ? {} : { taskLimit }),
     ...(providerAccountId === undefined ? {} : { providerAccountId }),

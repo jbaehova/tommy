@@ -189,4 +189,10 @@ export const messages = {
   // The notice of an update whose dialog the user hid.
   // The work that a restart waits for, in "Waiting for {reasons}".
   // A notice to every member when a joined server restarts into an update. {name} is the server.
+  "server.settings.skillLearningLoadFailed": "스킬 학습 설정을 불러오지 못했어요.",
+  "server.settings.skillLearningAsk": "저장 전 확인",
+  "server.settings.skillLearningAutomatic": "자동",
+  "server.settings.skillLearningOff": "끄기",
+  "server.settings.skillLearning": "스킬 학습",
+  "server.settings.skillLearningDescription": "이 서버의 에이전트가 배운 내용을 스킬로 저장할지 선택해요.",
 } as const satisfies PartialTranslation<typeof source>;

@@ -17,6 +17,7 @@ import type { EventRoutinesApi } from "./routine-webhooks-api";
 import type { AgentRoutinesApi } from "./routines-port";
 
 export interface ConversationRuntime {
+  skillLearning?: TommyDesktopApi["skillLearning"] | undefined;
   agent: Pick<
     TommyDesktopApi["agent"],
     | "discardDraftAttachment"
@@ -35,6 +36,17 @@ export interface ConversationRuntime {
     | "respondToBrowserSecret"
     | "setMessageReaction"
   > &
+    Partial<
+      Pick<
+        TommyDesktopApi["agent"],
+        | "deleteMessage"
+        | "deleteTaskMessage"
+        | "deleteChannelMessage"
+        | "deleteAgentHistory"
+        | "deleteChannelHistory"
+        | "onScopedEvent"
+      >
+    > &
     // A joined server's sign-in link that the host relays. Absent, a link opens with `openUrl`.
     Partial<Pick<TommyDesktopApi["agent"], "openMessageLink" | "pasteMessageLink" | "cancelMessageLink">> &
     // The progress and stop of an attachment download from a joined server. Absent, a card shows no progress.
@@ -62,7 +74,8 @@ export interface ConversationRuntime {
     | "finishStream"
     | "cancelStream"
     | "onStreamTranscript"
-  >;
+  > &
+    Partial<Pick<TommyDesktopApi["voice"], "startLive" | "stopLive" | "cancelLive" | "onLiveEvent">>;
   openUrl: TommyDesktopApi["openUrl"];
   /** Asks the connected host a side question. Absent, the host does not serve `side-question-v1`. */
   askSideQuestion?: ((input: AskSideQuestionInput) => Promise<string>) | undefined;

@@ -814,14 +814,13 @@
   color: var(--tommy-text-muted);
 }
 
-/* The divider under the field shows where typing goes, so the shared outline goes. */
+/*
+ * The field takes the focus each time the menu opens, so a focus colour on the divider would always
+ * show. The caret shows where typing goes, as in the shared search select.
+ */
 .wfn-picker .wfn-picker-field:focus-visible {
   outline: none;
   box-shadow: none;
-}
-
-.wfn-picker-search:has(.wfn-picker-field:focus-visible) {
-  border-bottom-color: var(--tommy-border-focus);
 }
 
 .wfn-picker-list {
@@ -2662,6 +2661,9 @@ fieldset.wfn-picker-group {
 .wfn-tag {
   display: inline-flex;
   align-items: center;
+  gap: var(--tommy-space-1);
+  min-width: 0;
+  max-width: 100%;
   height: 22px;
   padding: 0 var(--tommy-space-2);
   border-radius: var(--tommy-radius-pill);
@@ -2670,6 +2672,23 @@ fieldset.wfn-picker-group {
   font-size: var(--tommy-text-sm);
   font-weight: var(--tommy-weight-medium);
   white-space: nowrap;
+}
+
+/* A long name ends with "…" inside its tag, so the tag stays in the value column. */
+.wfn-tag-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wfn-tag > svg {
+  flex: none;
+  width: var(--tommy-icon-xs);
+  height: var(--tommy-icon-xs);
+}
+
+/* A repository that sends no events. */
+.wfn-tag[data-warning] {
+  color: var(--tommy-warning-text);
 }
 
 .wfn-tag[data-tone] {
@@ -3089,10 +3108,41 @@ svg.wfn-shape-surface {
   }
 }
 
-/* The emoji of a Discord reaction, in the place of an icon. */
+/* The emoji of a Discord or Telegram reaction, in the place of an icon. */
 .wfn-emoji {
   display: inline-flex;
   flex: none;
   justify-content: center;
   width: var(--tommy-icon-xs);
+}
+
+/* Agent edits show new steps in graph order. Hidden steps keep their measured size. */
+.wfn-slot[data-build="unbuilt"],
+.wfn-edge[data-build="unbuilt"],
+.wfn-edge-label[data-build="unbuilt"] {
+  visibility: hidden;
+}
+
+.wfn-slot[data-build="arrived"] {
+  animation: wfn-build-arrive var(--tommy-duration-slow) var(--tommy-ease-out);
+}
+
+.wfn-edge[data-build="arrived"],
+.wfn-edge-label[data-build="arrived"] {
+  animation: wfn-fade-in var(--tommy-duration-slow) var(--tommy-ease-out);
+}
+
+@keyframes wfn-build-arrive {
+  from {
+    opacity: 0;
+    scale: 0.94;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wfn-slot[data-build],
+  .wfn-edge[data-build],
+  .wfn-edge-label[data-build] {
+    animation: none;
+  }
 }

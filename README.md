@@ -251,6 +251,9 @@ Optional build settings go in the root `.env`; [.env.example](.env.example) list
 
 </details>
 
+For CDP checks while you use other apps, run `TOMMY_DEV_BACKGROUND=1 bun run dev`. Development
+windows stay hidden and cannot take focus. Packaged builds ignore this setting.
+
 ### Architecture
 
 ```text

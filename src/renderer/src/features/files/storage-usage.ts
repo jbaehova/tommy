@@ -5,10 +5,12 @@ import {
   STORAGE_CAPABILITY,
   type StorageUsage,
 } from "@tommy/contracts/ipc";
+import type { AgentProfile } from "@tommy/ui/data";
 import type { StoredFileAction, StoredFileRow } from "@tommy/ui/features/files/files-view";
 import { currentText } from "@tommy/ui/text";
-import { createEffect, createStore, untrack } from "solid-js";
+import { type Accessor, createEffect, createSignal, createStore, untrack } from "solid-js";
 import { actionToast } from "../../action-toast";
+import { toAgentProfile } from "../../app-message-projection";
 import { serverRoleCanAdminister, serverSupportsCapability } from "../servers/server-capabilities";
 import { type FilesPort, filesPort } from "./files-port";
 
@@ -20,6 +22,28 @@ export function serverHasStorage(server: ServerSummary | undefined): server is S
 /** Every member reads storage; the host lets only an owner or admin delete or clear. */
 export function canManageStorage(server: ServerSummary): boolean {
   return serverRoleCanAdminister(server);
+}
+
+/** Read names from the selected host. Late answers from a previous host are discarded. */
+export function createServerAgents(
+  serverId: () => string,
+  calls: () => FilesPort = filesPort,
+): Accessor<AgentProfile[]> {
+  const [agents, setAgents] = createSignal<AgentProfile[]>([]);
+  createEffect(serverId, (id) => {
+    let current = true;
+    setAgents([]);
+    untrack(calls)
+      .agent.listAgents(id)
+      .then((list) => {
+        if (current) setAgents(list.map(toAgentProfile));
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  });
+  return agents;
 }
 
 /** One storage scope of one server. Settings can be open for a server that is not the selected one. */
@@ -148,6 +172,49 @@ export function createStorageUsage(target: () => StorageTarget | null, calls: ()
     }
   }
 
+  /** Capture the host once, so switching servers cannot redirect an in-progress batch. */
+  async function eachFile(
+    files: readonly StoredFileRow[],
+    run: (file: StoredFileRow, serverId: string) => Promise<void>,
+    onProgress?: (done: number) => void,
+  ): Promise<number> {
+    const current = target();
+    if (!current) return files.length;
+    let failed = 0;
+    for (const [index, file] of files.entries()) {
+      try {
+        await run(file, current.serverId);
+      } catch {
+        failed += 1;
+      }
+      onProgress?.(index + 1);
+    }
+    return failed;
+  }
+
+  async function deleteFiles(files: readonly StoredFileRow[], onProgress?: (done: number) => void): Promise<number> {
+    try {
+      return await eachFile(
+        files,
+        (file, serverId) => calls().storage.deleteFile({ fileId: file.id }, serverId),
+        onProgress,
+      );
+    } finally {
+      await refresh(true);
+    }
+  }
+
+  function saveFiles(files: readonly StoredFileRow[], onProgress?: (done: number) => void): Promise<number> {
+    return eachFile(
+      files,
+      async (file, serverId) => {
+        const save = calls().storage.saveFile;
+        if (!save || !(await save({ fileId: file.id }, serverId))) throw new Error("The file was not saved.");
+      },
+      onProgress,
+    );
+  }
+
   /** Null while nothing went wrong. A host that answered null predates `storage-v1`. */
   function error(): string | null {
     if (state.error) return state.error;
@@ -160,7 +227,7 @@ export function createStorageUsage(target: () => StorageTarget | null, calls: ()
     return state.loaded ? "ready" : "scanning";
   }
 
-  return { state, error, scanState, refresh, clear, fileAction };
+  return { state, error, scanState, refresh, clear, fileAction, deleteFiles, saveFiles };
 }
 
 export type StorageUsageResource = ReturnType<typeof createStorageUsage>;

@@ -2,9 +2,11 @@ import {
   isRoutineRunFields,
   isRoutineSchedule,
   ROUTINE_MISSED_POLICIES,
+  ROUTINE_RUN_PLACES,
   type RoutineLimitPolicy,
   type RoutineMissedPolicy,
   type RoutineRunFields,
+  type RoutineRunPlace,
   type RoutineSchedule,
 } from "./ipc-routines";
 import { isDynamicRecord, isNumber, isOneOf, isString } from "./runtime-values";
@@ -68,6 +70,7 @@ export interface EventRoutine {
   trigger: EventRoutineTrigger;
   limitPolicy?: RoutineLimitPolicy;
   missedPolicy?: RoutineMissedPolicy;
+  runIn?: RoutineRunPlace;
   createdAt: string;
   updatedAt: string;
 }
@@ -82,6 +85,7 @@ export interface SaveEventRoutineInput {
   trigger: EventRoutineTriggerInput;
   limitPolicy?: RoutineLimitPolicy;
   missedPolicy?: RoutineMissedPolicy;
+  runIn?: RoutineRunPlace;
 }
 
 /** `secret` is set only when this save made a new webhook trigger. The host does not show it again. */
@@ -262,6 +266,19 @@ function isEventRoutine(value: unknown): value is EventRoutine {
 
 function isSaveEventRoutineResult(value: unknown): value is SaveEventRoutineResult {
   return isDynamicRecord(value) && isEventRoutine(value.routine) && isNullableString(value.secret);
+}
+
+/** Current boundaries validate new metadata without changing the released guards above. */
+export function isEventRoutineWithRunPlace(value: unknown): value is EventRoutine {
+  return (
+    isEventRoutine(value) &&
+    (value.runIn === undefined ||
+      (isOneOf(ROUTINE_RUN_PLACES, value.runIn) && (value.runIn !== "thread" || value.owner.kind === "agent")))
+  );
+}
+
+export function isSaveEventRoutineResultWithRunPlace(value: unknown): value is SaveEventRoutineResult {
+  return isSaveEventRoutineResult(value) && isEventRoutineWithRunPlace(value.routine);
 }
 
 function isWebhookSecret(value: unknown): value is WebhookSecret {

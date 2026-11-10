@@ -7,6 +7,7 @@ import {
   isWorkflowGitHubHistory,
   isWorkflowGitHubRepositoryOptions,
   isWorkflowGraph,
+  isWorkflowIntegrationCatalog,
   isWorkflowRunDetail,
   isWorkflowRunPage,
   isWorkflowSaveResult,
@@ -33,3 +34,30 @@ export const decodeWorkflowGitHubOptions = guardedDecoder(
   "workflow GitHub options response",
 );
 export const decodeWorkflowGitHubHistory = guardedDecoder(isWorkflowGitHubHistory, "workflow GitHub history response");
+
+export function decodeWorkflowIntegrationCatalogFromMain(value: unknown) {
+  if (!isWorkflowIntegrationCatalog(value)) throw new Error("Invalid workflow integration catalog from main.");
+  return {
+    github: value.github,
+    places: value.places.map((place) => ({
+      connectionId: place.connectionId,
+      placeId: place.placeId,
+      label: place.label,
+      platform: place.platform,
+      connection: place.connection,
+      name: place.name,
+    })),
+    slack: value.slack.map((connection) => ({
+      connectionId: connection.connectionId,
+      name: connection.name,
+      channels: connection.channels.map(({ id, name }) => ({ id, name })),
+    })),
+    telegram: value.telegram.map(({ connectionId, name }) => ({ connectionId, name })),
+    discord: value.discord.map((connection) => ({
+      connectionId: connection.connectionId,
+      name: connection.name,
+      channels: connection.channels.map(({ id, name }) => ({ id, name })),
+      roles: connection.roles.map(({ id, name }) => ({ id, name })),
+    })),
+  };
+}

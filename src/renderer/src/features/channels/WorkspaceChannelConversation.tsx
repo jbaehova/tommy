@@ -9,6 +9,8 @@ import { useAuth } from "../account/account-context";
 import { useAgents } from "../agents/agents-context";
 import { useBrowserTabs } from "../browser/browser-context";
 import { Conversation } from "../conversation/Conversation";
+import { routineWebhookScope } from "../conversation/routine-webhooks-api";
+import { useUsageLimitAsk } from "../conversation/usage-limit-ask";
 import { remoteRoutineRecovery, serverCanAdminister, serverSendsWebhookTests } from "../servers/server-capabilities";
 import { useServerScope } from "../servers/server-scope";
 import { useServerSettings } from "../servers/server-settings";
@@ -36,6 +38,7 @@ export function WorkspaceChannelConversation(props: { account: () => CentralAuth
 }
 
 function DesktopChannelConversation(props: { channelId: string; account: () => CentralAuthUser }) {
+  const channels = useChannels();
   const platform = usePlatform();
   const scope = useServerScope();
   const { selectAgent, messageFocusRequest, globalSearchOpen } = useNavigation();
@@ -45,7 +48,7 @@ function DesktopChannelConversation(props: { channelId: string; account: () => C
   const { serverSettingsOpen } = useServerSettings();
   const { appSettingsOpen, generalSettings } = useSettings();
   const { agentStatus, agentList, updateAgent, setAgentAvatar, userHiddenAgentIds } = useAgents();
-  const { approvals, pendingPrompts } = useTurns();
+  const { approvals, pendingPrompts, usageLimits } = useTurns();
   const {
     browserTabs,
     activeBrowserTabId,
@@ -78,10 +81,28 @@ function DesktopChannelConversation(props: { channelId: string; account: () => C
       eventsServerId: () => (serverCanAdminister(activeServer(), "events-v1") ? activeServer()?.id : undefined),
       routineRecovery: () => remoteRoutineRecovery(activeServer()),
       webhookTests: () => serverSendsWebhookTests(activeServer()),
+      senderKeys: () => serverCanAdminister(activeServer(), "webhook-sender-secret-v1"),
+      senderKeyScope: () => `${routineWebhookScope(activeServer())}:${props.account().id}`,
     },
     approvals,
     takeovers,
     hiddenAgentIds: userHiddenAgentIds,
+  });
+  const askAtLimit = useUsageLimitAsk();
+  const usageLimitAsk = createMemo(() => {
+    const page = channels.state.page;
+    if (!page || page.channel.id !== props.channelId) return undefined;
+    const limits = usageLimits();
+    for (const task of page.tasks) {
+      const agentId = task.ownerAgentId ?? page.channel.leadAgentId;
+      if (task.state !== "queued" || !agentId || !(agentId in limits)) continue;
+      const ask = askAtLimit(
+        agentList().find((agent) => agent.id === agentId),
+        true,
+      );
+      if (ask) return ask;
+    }
+    return undefined;
   });
   return (
     <Conversation
@@ -114,6 +135,7 @@ function DesktopChannelConversation(props: { channelId: string; account: () => C
       prompt={view.prompt()}
       promptUiBlock={view.promptUiBlock()}
       approval={view.approval()}
+      usageLimitAsk={usageLimitAsk()}
       browserTakeover={view.browserTakeover()}
       activeTurnId={view.activeTurnId()}
       mcpSettingsOpen={serverSettingsOpen()}
@@ -128,6 +150,7 @@ function DesktopChannelConversation(props: { channelId: string; account: () => C
       onSendMessage={view.onSendMessage}
       onMarkRead={view.onMarkRead}
       onLoadOlder={view.onLoadOlder}
+      onLoadLatest={() => channels.refresh()}
       onTypingChange={() => {}}
       onAnswerPrompt={view.onAnswerPrompt}
       onRespondToApproval={view.onRespondToApproval}
