@@ -177,12 +177,16 @@ try {
 
 const commandLineUserDataDirectory = app.commandLine.getSwitchValue("user-data-dir").trim();
 const developmentProfile = !app.isPackaged ? readDevelopmentProfile(process.env.TOMMY_DEV_PROFILE) : null;
+const backgroundDevelopment = !app.isPackaged && process.env.TOMMY_DEV_BACKGROUND === "1";
 // Before any child process starts: agents must not run as part of a Claude Code session that started Tommy.
 removeClaudeCodeSessionEnvironment(process.env);
 const serverMode = takeServerModeEnvironment(process.env, app.isPackaged, process.platform);
-if (serverMode) {
+if (serverMode || backgroundDevelopment) {
   hideExceptionErrorBox();
   keepWindowsHidden();
+}
+if (backgroundDevelopment) {
+  app.on("browser-window-created", (_event, window) => window.setFocusable(false));
 }
 const developmentRemoteDebuggingPort = !app.isPackaged
   ? readDevelopmentRemoteDebuggingPort(process.env.TOMMY_DEV_REMOTE_DEBUGGING_PORT)
@@ -678,6 +682,10 @@ function requestDesktopNotificationPermission(
 /** `null` for every state but a signed-in one, matching what the two principal trackers store. */
 /** The Dock tile, the Linux desktop entry and the `tommy://` scheme. A local server has none of them. */
 async function presentApplication(): Promise<void> {
+  if (backgroundDevelopment) {
+    if (process.platform === "darwin") app.setActivationPolicy("accessory");
+    return;
+  }
   await ensureMacApplicationPresence(
     process.platform,
     (policy) => app.setActivationPolicy(policy),

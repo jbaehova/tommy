@@ -206,6 +206,12 @@ bun run mobile:android:apk
 The APK is `apps/mobile/android/app/build/outputs/apk/release/app-release.apk`. Install it with
 `adb install -r <apk>` or copy it to the phone.
 
+## Development UI checks
+
+For CDP checks without opening windows or taking focus from another app, run
+`TOMMY_DEV_BACKGROUND=1 bun run dev`, then use `bun run dev:automation` with that instance.
+This setting applies only to development. Packaged apps ignore it.
+
 ## Finish
 
 Tell the user:

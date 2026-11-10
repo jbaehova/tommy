@@ -7,6 +7,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { AgentSummary } from "@tommy/contracts/ipc";
+import { sourceText } from "@tommy/i18n/source";
 import { Deferred, Effect } from "effect";
 import { zipSync } from "fflate";
 import { MemoryReviewCursors } from "../src/backend/agent/memory-review-store";
@@ -215,17 +216,37 @@ try {
   await writeFile(damagedReceipt, originalReceipt);
   checked("An unrelated damaged publication receipt cannot block a new revision restore.");
 
-  for (const instructions of [
-    "Use EXAMPLE_PRIVATE_TOKEN_123.",
-    "Contact private@example.org.",
-    "Read /Users/user/project/file.",
+  // Synthetic identities must differ from the allowed placeholders to exercise their refusal.
+  const syntheticHome = join("/Users", "example-person", "project", "file");
+  for (const { instructions, message } of [
+    { instructions: "Use EXAMPLE_PRIVATE_TOKEN_123.", message: sourceText("error.skill.learningSecret") },
+    { instructions: "Contact private@example.org.", message: sourceText("error.skill.learningPersonal") },
+    { instructions: `Read ${syntheticHome}.`, message: sourceText("error.skill.learningPersonal") },
   ]) {
     await assert.rejects(
       runCauseEffect(service.learner().save(agent.id, { ...draft, instructions }, `rejected:${instructions.length}`)),
+      { message },
     );
   }
   assert.equal((await runCauseEffect(library.list())).length, 1);
   checked("Secrets and personal identifiers are rejected before publication.");
+  const placeholderInstructions = "Read /Users/user/project/file and contact user@example.com.";
+  const placeholderRevision = await runCauseEffect(
+    service.learner().save(
+      agent.id,
+      {
+        action: "update",
+        skillId: first.skillId,
+        expectedRevision: restoredAgain.revision,
+        description: draft.description,
+        instructions: placeholderInstructions,
+      },
+      "suggestion:allowed-placeholders",
+    ),
+  );
+  assert.equal(placeholderRevision.revision, restoredAgain.revision + 1);
+  assert.equal((await runCauseEffect(library.get(first.skillId))).instructions, placeholderInstructions);
+  checked("Example home and email placeholders remain valid learned content.");
 
   await runCauseEffect(service.set({ mode: "automatic" }));
   holdRefresh = true;
