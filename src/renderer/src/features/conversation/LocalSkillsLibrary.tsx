@@ -29,6 +29,7 @@ export function LocalSkillsLibrary(props: {
   agentId: string;
   serverId?: string | undefined;
   calls?: LocalSkillLibraryCalls | undefined;
+  menuMount?: HTMLElement | undefined;
   disabled?: boolean;
   installed: InstalledSkill[];
   onInstalled: () => Promise<void>;
@@ -301,7 +302,7 @@ export function LocalSkillsLibrary(props: {
                         }
                       </SelectValue>
                     </SelectTrigger>
-                    <SelectContent />
+                    <SelectContent mount={props.menuMount} />
                   </Select>
                 </Show>
                 <Show when={skill().version < latestRevision()}>

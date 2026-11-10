@@ -85,6 +85,7 @@ export function AgentSkillsModal(props: AgentSkillsModalProps) {
   let detailRequest = 0;
   let listRequest = 0;
   let modalContent: HTMLDivElement | undefined;
+  const [menuMount, setMenuMount] = createSignal<HTMLElement>();
   let confirmationTrigger: HTMLButtonElement | undefined;
   const skillsMode = () => props.skillsMode ?? "mutable";
   const mutable = () => skillsMode() === "mutable" || skillsMode() === "host";
@@ -327,7 +328,10 @@ export function AgentSkillsModal(props: AgentSkillsModalProps) {
         <Dialog.Portal>
           <Dialog.Overlay class="agent-memories-overlay" />
           <Dialog.Content
-            ref={(element) => (modalContent = element)}
+            ref={(element) => {
+              modalContent = element;
+              setMenuMount(element);
+            }}
             class="agent-memories-modal agent-skills-modal t-resize"
             onOpenAutoFocus={(event) => {
               event.preventDefault();
@@ -421,6 +425,7 @@ export function AgentSkillsModal(props: AgentSkillsModalProps) {
                             agentId={props.agentId}
                             serverId={props.serverId}
                             calls={props.localLibraryCalls}
+                            menuMount={menuMount()}
                             installed={skills()}
                             disabled={loading() || savingId() !== null}
                             onInstalled={async () => {
