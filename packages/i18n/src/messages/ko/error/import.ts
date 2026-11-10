@@ -37,4 +37,8 @@ export const messages = {
   "error.import.transferMcpValues":
     "{name}: MCP 서버를 꺼진 상태로 추가했어요. 명령을 확인하고 값과 전체 주소를 다시 입력한 후 MCP 설정에서 켜 주세요.",
   "error.import.transferSharedKept": "공유 폴더의 파일 {number}개는 이미 여기에 있어서 그대로 두었어요.",
+  "error.import.entryDamaged": "내보내기 파일 안의 파일이 손상되었어요.",
+  "error.import.zipInvalid": "선택한 파일은 올바른 ZIP 압축 파일이 아니에요. 내보내기가 끝나면 다시 선택해 주세요.",
+  "error.import.notEnoughSpace": "파일을 가져올 디스크 공간이 부족해요.",
+  "error.import.transferUnsafeFilesSkipped": "가져오기에서 .git 또는 node_modules 아래 파일 {number}개를 제외했어요.",
 } as const satisfies PartialTranslation<typeof source>;

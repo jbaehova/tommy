@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@tommy/ui/data";
 import { currentText } from "@tommy/ui/text";
+import { errorReference } from "@tommy/user-errors";
 import { createStore } from "solid-js";
 import { formatMessageTime } from "../../../app-message-projection";
 import { composerDraftKey } from "../conversation-keys";
@@ -25,6 +26,7 @@ export interface PendingSend {
   /** The host's id for the message, once it answered. The pending row stays until that row is drawn. */
   messageId: string | null;
   error: string | null;
+  errorReference: string | null;
   /** The host drops a second send with the same `clientMessageId`, so Retry cannot store it twice. */
   retrySafe: boolean;
   /** What the user said, for a voice message: a local draft that Retry sends again and Dismiss discards. */
@@ -88,6 +90,7 @@ export function createPendingSendStore() {
     if (next?.state !== "waiting" || !deliver) return;
     next.state = "sending";
     next.error = null;
+    next.errorReference = null;
     publish(key);
     void deliver({ ...next })
       .catch((error: unknown) => {
@@ -95,7 +98,7 @@ export function createPendingSendStore() {
         const { t, errorMessage } = currentText();
         const fallback = t("chat.send.failed");
         const message = errorMessage(error, fallback);
-        return { error: message === fallback ? null : message };
+        return { error: message === fallback ? null : message, reference: errorReference(error) };
       })
       .then((result) => {
         // Dismissed while in flight: nothing is left to update.
@@ -114,6 +117,7 @@ export function createPendingSendStore() {
         } else {
           next.state = "failed";
           next.error = result.error;
+          next.errorReference = result.reference ?? null;
         }
         publish(key);
         pump(key);
@@ -137,6 +141,7 @@ export function createPendingSendStore() {
       state: "waiting",
       messageId: null,
       error: null,
+      errorReference: null,
     };
     deliverers.set(send.clientMessageId, deliver);
     queues.set(key, [...(queues.get(key) ?? []), send]);
@@ -156,6 +161,7 @@ export function createPendingSendStore() {
     }
     send.state = "waiting";
     send.error = null;
+    send.errorReference = null;
     publish(key);
     pump(key);
   }

@@ -9,6 +9,7 @@ import {
   type ListEventRoutinesInput,
   type SaveEventRoutineInput,
 } from "@tommy/contracts/ipc-events";
+import { isRoutineRunPlace } from "@tommy/contracts/routine-run-place-v1";
 import { type DynamicRecord, isDynamicRecord } from "@tommy/contracts/runtime-values";
 import { sourceText } from "@tommy/i18n/source";
 
@@ -51,9 +52,12 @@ export function parseSaveEventRoutine(value: unknown): SaveEventRoutineInput {
   if (input.missedPolicy !== undefined && input.missedPolicy !== "skip" && input.missedPolicy !== "run-once") {
     throw invalidEventInput();
   }
+  if (input.runIn !== undefined && !isRoutineRunPlace(input.runIn)) throw invalidEventInput();
+  const routineOwner = owner(input.owner);
+  if (input.runIn === "thread" && routineOwner.kind !== "agent") throw invalidEventInput();
   return {
     ...(input.id === undefined ? {} : { id: requiredString(input.id, 128) }),
-    owner: owner(input.owner),
+    owner: routineOwner,
     name: requiredString(input.name, 256),
     instruction: requiredString(input.instruction, 100_000),
     active: input.active,
@@ -69,6 +73,7 @@ export function parseSaveEventRoutine(value: unknown): SaveEventRoutineInput {
           },
     ...(input.limitPolicy === undefined ? {} : { limitPolicy: input.limitPolicy }),
     ...(input.missedPolicy === undefined ? {} : { missedPolicy: input.missedPolicy }),
+    ...(input.runIn === undefined ? {} : { runIn: input.runIn }),
   };
 }
 

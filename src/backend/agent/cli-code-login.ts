@@ -4,6 +4,7 @@ import { sourceText } from "@tommy/i18n/source";
 import { registerSecretValue } from "@tommy/logging";
 import { Deferred, Effect, Fiber, Option, Schema } from "effect";
 import { shellQuote } from "../automation-command";
+import { childProcessEnvironment } from "../child-process-environment";
 import { cliSpawnTarget } from "../cli";
 import { stopProcessTree } from "../process-tree";
 import { waitForSuccessfulProcess } from "./provider-status";
@@ -75,7 +76,11 @@ export const startCliCodeLogin = Effect.fnUntraced(function* (options: {
           : cliSpawnTarget(options.executable, options.argv);
         return spawn(target.command, target.args, {
           cwd: process.cwd(),
-          env: { ...process.env, ...options.env, ...(command ? { TOMMY_LOGIN_EXECUTABLE: options.executable } : {}) },
+          env: childProcessEnvironment({
+            ...process.env,
+            ...options.env,
+            ...(command ? { TOMMY_LOGIN_EXECUTABLE: options.executable } : {}),
+          }),
           stdio: ["pipe", "pipe", "pipe"],
           shell: false,
         });

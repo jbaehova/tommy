@@ -1,3 +1,19 @@
+import type { WorkflowIntegrationCatalog } from "@tommy/contracts/ipc";
+import { parseSetWorkflowSenderSecret } from "@tommy/contracts/ipc-webhook-sender-secret";
+import type { TeamCurrentCapability } from "@tommy/contracts/team-protocol/current";
+import {
+  WEBHOOK_SENDER_SECRET_CAPABILITY,
+  WEBHOOK_SENDER_SECRET_ROUTES,
+} from "@tommy/contracts/team-protocol/webhook-sender-secret-v1";
+import {
+  WORKFLOWS_EXTENSIONS_CAPABILITY,
+  WORKFLOWS_EXTENSIONS_ROUTES,
+} from "@tommy/contracts/team-protocol/workflows-extensions-v1";
+import { registerSecretValue } from "@tommy/logging";
+import type { WorkflowGitHubApi } from "../../backend/workflows/workflow-github-api";
+import { decodeWorkflowIntegrationCatalogFromHost } from "../remote-extension-decoding";
+import { isStandardWebhookSecret } from "../webhook-security";
+import type { WorkflowConnectors } from "../workflow-connectors";
 // Workflows: graphs of steps drawn on a canvas. This computer's host answers from its own runtime,
 // and its events service owns webhook secrets. A joined server answers through `workflows-v1`, and
 // its GitHub catalog, options, event history and last-event runs through `workflows-github-v1`.
@@ -23,13 +39,13 @@ import {
   decodeRemoteWorkflowVersionGraph,
   decodeRemoteWorkflowVersions,
 } from "@tommy/team-client/workflow-decoding";
-import type { Effect } from "effect";
+import { Effect } from "effect";
 import { runCauseEffect } from "../../backend/effect-boundary";
 import type { WorkflowsHandle } from "../../backend/workflows/workflows";
 import type { HostEventsService } from "../host-events-service";
 import { acceptEmpty, type ResponseDecoder } from "../remote-host-decoding";
 import type { RemoteRequestInit } from "../remote-server-client";
-import type { RemoteWorkflowError } from "../remote-service-effects";
+import { RemoteWorkflowError } from "../remote-service-effects";
 import type { IpcGroupHandlers } from "./define-ipc-group";
 import { scopedHandler, scopedQueryHandler } from "./scoped-handler";
 import {
@@ -51,10 +67,7 @@ import {
 } from "./workflow-inputs";
 
 interface WorkflowRemoteServers {
-  supportsCapability(
-    serverId: string,
-    capability: typeof WORKFLOWS_CAPABILITY | typeof WORKFLOWS_GITHUB_CAPABILITY,
-  ): boolean;
+  supportsCapability(serverId: string, capability: TeamCurrentCapability): boolean;
   request<T>(
     serverId: string,
     path: string,
@@ -65,13 +78,19 @@ interface WorkflowRemoteServers {
 
 interface WorkflowIpcDependencies {
   workflows: WorkflowsHandle;
-  events: Pick<HostEventsService, "rotateWorkflowSecret">;
+  integrationCatalog: () => WorkflowIntegrationCatalog;
+  githubCatalog: WorkflowConnectors["githubCatalog"];
+  githubOptions: WorkflowGitHubApi["options"];
+  events: Pick<HostEventsService, "rotateWorkflowSecret" | "setWorkflowSenderSecret">;
   /** This computer's GitHub repositories, labels and people for the editor. The user is the owner. */
   remoteServers: WorkflowRemoteServers;
 }
 
 export function workflowIpcHandlers({
   workflows,
+  integrationCatalog,
+  githubCatalog,
+  githubOptions,
   events,
   remoteServers,
 }: WorkflowIpcDependencies): Pick<IpcGroupHandlers, "workflows"> {
@@ -88,6 +107,40 @@ export function workflowIpcHandlers({
   }
   return {
     workflows: {
+      setSenderSecret: scopedHandler(parseSetWorkflowSenderSecret, {
+        local: (input) => runCauseEffect(events.setWorkflowSenderSecret(input)),
+        remote: (input, serverId) => {
+          if (!remoteServers.supportsCapability(serverId, WEBHOOK_SENDER_SECRET_CAPABILITY))
+            throw new Error(sourceText("error.backend.eventsUnavailable"));
+          if (!isStandardWebhookSecret(input.secret))
+            throw new Error(sourceText("error.backend.webhookSettingsInvalid"));
+          registerSecretValue(input.secret);
+          return runCauseEffect(
+            remoteServers.request(serverId, WEBHOOK_SENDER_SECRET_ROUTES.workflow, acceptEmpty, {
+              method: "POST",
+              body: input,
+            }),
+          );
+        },
+      }),
+      integrationCatalog: scopedQueryHandler({
+        local: integrationCatalog,
+        remote: (serverId) =>
+          remoteServers.supportsCapability(serverId, WORKFLOWS_EXTENSIONS_CAPABILITY)
+            ? remote(
+                serverId,
+                WORKFLOWS_EXTENSIONS_ROUTES.integrationCatalog,
+                decodeWorkflowIntegrationCatalogFromHost,
+                {},
+              )
+            : {
+                github: remoteServers.supportsCapability(serverId, WORKFLOWS_GITHUB_CAPABILITY),
+                places: [],
+                slack: [],
+                telegram: [],
+                discord: [],
+              },
+      }),
       list: scopedQueryHandler({
         local: () => runCauseEffect(workflows.list()),
         remote: (serverId) => remote(serverId, WORKFLOWS_ROUTES.list, decodeRemoteWorkflowList, {}),
@@ -167,12 +220,22 @@ export function workflowIpcHandlers({
           remote(serverId, WORKFLOWS_ROUTES.rotateWebhookSecret, decodeRemoteWorkflowSecret, input),
       }),
       githubCatalog: scopedQueryHandler({
-        local: async () => ({ connected: false, repositories: [] }),
+        local: () =>
+          runCauseEffect(
+            githubCatalog().pipe(
+              Effect.mapError((failure) => new RemoteWorkflowError({ cause: new Error(failure.message) })),
+            ),
+          ),
         remote: (serverId) =>
           remoteGitHub(serverId, WORKFLOWS_GITHUB_ROUTES.catalog, decodeRemoteWorkflowGitHubCatalog, {}),
       }),
       githubOptions: scopedHandler(parseWorkflowGitHubRepository, {
-        local: async () => ({ labels: [], people: [] }),
+        local: (input) =>
+          runCauseEffect(
+            githubOptions(input.repository).pipe(
+              Effect.mapError((failure) => new RemoteWorkflowError({ cause: new Error(failure.message) })),
+            ),
+          ),
         remote: (input, serverId) =>
           remoteGitHub(serverId, WORKFLOWS_GITHUB_ROUTES.options, decodeRemoteWorkflowGitHubOptions, input),
       }),

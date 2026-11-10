@@ -716,15 +716,27 @@
  * panel border and background whole. The scrollbar stays hidden: the fade carries the same news.
  */
 .mention-picker-list {
+  --mention-picker-title-height: var(--tommy-space-6);
+  --mention-picker-section-gap: var(--tommy-space-1);
+
+  position: relative;
   display: grid;
   /* A plain auto track grows to the widest row, which would push the badges out of view. */
   grid-template-columns: minmax(0, 1fr);
   /*
-   * Every row is the same height, so the list can state the height its rows need instead of
-   * leaving it to the content. A length on both sides of the change is what lets the panel
-   * travel to its new size while the query narrows, rather than jump to it.
+   * Every row and section title has a fixed height, so the list states the height it needs and
+   * the panel has its full height in the first frame, also while the query narrows it.
    */
-  height: calc(var(--mention-picker-rows, 0) * var(--mention-picker-row-height) + 2 * var(--mention-picker-gutter));
+  height: calc(
+    var(--mention-picker-rows, 0) *
+    var(--mention-picker-row-height) +
+    var(--mention-picker-sections, 0) *
+    var(--mention-picker-title-height) +
+    max(var(--mention-picker-sections, 0) - 1, 0) *
+    var(--mention-picker-section-gap) +
+    2 *
+    var(--mention-picker-gutter)
+  );
   max-height: calc(
     var(--mention-picker-visible-rows) *
     var(--mention-picker-row-height) +
@@ -736,8 +748,51 @@
   padding: var(--mention-picker-gutter);
   overscroll-behavior: contain;
   scrollbar-width: none;
-  transition: height var(--tommy-duration-normal) var(--tommy-ease-out);
-  will-change: height;
+  /* A key press scrolls the active row clear of the scroll fade. */
+  scroll-padding-block: var(--tommy-space-4);
+  /*
+   * The panel stands on the composer, so a height that travels moves its top edge and every row
+   * slides with it. The list takes its new height in one frame; only the rows that come back fade in.
+   */
+  transition: none;
+}
+
+/* The title of a section of the `@` list, with its count. A list with one section has no title. */
+.mention-picker-section {
+  display: flex;
+  height: var(--mention-picker-title-height);
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0 var(--tommy-space-2) var(--tommy-space-1);
+  color: var(--tommy-queue-action);
+  font-size: var(--tommy-text-sm);
+  font-weight: var(--tommy-weight-medium);
+}
+
+.mention-picker-section-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.mention-picker-option + .mention-picker-section {
+  margin-top: var(--mention-picker-section-gap);
+}
+
+/* One highlight slides under the active row (see `trackPickerHighlight`), so a row has no background of its own. */
+.mention-picker-highlight {
+  position: absolute;
+  top: 0;
+  right: var(--mention-picker-gutter);
+  left: var(--mention-picker-gutter);
+  border-radius: var(--tommy-radius-md);
+  background: var(--tommy-hover);
+  pointer-events: none;
+  transition:
+    transform var(--tommy-duration-fast) var(--tommy-ease-out),
+    height var(--tommy-duration-fast) var(--tommy-ease-out);
+}
+
+.mention-picker-highlight[data-instant] {
+  transition: none;
 }
 
 .mention-picker-list::-webkit-scrollbar {
@@ -760,6 +815,8 @@
   display: flex;
   width: 100%;
   /* The list computes its own height from this one, so the two must not drift apart. */
+  position: relative;
+  z-index: 1;
   height: var(--mention-picker-row-height);
   align-items: center;
   gap: 7px;
@@ -776,9 +833,15 @@
   height: 20px;
 }
 
-.mention-picker-option:hover,
-.mention-picker-option-active {
-  background: var(--tommy-hover);
+/* A row that the query brings back fades in; the rows that stay do not move. */
+.mention-picker-option[data-entering] {
+  animation: mention-picker-row-in var(--tommy-duration-fast) var(--tommy-ease-out) both;
+}
+
+@keyframes mention-picker-row-in {
+  from {
+    opacity: 0;
+  }
 }
 
 .mention-picker-option .agent-avatar {
@@ -804,6 +867,9 @@
 
 .mention-picker-option > strong {
   min-width: 0;
+  /* Unset outside a filter, so the name keeps the row color. */
+  color: var(--mention-picker-name-color);
+  max-width: 50%;
   flex: 0 1 auto;
   overflow: hidden;
   font-size: var(--tommy-text-lg);
@@ -946,6 +1012,13 @@
   object-fit: cover;
 }
 
+/* An image that opens in the image viewer. */
+.composer-attachment-preview.ui-button {
+  border: 0;
+  padding: 0;
+  cursor: zoom-in;
+}
+
 /* A pasted image that is still importing: its local preview, dimmed, under a spinner. */
 .composer-attachment[data-pending] .composer-attachment-preview img {
   opacity: 0.5;
@@ -955,4 +1028,26 @@
   position: absolute;
   inset: 0;
   margin: auto;
+}
+
+/* Filtering uses the same emphasis as search results. */
+.mention-picker-option[data-filtering] {
+  --mention-picker-name-color: var(--tommy-queue-action);
+}
+.mention-picker-match {
+  background: transparent;
+  color: var(--tommy-text-primary);
+  font-weight: var(--tommy-weight-medium);
+}
+.mention-picker-badge > svg {
+  width: var(--tommy-icon-xs);
+  height: var(--tommy-icon-xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mention-picker-highlight,
+  .mention-picker-option[data-entering] {
+    animation: none;
+    transition: none;
+  }
 }

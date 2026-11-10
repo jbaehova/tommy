@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+import { type MigrationFixtureRows, withImprovementSchema } from "./migration-fixture-rows";
 import { migrateTommyDatabase } from "./tommy-database-schema";
 
 // Failure modes: the upgrade changes or loses a row of any table; a failed upgrade leaves a table or
@@ -73,7 +74,7 @@ function seed(db: DatabaseSync, version: number): void {
  * Every row of every table, by table name. Migration 47 replaces the empty task table with the thread
  * table; `agent-thread-migration.test.ts` checks that move.
  */
-function contents(db: DatabaseSync): Record<string, unknown[]> {
+function contents(db: DatabaseSync): MigrationFixtureRows {
   const tables = db
     .prepare(
       `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'
@@ -90,7 +91,7 @@ function workflowTables(db: DatabaseSync) {
 }
 
 function expectHealthy(db: DatabaseSync): void {
-  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 52 });
+  expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 58 });
   expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
   expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   expect(db.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
@@ -146,7 +147,7 @@ describe("workflow migration", () => {
       if (version < 25) seedConnection(db);
       const before = contents(db);
       migrateTommyDatabase(db);
-      expect(contents(db)).toEqual({ ...before, ...EMPTY_WORKFLOW_TABLES, ...EMPTY_V51_TABLES });
+      expect(contents(db)).toEqual({ ...withImprovementSchema(before), ...EMPTY_WORKFLOW_TABLES, ...EMPTY_V51_TABLES });
       expectHealthy(db);
     },
   );
@@ -164,7 +165,7 @@ describe("workflow migration", () => {
     expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
     db.exec("DROP TRIGGER fail_marker");
     migrateTommyDatabase(db);
-    expect(contents(db)).toEqual({ ...before, ...EMPTY_WORKFLOW_TABLES, ...EMPTY_V51_TABLES });
+    expect(contents(db)).toEqual({ ...withImprovementSchema(before), ...EMPTY_WORKFLOW_TABLES, ...EMPTY_V51_TABLES });
     expectHealthy(db);
   });
 
@@ -172,9 +173,9 @@ describe("workflow migration", () => {
     const db = databaseAt(45);
     seed(db, 45);
     const before = contents(db);
-    db.exec("INSERT INTO schema_migrations VALUES(53,'now')");
+    db.exec("INSERT INTO schema_migrations VALUES(59,'now')");
     expect(() => migrateTommyDatabase(db)).toThrow("newer than this application supports");
-    db.exec("DELETE FROM schema_migrations WHERE version=53; DELETE FROM schema_migrations WHERE version=20");
+    db.exec("DELETE FROM schema_migrations WHERE version=59; DELETE FROM schema_migrations WHERE version=20");
     expect(() => migrateTommyDatabase(db)).toThrow("missing version 20");
     expect(contents(db)).toEqual(before);
     expect(workflowTables(db)).toEqual([]);
@@ -195,7 +196,7 @@ describe("workflow migration", () => {
     fails(`INSERT INTO workflow_triggers (workflow_id, node_id, kind, updated_at)
       VALUES ('workflow-1', 'node-unknown', 'manual', '2026-01-03')`);
     fails(`INSERT INTO workflow_output_deliveries (step_id, connection_id, place_id, text, status, created_at, updated_at)
-      VALUES ('step-2', 'connection-unknown', 'place-1', 'Answer', 'pending', '2026-01-03', '2026-01-03')`);
+      VALUES ('step-unknown', 'native-connection', 'place-1', 'Answer', 'pending', '2026-01-03', '2026-01-03')`);
     fails(`INSERT INTO workflow_nodes (workflow_id, node_id, position, kind, x, y, fields_json, schedule_json)
       VALUES ('workflow-1', 'prompt', 3, 'prompt', 0, 0, '{}', '{"type":"daily"}')`);
     expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
@@ -295,7 +296,7 @@ describe("workflow GitHub migration", () => {
 
     migrateTommyDatabase(db);
 
-    expect(contents(db)).toEqual({ ...before, ...EMPTY_GITHUB_TABLES, ...EMPTY_V51_TABLES });
+    expect(contents(db)).toEqual({ ...withImprovementSchema(before), ...EMPTY_GITHUB_TABLES, ...EMPTY_V51_TABLES });
     expectHealthy(db);
     expect(runSourceCheck(db)).toContain("'github'");
     expect(db.prepare("SELECT name FROM sqlite_master WHERE name LIKE '%_v49'").all()).toEqual([]);
@@ -329,7 +330,7 @@ describe("workflow GitHub migration", () => {
     expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
     db.exec("DROP TRIGGER fail_marker");
     migrateTommyDatabase(db);
-    expect(contents(db)).toEqual({ ...before, ...EMPTY_GITHUB_TABLES, ...EMPTY_V51_TABLES });
+    expect(contents(db)).toEqual({ ...withImprovementSchema(before), ...EMPTY_GITHUB_TABLES, ...EMPTY_V51_TABLES });
     expectHealthy(db);
   });
 
@@ -339,9 +340,9 @@ describe("workflow GitHub migration", () => {
     seedWorkflow(db);
     const before = contents(db);
     const check = runSourceCheck(db);
-    db.exec("INSERT INTO schema_migrations VALUES(53,'now')");
+    db.exec("INSERT INTO schema_migrations VALUES(59,'now')");
     expect(() => migrateTommyDatabase(db)).toThrow("newer than this application supports");
-    db.exec("DELETE FROM schema_migrations WHERE version=53; DELETE FROM schema_migrations WHERE version=46");
+    db.exec("DELETE FROM schema_migrations WHERE version=59; DELETE FROM schema_migrations WHERE version=46");
     expect(() => migrateTommyDatabase(db)).toThrow("missing version 46");
     expect(contents(db)).toEqual(before);
     expect(runSourceCheck(db)).toBe(check);
@@ -424,7 +425,11 @@ describe("workflow Discord migration", () => {
 
     migrateTommyDatabase(db);
 
-    expect(contents(db)).toEqual({ ...before, ...(version >= 49 ? {} : EMPTY_GITHUB_TABLES), ...EMPTY_V51_TABLES });
+    expect(contents(db)).toEqual({
+      ...withImprovementSchema(before),
+      ...(version >= 49 ? {} : EMPTY_GITHUB_TABLES),
+      ...EMPTY_V51_TABLES,
+    });
     expectHealthy(db);
     expect(runSourceCheck(db)).toContain("'discord'");
     expect(runSourceCheck(db)).toContain("'github'");
@@ -466,7 +471,7 @@ describe("workflow Discord migration", () => {
     expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
     db.exec("DROP TRIGGER fail_marker");
     migrateTommyDatabase(db);
-    expect(contents(db)).toEqual({ ...before, ...EMPTY_V51_TABLES });
+    expect(contents(db)).toEqual({ ...withImprovementSchema(before), ...EMPTY_V51_TABLES });
     expectHealthy(db);
   });
 
@@ -476,9 +481,9 @@ describe("workflow Discord migration", () => {
     seedWorkflow(db);
     const before = contents(db);
     const check = runSourceCheck(db);
-    db.exec("INSERT INTO schema_migrations VALUES(53,'now')");
+    db.exec("INSERT INTO schema_migrations VALUES(59,'now')");
     expect(() => migrateTommyDatabase(db)).toThrow("newer than this application supports");
-    db.exec("DELETE FROM schema_migrations WHERE version=53; DELETE FROM schema_migrations WHERE version=47");
+    db.exec("DELETE FROM schema_migrations WHERE version=59; DELETE FROM schema_migrations WHERE version=47");
     expect(() => migrateTommyDatabase(db)).toThrow("missing version 47");
     expect(contents(db)).toEqual(before);
     expect(runSourceCheck(db)).toBe(check);

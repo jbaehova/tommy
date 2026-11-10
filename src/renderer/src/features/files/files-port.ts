@@ -1,4 +1,4 @@
-import type { TommyDesktopApi } from "@tommy/contracts/ipc";
+import type { SaveStoredFileInput, TommyDesktopApi } from "@tommy/contracts/ipc";
 
 /**
  * What the storage panels reach in main: the stored files of a server, and the agent names that
@@ -10,8 +10,11 @@ export interface FilesPort {
    * The old provider CLI versions and the machine use are optional: a client with no store of its
    * own, such as the web client, has none.
    */
-  storage: Pick<TommyDesktopApi["storage"], "clear" | "deleteFile" | "getUsage" | "openFile"> &
-    Partial<Pick<TommyDesktopApi["storage"], "getRemovableRuntimes" | "removeRemovableRuntimes" | "getMachineMetrics">>;
+  storage: Pick<TommyDesktopApi["storage"], "clear" | "deleteFile" | "getUsage" | "openFile"> & {
+    saveFile?: (input: SaveStoredFileInput, serverId: string) => Promise<boolean>;
+  } & Partial<
+      Pick<TommyDesktopApi["storage"], "getRemovableRuntimes" | "removeRemovableRuntimes" | "getMachineMetrics">
+    >;
   /** The machine alert settings, beside `storage.getMachineMetrics`. */
   hostAdmin?: Pick<TommyDesktopApi["hostAdmin"], "getMachineAlerts" | "setMachineAlerts">;
 }

@@ -4,10 +4,30 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { AgentSummary, MarketplaceSkillDetail } from "@tommy/contracts/ipc";
 import { isDynamicRecord, isString } from "@tommy/contracts/runtime-values";
 import { sourceText } from "@tommy/i18n/source";
-import { Effect, Schema, Semaphore } from "effect";
+import { createTommyLogger } from "@tommy/logging";
+import { Effect, Result, Schema, Semaphore } from "effect";
 import { parse as parseYaml } from "yaml";
+import { writeJsonFileAtomically } from "../backend/atomic-json-file";
 import { causeHelpers } from "../backend/effect-boundary";
+import { isMissingFileError } from "../backend/file-errors";
+import { MANAGED_SKILL_SLUGS } from "./managed-skill-service";
 import { archiveDirectory, inspectArchive, normalizedFiles } from "./skill-package";
+
+export interface LocalSkillPublication extends MarketplaceSkillDetail {
+  replayed: boolean;
+}
+
+const logger = createTommyLogger("local-skill-library");
+
+const LearningInstallationReceipt = Schema.Struct({
+  version: Schema.Literal(1),
+  operationId: Schema.String,
+  agentId: Schema.String,
+  skillId: Schema.String,
+  revision: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)),
+});
+type LearningInstallation = Omit<typeof LearningInstallationReceipt.Type, "version">;
+const decodeLearningInstallation = Schema.decodeUnknownSync(LearningInstallationReceipt);
 
 /** Owns immutable local revisions. A revision exists only after its directory is published. */
 export class LocalSkillLibrary {
@@ -17,8 +37,10 @@ export class LocalSkillLibrary {
     private readonly agents: () => AgentSummary[],
   ) {}
 
-  list(): Effect.Effect<MarketplaceSkillDetail[], LocalSkillFailure> {
+  list(limit?: number, summaries = false): Effect.Effect<MarketplaceSkillDetail[], LocalSkillFailure> {
     return Effect.gen({ self: this }, function* (): Effect.fn.Return<MarketplaceSkillDetail[], LocalSkillFailure> {
+      if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1))
+        return yield* new LocalSkillFailure({ cause: new Error("Invalid local skill list limit.") });
       yield* localIO(() => mkdir(this.root, { recursive: true, mode: 0o700 }));
       const entries = yield* localIO(() => readdir(this.root, { withFileTypes: true }));
       const published = [];
@@ -27,7 +49,15 @@ export class LocalSkillLibrary {
         const revisions = yield* localIO(() => readdir(join(this.root, entry.name)));
         if (revisions.some((name) => /^[1-9]\d*$/u.test(name))) published.push(entry.name);
       }
-      const results = yield* Effect.forEach(published, (id) => this.get(id), { concurrency: "unbounded" });
+      const selected = limit === undefined ? published : published.sort().slice(0, limit);
+      const results = yield* Effect.forEach(
+        selected,
+        (id) =>
+          this.get(id).pipe(
+            Effect.map((detail) => (summaries ? { ...detail, instructions: "", files: [], iconUrl: null } : detail)),
+          ),
+        { concurrency: limit === undefined ? "unbounded" : 1 },
+      );
       return results.sort((a, b) => a.name.localeCompare(b.name));
     });
   }
@@ -122,7 +152,7 @@ export class LocalSkillLibrary {
         const current = yield* this.get(id);
         if (current.version !== expectedRevision)
           return yield* new LocalSkillFailure({
-            cause: new Error("The skill changed. Read its latest revision before revising it."),
+            cause: new Error(sourceText("error.skill.localRevisionChanged")),
           });
         const bytes = yield* this.sourceEffect(agentId, sourcePath);
         if ((yield* localSync(() => inspectArchive(bytes))).slug !== current.slug)
@@ -131,6 +161,158 @@ export class LocalSkillLibrary {
         return yield* this.get(id, expectedRevision + 1);
       }),
     );
+  }
+
+  /** A host-built learned bundle. The receipt is published atomically with its immutable revision. */
+  readonly createFromBundle = Effect.fn("LocalSkillLibrary.createFromBundle")(function* (
+    this: LocalSkillLibrary,
+    bytes: Uint8Array,
+    operationId?: string,
+    permitted?: () => boolean,
+  ): Effect.fn.Return<LocalSkillPublication, LocalSkillFailure> {
+    return yield* this.serialize(
+      Effect.gen({ self: this }, function* () {
+        const repeated = operationId ? yield* this.findOperation(operationId) : null;
+        if (repeated) return { ...repeated, replayed: true };
+        const info = yield* localSync(() => inspectArchive(bytes));
+        if (MANAGED_SKILL_SLUGS.has(info.slug))
+          return yield* new LocalSkillFailure({
+            cause: new Error(sourceText("error.skill.managedSlug", { slug: info.slug })),
+          });
+        if ((yield* this.list()).some((skill) => skill.slug === info.slug))
+          return yield* new LocalSkillFailure({ cause: new Error(sourceText("error.skill.localNameTaken")) });
+        const id = `local-skill-${randomUUID()}`;
+        yield* this.publishEffect(id, 1, bytes, operationId, permitted);
+        return { ...(yield* this.get(id, 1)), replayed: false };
+      }),
+    );
+  });
+
+  /** expectedRevision prevents a learned edit from replacing a concurrent manual edit. */
+  readonly reviseFromBundle = Effect.fn("LocalSkillLibrary.reviseFromBundle")(function* (
+    this: LocalSkillLibrary,
+    id: string,
+    expectedRevision: number,
+    bytes: Uint8Array,
+    operationId?: string,
+    permitted?: () => boolean,
+  ): Effect.fn.Return<LocalSkillPublication, LocalSkillFailure> {
+    return yield* this.serialize(
+      Effect.gen({ self: this }, function* () {
+        const repeated = operationId ? yield* this.findOperation(operationId) : null;
+        if (repeated) return { ...repeated, replayed: true };
+        const current = yield* this.get(id);
+        if (current.version !== expectedRevision)
+          return yield* new LocalSkillFailure({ cause: new Error(sourceText("error.skill.localRevisionChanged")) });
+        if ((yield* localSync(() => inspectArchive(bytes))).slug !== current.slug)
+          return yield* new LocalSkillFailure({ cause: new Error(sourceText("error.skill.localKeepName")) });
+        yield* this.publishEffect(id, expectedRevision + 1, bytes, operationId, permitted);
+        return { ...(yield* this.get(id, expectedRevision + 1)), replayed: false };
+      }),
+    );
+  });
+
+  /** Restoring makes a new revision; every previous revision remains readable. */
+  readonly restoreRevision = Effect.fn("LocalSkillLibrary.restoreRevision")(function* (
+    this: LocalSkillLibrary,
+    id: string,
+    revision: number,
+    expectedRevision: number,
+    operationId: string,
+  ) {
+    const bytes = yield* this.bundle(id, revision);
+    return yield* this.reviseFromBundle(id, expectedRevision, bytes, operationId);
+  });
+
+  /** Publication and installation have separate receipts; an old Save must not undo a manual install. */
+  readonly learningInstallationComplete = Effect.fn("LocalSkillLibrary.learningInstallationComplete")(function* (
+    this: LocalSkillLibrary,
+    input: LearningInstallation,
+  ) {
+    const path = this.learningInstallationPath(input);
+    const read = yield* Effect.result(
+      Effect.gen({ self: this }, function* () {
+        yield* rejectLinks(this.root, path);
+        const size = yield* localIO(() => stat(path));
+        if (size.size > 4_096)
+          return yield* new LocalSkillFailure({ cause: new Error("Invalid learned skill installation receipt.") });
+        return yield* localIO(() => readFile(path, "utf8"));
+      }),
+    );
+    if (Result.isFailure(read)) {
+      if (isMissingFileError(read.failure.cause)) return false;
+      return yield* read.failure;
+    }
+    const receipt = yield* localSync(() => decodeLearningInstallation(JSON.parse(read.success)));
+    if (
+      receipt.operationId !== input.operationId ||
+      receipt.agentId !== input.agentId ||
+      receipt.skillId !== input.skillId ||
+      receipt.revision !== input.revision
+    )
+      return yield* new LocalSkillFailure({ cause: new Error("Invalid learned skill installation receipt.") });
+    return true;
+  });
+
+  readonly recordLearningInstallation = Effect.fn("LocalSkillLibrary.recordLearningInstallation")(function* (
+    this: LocalSkillLibrary,
+    input: LearningInstallation,
+  ) {
+    return yield* this.serialize(
+      Effect.gen({ self: this }, function* () {
+        const path = this.learningInstallationPath(input);
+        yield* localIO(() => mkdir(join(this.root, ".learning-installations"), { recursive: true, mode: 0o700 }));
+        yield* rejectLinks(this.root, join(this.root, ".learning-installations"));
+        yield* writeJsonFileAtomically(path, { version: 1, ...input }).pipe(
+          Effect.mapError(({ cause }) => new LocalSkillFailure({ cause })),
+        );
+      }),
+    );
+  });
+
+  private learningInstallationPath(input: LearningInstallation): string {
+    const key = createHash("sha256")
+      .update(JSON.stringify([input.agentId, input.operationId]))
+      .digest("hex");
+    return join(this.root, ".learning-installations", `${key}.json`);
+  }
+
+  /** Finds a committed operation after restart, including a save whose install must be retried. */
+  private findOperation(operationId: string): Effect.Effect<MarketplaceSkillDetail | null, LocalSkillFailure> {
+    return Effect.gen({ self: this }, function* () {
+      yield* localIO(() => mkdir(this.root, { recursive: true, mode: 0o700 }));
+      yield* rejectLinks(this.root, this.root);
+      const entries = yield* localIO(() => readdir(this.root, { withFileTypes: true }));
+      for (const entry of entries) {
+        if (!entry.isDirectory() || !/^local-skill-[\da-f-]{36}$/u.test(entry.name)) continue;
+        const directory = this.directory(entry.name);
+        yield* rejectLinks(this.root, directory);
+        for (const revision of yield* localIO(() => readdir(directory, { withFileTypes: true }))) {
+          if (!revision.isDirectory() || !/^[1-9]\d*$/u.test(revision.name)) continue;
+          const receipt = join(directory, revision.name, "learning-operation.json");
+          const read = yield* Effect.result(
+            Effect.gen({ self: this }, function* () {
+              yield* rejectLinks(this.root, receipt);
+              const text = yield* localIO(() => readFile(receipt, "utf8"));
+              const value = yield* localSync(() => JSON.parse(text));
+              if (!isDynamicRecord(value) || !isString(value.operationId))
+                return yield* new LocalSkillFailure({ cause: new Error("Invalid skill learning receipt.") });
+              return value.operationId;
+            }),
+          );
+          if (Result.isFailure(read)) {
+            if (!isMissingFileError(read.failure.cause))
+              logger.warn("A damaged skill learning receipt was skipped.", {
+                skillId: entry.name,
+                revision: revision.name,
+              });
+            continue;
+          }
+          if (read.success === operationId) return yield* this.get(entry.name, Number(revision.name));
+        }
+      }
+      return null;
+    });
   }
 
   /** Removes a revision a failed import published. A skill left with no revision is removed too. */
@@ -175,7 +357,13 @@ export class LocalSkillLibrary {
     });
   }
 
-  private publishEffect(id: string, revision: number, bytes: Uint8Array): Effect.Effect<void, LocalSkillFailure> {
+  private publishEffect(
+    id: string,
+    revision: number,
+    bytes: Uint8Array,
+    operationId?: string,
+    permitted?: () => boolean,
+  ): Effect.Effect<void, LocalSkillFailure> {
     return Effect.gen({ self: this }, function* (): Effect.fn.Return<void, LocalSkillFailure> {
       yield* localIO(() => mkdir(this.root, { recursive: true, mode: 0o700 }));
       const directory = yield* localSync(() => this.directory(id));
@@ -185,6 +373,15 @@ export class LocalSkillLibrary {
       yield* localIO(() => mkdir(stage, { mode: 0o700 }));
       yield* Effect.gen({ self: this }, function* () {
         yield* localIO(() => writeFile(join(stage, "bundle.zip"), bytes, { mode: 0o600, flag: "wx" }));
+        if (operationId !== undefined)
+          yield* localIO(() =>
+            writeFile(join(stage, "learning-operation.json"), JSON.stringify({ operationId }), {
+              mode: 0o600,
+              flag: "wx",
+            }),
+          );
+        if (permitted && !permitted())
+          return yield* new LocalSkillFailure({ cause: new Error(sourceText("error.skill.learningStopped")) });
         yield* localIO(() => rename(stage, join(directory, String(revision))));
       }).pipe(
         Effect.ensuring(

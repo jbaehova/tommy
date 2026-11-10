@@ -185,6 +185,19 @@ export function RoutineWebhookChatCard(props: RoutineWebhookChatCardProps) {
       connected={props.connected}
       secret={props.secret}
       onSecretDismiss={() => props.onSecret(null)}
+      senderKeyScope={`${props.api.scopeId ?? "host"}:${routine().owner.kind}:${routine().owner.id}:${routine().id}`}
+      onSetSenderSecret={
+        props.api.setSenderSecret
+          ? async (secret) => {
+              const current = routine();
+              const api = props.api;
+              const set = api.setSenderSecret;
+              if (!set) throw new Error(text.t("routine.webhook.senderKey.failed"));
+              await set({ owner: plainOwner(current), id: current.id, secret });
+              if (props.api === api && routine().id === current.id) props.onSecret(null);
+            }
+          : undefined
+      }
       onRegenerateSecret={async () => {
         const result = await props.api.rotateSecret({ owner: plainOwner(routine()), id: routine().id });
         props.onSecret(result.secret);

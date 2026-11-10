@@ -1,5 +1,5 @@
 import { INPUT_LIMITS } from "@tommy/contracts/input-limits";
-import { ROUTINE_LIMIT_POLICIES, ROUTINE_MISSED_POLICIES } from "@tommy/contracts/ipc";
+import { ROUTINE_LIMIT_POLICIES, ROUTINE_MISSED_POLICIES, ROUTINE_RUN_PLACES } from "@tommy/contracts/ipc";
 import { z } from "zod";
 
 const ROUTINE_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -85,3 +85,7 @@ export const routineMissedPolicyZodSchema = z
   .describe(
     "What the routine does with occurrences that came due while Tommy or its server was off: skip records and drops them, run-once runs the newest one when Tommy starts and records the others. When a routine is created with no value, a one-time schedule uses run-once and other schedules use skip. An update with no value keeps the saved policy.",
   );
+
+export const routineRunPlaceZodSchema = z
+  .enum(ROUTINE_RUN_PLACES)
+  .describe("chat (default) or the routine's own thread. Use thread only when the user asks.");

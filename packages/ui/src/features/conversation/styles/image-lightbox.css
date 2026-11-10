@@ -141,6 +141,14 @@
   gap: var(--tommy-space-1);
 }
 
+/* The copy and check glyphs draw as the download and close glyphs beside them. */
+.image-lightbox-copy svg {
+  width: var(--tommy-icon-sm);
+  height: var(--tommy-icon-sm);
+  fill: none;
+  stroke: currentColor;
+}
+
 .image-lightbox-zoom {
   display: flex;
   align-items: center;

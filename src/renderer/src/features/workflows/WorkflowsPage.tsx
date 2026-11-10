@@ -72,6 +72,15 @@ function WorkflowsCanvas(props: { host: WorkflowHost; admin: boolean }) {
     get discord() {
       return workflows.discord();
     },
+    get telegram() {
+      return workflows.telegram();
+    },
+    get slack() {
+      return workflows.slack();
+    },
+    get channels() {
+      return workflows.channels();
+    },
     imageModels: [],
     files: [],
     get self() {
@@ -79,19 +88,27 @@ function WorkflowsCanvas(props: { host: WorkflowHost; admin: boolean }) {
     },
   };
   // A channel output needs a messaging place. Without one, a new output posts a notification. Only an
-  // owner or admin adds a GitHub or Discord step, on a host that runs them. Only this computer has
-  // Discord servers.
+  // owner or admin adds a GitHub, Discord, Telegram or Slack step on a host that runs them.
   const features = createMemo<WorkflowFeatures>(() => {
     const github = props.admin && props.host.githubSupported();
     const discord = props.admin && workflows.discord().length > 0;
-    const outputs = WORKFLOW_FEATURES_V1.outputs.filter(
-      (output) => output !== "channel" || workflows.places().length > 0,
-    );
-    const added = [...(github ? (["github"] as const) : []), ...(discord ? (["discord"] as const) : [])];
+    const telegram = props.admin && workflows.telegram().length > 0;
+    const slack = props.admin && workflows.slack().length > 0;
+    const outputs = [
+      ...WORKFLOW_FEATURES_V1.outputs.filter((output) => output !== "channel" || workflows.places().length > 0),
+      ...(workflows.channels().length > 0 ? (["chat-channel"] as const) : []),
+    ];
+    const added = [
+      ...(github ? (["github"] as const) : []),
+      ...(discord ? (["discord"] as const) : []),
+      ...(telegram ? (["telegram"] as const) : []),
+      ...(slack ? (["slack"] as const) : []),
+    ];
     return {
       ...WORKFLOW_FEATURES_V1,
       triggers: [...WORKFLOW_FEATURES_V1.triggers, ...added],
       outputs: [...outputs, ...added],
+      multiRepositoryGitHub: props.host.extensionsSupported?.() === true,
     };
   });
   // The canvas is a direct child of the window page, which gives it the height of the pane.
@@ -107,6 +124,12 @@ function WorkflowsCanvas(props: { host: WorkflowHost; admin: boolean }) {
           readOnly={workflows.readOnly()}
           {...workflows.props}
           onRotateWebhookSecret={props.admin ? workflows.props.onRotateWebhookSecret : undefined}
+          onSetWebhookSenderSecret={
+            props.admin && !workflows.readOnly() && props.host.senderKeysSupported?.() === true
+              ? workflows.props.onSetWebhookSenderSecret
+              : undefined
+          }
+          webhookSenderKeyScope={`${props.host.senderKeyScope?.() ?? "host"}:${signedInAccount()?.id ?? "signed-out"}`}
         />
       )}
     </Show>

@@ -30,6 +30,11 @@ import {
   type SidebarPin,
   type SidebarPinsSnapshot,
 } from "@tommy/contracts/ipc";
+import {
+  decodeProviderAccountModels,
+  type ProviderAccountModels,
+  type ProviderAccountModelsInput,
+} from "@tommy/contracts/provider-account-models";
 import { AGENT_ACCESS_ROUTES } from "@tommy/contracts/team-protocol/agent-access-v1";
 import { AGENT_FOLDERS_ROUTES } from "@tommy/contracts/team-protocol/agent-folders-v1";
 import { AGENT_HIDDEN_ROUTES } from "@tommy/contracts/team-protocol/agent-hidden-v1";
@@ -40,6 +45,7 @@ import { HOST_KEY_ROTATION_ROUTES } from "@tommy/contracts/team-protocol/host-ke
 import { HOST_MEMBER_UPDATE_ROUTES } from "@tommy/contracts/team-protocol/host-member-update-v1";
 import { HOST_RELEASE_ROUTES } from "@tommy/contracts/team-protocol/host-release-v1";
 import { HOST_TIMEZONE_ROUTES } from "@tommy/contracts/team-protocol/host-timezone-v1";
+import { PROVIDER_ACCOUNT_MODELS_ROUTE } from "@tommy/contracts/team-protocol/provider-account-models-v1";
 import { PROVIDER_DEFAULT_ROUTES } from "@tommy/contracts/team-protocol/provider-default-v1";
 import type { PROVIDERS_V5_ROUTES } from "@tommy/contracts/team-protocol/providers-v5";
 import { PROVIDERS_V8_ROUTES } from "@tommy/contracts/team-protocol/providers-v8";
@@ -844,10 +850,46 @@ export function cancelProviderCodeLogin(
  * `provider-accounts-v1`: the accounts of the host's providers, and the agents on an account after
  * the first. The host's status, agent list and usage do not carry them.
  */
+export function readProviderAccountModels(
+  request: TeamApiRequest,
+  input: ProviderAccountModelsInput,
+): Effect.Effect<ProviderAccountModels, TeamAdminRequestError> {
+  return adminCall(() =>
+    request("POST", PROVIDER_ACCOUNT_MODELS_ROUTE, (value) => decodeProviderAccountModels(value, input.provider), {
+      ...input,
+    }),
+  );
+}
+
 export function listProviderAccounts(
   request: TeamApiRequest,
+  accountModels = false,
 ): Effect.Effect<HostProviderAccounts, TeamAdminRequestError> {
-  return adminCall(() => request("POST", PROVIDER_ACCOUNTS_ROUTES.list, decodeHostProviderAccounts, {}));
+  return adminCall(() => request("POST", PROVIDER_ACCOUNTS_ROUTES.list, decodeHostProviderAccounts, {})).pipe(
+    Effect.flatMap((host) =>
+      !accountModels
+        ? Effect.succeed(host)
+        : Effect.forEach(
+            host.providers,
+            (row) =>
+              Effect.forEach(
+                row.accounts,
+                (account) =>
+                  account.state !== "connected"
+                    ? Effect.succeed(account)
+                    : readProviderAccountModels(request, {
+                        provider: row.provider,
+                        providerAccountId: account.id,
+                      }).pipe(
+                        Effect.map(({ models }) => ({ ...account, models })),
+                        Effect.catch(() => Effect.succeed({ ...account, models: [] })),
+                      ),
+                { concurrency: 4 },
+              ).pipe(Effect.map((accounts) => ({ ...row, accounts }))),
+            { concurrency: 1 },
+          ).pipe(Effect.map((providers) => ({ ...host, providers }))),
+    ),
+  );
 }
 
 /** The readings of the accounts after the first. */

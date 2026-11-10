@@ -349,4 +349,11 @@ export const messages = defineMessages("routine", {
   "routine.settings.discardDescription": "Your unsaved changes to this routine will be lost.",
   "routine.settings.discardConfirm": "Discard changes",
   "routine.settings.keepEditing": "Keep editing",
+  "routine.settings.runInThread": "Run in a separate thread",
+  "routine.webhook.senderKey.open": "Use sender key",
+  "routine.webhook.senderKey.label": "Sender signing key",
+  "routine.webhook.senderKey.hint":
+    "Paste the Standard Webhooks signing key from the sender. This replaces the current signing key and keeps it on the host.",
+  "routine.webhook.senderKey.saved": "Sender key saved",
+  "routine.webhook.senderKey.failed": "Could not save the sender key. Check the key and enter it again.",
 });

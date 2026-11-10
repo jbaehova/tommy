@@ -8,11 +8,12 @@ import { Bot, CheckCheck, ContextMenu, FolderPlus, Hash } from "@tommy/ui";
 import { For, Show } from "solid-js";
 import { useText } from "../../text";
 import { SidebarChannelRow } from "./SidebarChannelRow";
+import { SidebarChatOrderSubmenu } from "./SidebarChatOrderSubmenu";
 import { SidebarEmptyState } from "./SidebarEmptyState";
 import { SidebarHiddenGroup } from "./SidebarHiddenGroup";
 import { SidebarPinnedGroup } from "./SidebarPinnedGroup";
 import { SidebarSectionList } from "./SidebarSectionList";
-import { SidebarWaitingGroup } from "./SidebarWaitingGroup";
+import { SidebarUnreadGroup, SidebarWaitingGroup } from "./SidebarWaitingGroup";
 import { useSidebarScope } from "./sidebar-scope";
 
 export function SidebarNav() {
@@ -29,6 +30,7 @@ export function SidebarNav() {
     scrollFades,
     setAgentListElement,
     startCreateSection,
+    unreadChats,
     updateSidebarNativeDrag,
     userHiddenAgentList,
     waitingChats,
@@ -50,6 +52,7 @@ export function SidebarNav() {
           when={
             resolvedPinnedItems().length === 0 &&
             waitingChats().length === 0 &&
+            unreadChats().length === 0 &&
             filteredChats().length === 0 &&
             userHiddenAgentList().length === 0 &&
             pending.sectionEditor?.target.kind !== "create"
@@ -59,6 +62,7 @@ export function SidebarNav() {
         </Show>
         <SidebarPinnedGroup />
         <SidebarWaitingGroup />
+        <SidebarUnreadGroup />
         <SidebarSectionList />
         <SidebarHiddenGroup />
         <Show when={props.showingArchivedChannels}>
@@ -79,6 +83,7 @@ export function SidebarNav() {
           props.onCreateChannel ||
           layoutMutable() ||
           props.onMarkAllRead ||
+          props.onChatOrderChange ||
           props.onToggleArchivedChannels
         }
       >
@@ -109,6 +114,9 @@ export function SidebarNav() {
                   <CheckCheck class="agent-context-icon size-4" aria-hidden="true" />
                   <span>{t("sidebar.markAllRead")}</span>
                 </ContextMenu.Item>
+              </Show>
+              <Show when={props.onChatOrderChange}>
+                <SidebarChatOrderSubmenu />
               </Show>
               <Show when={props.onToggleArchivedChannels}>
                 <ContextMenu.Item onSelect={() => props.onToggleArchivedChannels?.()}>

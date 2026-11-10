@@ -6,6 +6,7 @@ import {
   type LogValue,
   redactText,
   redactValue,
+  registerExpiringSecretValues,
   registerSecretValue,
   resolveLogLevel,
   toLogValue,
@@ -320,6 +321,43 @@ describe("registerSecretValue", () => {
     registerSecretValue(secret);
 
     expect(redactText(`key ${secret} rejected`)).toBe("key [redacted] rejected");
+  });
+});
+
+describe("short-lived secret values", () => {
+  it("masks codes through their delivery grace, then releases them without releasing permanent secrets", () => {
+    const now = vi.spyOn(Date, "now");
+    try {
+      now.mockReturnValue(1_000);
+      registerExpiringSecretValues(["643871"], 10_000);
+      registerSecretValue("852741", { allowShort: true });
+      registerExpiringSecretValues(["852741"], 2_000);
+      expect(redactText("value 643871 accepted")).toBe("value [redacted] accepted");
+      now.mockReturnValue(9_999);
+      expect(redactText("value 643871 accepted")).toBe("value [redacted] accepted");
+      now.mockReturnValue(10_000);
+      expect(redactText("value 643871 accepted")).toBe("value 643871 accepted");
+      expect(redactText("value 852741 accepted")).toBe("value [redacted] accepted");
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("keeps a shared code until its latest registration expires", () => {
+    const now = vi.spyOn(Date, "now");
+    try {
+      now.mockReturnValue(20_000);
+      registerExpiringSecretValues(["352648"], 30_000);
+      registerExpiringSecretValues(["352648"], 40_000);
+      now.mockReturnValue(30_000);
+      expect(redactText("value 352648 accepted")).toBe("value [redacted] accepted");
+      now.mockReturnValue(40_000);
+      expect(redactText("value 352648 accepted")).toBe("value 352648 accepted");
+      registerExpiringSecretValues(["914623"], 39_999);
+      expect(redactText("value 914623 accepted")).toBe("value 914623 accepted");
+    } finally {
+      now.mockRestore();
+    }
   });
 });
 

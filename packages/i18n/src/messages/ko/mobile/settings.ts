@@ -166,4 +166,10 @@ export const messages = {
   "mobile.settings.voice.recognition.removeBody": "모델을 다시 다운로드할 때까지 휴대폰 음성 인식이 들어요.",
   "mobile.settings.voice.tab.listening": "듣기",
   "mobile.settings.voice.tab.speaking": "말하기",
+  "mobile.settings.voice.gptLive.title": "GPT 실시간 음성",
+  "mobile.settings.voice.gptLive.footer":
+    "음성 대화에서 휴대폰의 음성 처리 대신 GPT 실시간 음성이 듣고 말해요. 서버를 실행하는 컴퓨터의 Codex(ChatGPT) 로그인을 사용해요. 음성은 이 휴대폰과 OpenAI 사이로 전송돼요. 이 기능을 지원하지 않는 서버에서는 기존 휴대폰 음성을 사용해요.",
+  "mobile.settings.voice.gptLive.automatic": "자동",
+  "mobile.settings.voice.gptLive.cost":
+    "지원하는 Codex 계정이 필요해요. 제공자의 사용량 제한이나 요금이 적용될 수 있어요.",
 } as const satisfies PartialTranslation<typeof source>;

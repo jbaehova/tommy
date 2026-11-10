@@ -1,11 +1,12 @@
 import {
   AGENT_PROVIDER_DESCRIPTORS,
+  type AgentProviderId,
   type AgentProviderRef,
   agentProviderDescriptor,
+  isAgentProvider,
   isAgentProviderRef,
 } from "./agent-providers";
 import { INPUT_LIMITS } from "./input-limits";
-import { type AgentProviderId, isAgentProvider } from "./ipc-agent-status";
 import { isBoundedString } from "./ipc-bounded-values";
 import { type DynamicRecord, isBoolean, isDynamicRecord, isOneOf, isString } from "./runtime-values";
 
@@ -102,6 +103,8 @@ export interface AgentModelOption {
    * the model has no fast mode.
    */
   fastServiceTier?: string;
+  /** Local optional Ultrafast tier. Released adapters omit it. */
+  ultrafastServiceTier?: string;
 }
 
 export function isAgentModelOption(value: unknown): value is AgentModelOption {
@@ -124,6 +127,7 @@ function hasAgentModelOptionFields(value: DynamicRecord): boolean {
     Array.isArray(value.supportedReasoningEfforts) &&
     value.supportedReasoningEfforts.every(isReasoningEffort) &&
     (value.reasoningEffortConfigurable === undefined || isBoolean(value.reasoningEffortConfigurable)) &&
-    (value.fastServiceTier === undefined || isBoundedString(value.fastServiceTier, INPUT_LIMITS.serviceTier))
+    (value.fastServiceTier === undefined || isBoundedString(value.fastServiceTier, INPUT_LIMITS.serviceTier)) &&
+    (value.ultrafastServiceTier === undefined || isBoundedString(value.ultrafastServiceTier, INPUT_LIMITS.serviceTier))
   );
 }

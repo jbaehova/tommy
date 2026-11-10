@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
+import { removeImprovementSchemaFixture } from "./migration-fixture-rows";
 import { migrateTommyDatabase } from "./tommy-database-schema";
 
 describe("agent usage migration", () => {
@@ -7,6 +8,7 @@ describe("agent usage migration", () => {
     const db = new DatabaseSync(":memory:");
     try {
       migrateTommyDatabase(db);
+      removeImprovementSchemaFixture(db);
       db.exec(
         "DROP TABLE agent_usage_records; DROP TABLE agent_usage_checkpoints; DROP TABLE agent_usage_activity; DELETE FROM schema_migrations WHERE version >= 15; CREATE TABLE preservation(value TEXT); INSERT INTO preservation VALUES ('keep'); CREATE TABLE agent_usage_date (conflict TEXT)",
       );

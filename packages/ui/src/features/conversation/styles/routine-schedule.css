@@ -876,3 +876,19 @@ code.routine-webhook-secret {
 .routine-trigger-menu.ui-action-menu .routine-trigger-menu-item > .routine-trigger-menu-check {
   color: var(--tommy-text-primary);
 }
+
+.routine-webhook-sender-key,
+.routine-webhook-sender-key-form {
+  display: grid;
+  gap: var(--tommy-space-2);
+  min-width: 0;
+}
+
+.routine-webhook-sender-key {
+  padding: var(--tommy-space-2) var(--tommy-space-3);
+}
+
+.routine-webhook-sender-key-actions {
+  display: flex;
+  gap: var(--tommy-space-2);
+}

@@ -13,8 +13,32 @@ import {
   requiredNumberColumn,
   requiredStringColumn,
 } from "./database-rows";
+import {
+  isDeletedConversationMessage,
+  isDeletedThreadMessage,
+  recordDeletedThreadMessage,
+  withoutDeletedConversationMessages,
+} from "./deleted-thread-messages";
 import { currentConversationMessage } from "./legacy-conversation-message";
 import { readOrderInputs, refreshChangedOrder, refreshThreadOrder } from "./thread-message-order";
+
+/**
+ * The message as a write compares it, with no queue position. A position moves each time a delivery
+ * ahead of it starts or goes back, and each reader takes it from the mailbox again
+ * (`syncMailboxMessages`, `refreshQueuePositions`). Stored, each move wrote every queued message
+ * again in the recipient's chat and in each sender's chat.
+ */
+export function withoutQueuePositions(message: ConversationMessage): ConversationMessage {
+  const { delivery, exchange } = message;
+  if (!delivery && !exchange) return message;
+  return {
+    ...message,
+    ...(delivery ? { delivery: { ...delivery, position: null } } : {}),
+    ...(exchange
+      ? { exchange: { ...exchange, deliveries: exchange.deliveries.map((item) => ({ ...item, position: null })) } }
+      : {}),
+  };
+}
 
 export interface ConversationWriterOptions {
   core: DatabaseCore;
@@ -46,13 +70,17 @@ export class ConversationWriter {
   }
 
   persistConversation(
-    snapshot: ConversationSnapshot,
+    written: ConversationSnapshot,
     eventType: string,
     payload: unknown = {},
     commandId = `conversation:${eventType}:${randomUUID()}`,
   ): ConversationSnapshot {
-    if (!snapshot.threadId) return structuredClone(snapshot);
-    const threadId = snapshot.threadId;
+    if (!written.threadId) return structuredClone(written);
+    const threadId = written.threadId;
+    const snapshot = {
+      ...written,
+      messages: withoutDeletedConversationMessages(this.#core.connection, threadId, written.messages),
+    };
     const recovery = conversationRecoveryState(this.#core.connection, threadId, snapshot.activeTurnId);
     const result = this.#core.dispatch(
       commandId,
@@ -219,6 +247,8 @@ export class ConversationWriter {
   }): number {
     const { snapshot, messageId } = input;
     const threadId = snapshot.threadId;
+    if (threadId && isDeletedThreadMessage(this.#core.connection, threadId, messageId))
+      return this.#threadRevision(threadId);
     // A thread is required to address a projection row, and the message has to be in the snapshot
     // for its ordinal to be known. Neither holds for a flush that races a thread reset, so fall
     // back to the whole-snapshot write rather than drop the text.
@@ -228,6 +258,7 @@ export class ConversationWriter {
     }
     const message = snapshot.messages[ordinal];
     if (!message) throw new Error(`Streamed message is missing from the snapshot: ${messageId}`);
+    if (isDeletedConversationMessage(this.#core.connection, threadId, message)) return this.#threadRevision(threadId);
     return this.#core.dispatch(
       input.commandId ?? `conversation:${input.eventType}:${randomUUID()}`,
       [
@@ -297,6 +328,8 @@ export class ConversationWriter {
     detail?: unknown;
     commandId?: string;
   }): number {
+    if (isDeletedConversationMessage(this.#core.connection, input.threadId, input.message))
+      return this.#threadRevision(input.threadId);
     const result = this.#core.dispatch(
       input.commandId ?? `conversation:${input.eventType}:${randomUUID()}`,
       [
@@ -389,7 +422,8 @@ export class ConversationWriter {
    * or one whose merge into its row changes the stored value. Key order does not count, because
    * the merge keeps the key order of the row.
    */
-  changedConversationMessages(threadId: string, messages: readonly ConversationMessage[]): ConversationMessage[] {
+  changedConversationMessages(threadId: string, written: readonly ConversationMessage[]): ConversationMessage[] {
+    const messages = withoutDeletedConversationMessages(this.#core.connection, threadId, written);
     if (messages.length === 0) return [];
     const stored = new Map(
       databaseRows(
@@ -408,7 +442,10 @@ export class ConversationWriter {
       const existing = stored.get(message.id);
       if (!existing) return true;
       // The JSON round trip drops `undefined` keys, as the stored row does.
-      return !isDeepStrictEqual(JSON.parse(JSON.stringify(mergeLiveMessage(existing, message))), existing);
+      return !isDeepStrictEqual(
+        JSON.parse(JSON.stringify(withoutQueuePositions(mergeLiveMessage(existing, message)))),
+        withoutQueuePositions(existing),
+      );
     });
   }
 
@@ -425,11 +462,19 @@ export class ConversationWriter {
     activeTurnId: string | null;
     changedMessages: readonly ConversationMessage[];
     removedMessageIds?: readonly string[];
+    deletedMessageIds?: readonly string[];
     eventType: string;
     detail?: unknown;
     commandId?: string;
   }): number {
-    const removedMessageIds = input.removedMessageIds ?? [];
+    const deletedMessageIds = input.deletedMessageIds ?? [];
+    const removedMessageIds = [...new Set([...(input.removedMessageIds ?? []), ...deletedMessageIds])];
+    const deleting = new Set(deletedMessageIds);
+    const changedMessages = withoutDeletedConversationMessages(
+      this.#core.connection,
+      input.threadId,
+      input.changedMessages,
+    ).filter((message) => !deleting.has(message.id));
     const result = this.#core.dispatch(
       input.commandId ?? `conversation:${input.eventType}:${randomUUID()}`,
       [
@@ -439,7 +484,7 @@ export class ConversationWriter {
           eventType: input.eventType,
           payload: {
             detail: input.detail ?? {},
-            changedMessages: input.changedMessages,
+            changedMessages,
             removedMessageIds,
             activeTurnId: input.activeTurnId,
           },
@@ -458,7 +503,7 @@ export class ConversationWriter {
           throw new Error(`Unknown agent for conversation changes: ${input.agentId}`);
         }
         if (!threadOwner) this.#roster.ensureThreadProjection(db, agent, sequence);
-        const writtenMessageIds = [...input.changedMessages.map((message) => message.id), ...removedMessageIds];
+        const writtenMessageIds = [...changedMessages.map((message) => message.id), ...removedMessageIds];
         const orderBefore = readOrderInputs(db, input.threadId, writtenMessageIds);
         const findOrdinal = db.prepare(
           "SELECT ordinal, message_json FROM projection_thread_messages WHERE thread_id = ? AND message_id = ?",
@@ -489,7 +534,7 @@ export class ConversationWriter {
             (attachment_id, owner_kind, owner_id, name, path, metadata_json, created_at, last_event_sequence)
           VALUES (?, 'thread-message', ?, ?, '', ?, ?, ?)
         `);
-        for (const imported of input.changedMessages) {
+        for (const imported of changedMessages) {
           const existingRow = databaseRow(findOrdinal.get(input.threadId, imported.id));
           const existing = existingRow
             ? currentConversationMessage(JSON.parse(requiredStringColumn(existingRow, "message_json")))
@@ -529,6 +574,8 @@ export class ConversationWriter {
         const deleteMessage = db.prepare(
           "DELETE FROM projection_thread_messages WHERE thread_id = ? AND message_id = ?",
         );
+        for (const messageId of deletedMessageIds)
+          recordDeletedThreadMessage(db, input.threadId, messageId, new Date().toISOString());
         for (const messageId of removedMessageIds) {
           deleteAttachments.run(`${input.threadId}:${messageId}`);
           deleteMessage.run(input.threadId, messageId);
@@ -585,7 +632,7 @@ export class ConversationWriter {
             (activity_id, thread_id, turn_id, activity_type, payload_json, created_at, last_event_sequence)
           VALUES (?, ?, ?, ?, ?, ?, ?)
         `).run(
-          randomUUID(),
+          input.eventType === CONVERSATION_UPDATED ? updateActivityId(sequence) : randomUUID(),
           input.threadId,
           activityTurnId(input.eventType, input.detail, input.activeTurnId),
           input.eventType,
@@ -593,6 +640,8 @@ export class ConversationWriter {
           new Date().toISOString(),
           sequence,
         );
+        if (input.eventType === CONVERSATION_UPDATED && input.commandId === undefined)
+          supersedePreviousConversationUpdate(db, input.threadId, sequence, changedMessages, input.activeTurnId);
         return { revision: sequence };
       },
     );
@@ -617,6 +666,8 @@ export class ConversationWriter {
     commandId?: string;
   }): number {
     const eventType = input.eventType ?? "provider-history.message-imported";
+    if (isDeletedConversationMessage(this.#core.connection, input.threadId, input.message))
+      return this.#threadRevision(input.threadId);
     const existingBeforeWrite = databaseRow(
       this.#core.connection
         .prepare(
@@ -772,6 +823,15 @@ export class ConversationWriter {
     );
     return result.revision;
   }
+
+  #threadRevision(threadId: string): number {
+    const row = databaseRow(
+      this.#core.connection
+        .prepare("SELECT last_event_sequence FROM projection_threads WHERE thread_id = ?")
+        .get(threadId),
+    );
+    return row ? requiredNumberColumn(row, "last_event_sequence") : 0;
+  }
 }
 
 /** A turn-end event clears the active turn, so the turn it ends is only in its detail (#3722). */
@@ -888,6 +948,89 @@ function supersedeStreamedMessageEvents(
     messageId,
   );
   deleteReceiptsOf(db, supersededCommandIds);
+}
+
+const CONVERSATION_UPDATED = "conversation.snapshot-updated";
+/** The command id that a write gets when its caller gives none: new for each write. */
+const GENERATED_UPDATE_COMMAND =
+  /^conversation:conversation\.snapshot-updated:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * The activity row of an update, found again by its key. `projection_thread_activities` has no
+ * index on the thread or the sequence, so a search by them reads the whole table.
+ */
+function updateActivityId(sequence: number): string {
+  return `${CONVERSATION_UPDATED}:${sequence}`;
+}
+
+/**
+ * Drops the thread's previous event when it is an update that the new one replaces whole, so a chat
+ * that changes the same messages again and again keeps one event, not one per change. A queue that
+ * moved every 0.4 s for a day wrote 1.7 million of them, 66 GB, into one database.
+ *
+ * A replay (`ThreadReplay`) gives the same thread without it: each message of the new event replaces
+ * the earlier one with `{ ...earlier, ...new }` and keeps the earlier author, and the earlier time when
+ * the new message has no delivery. So an earlier message leaves nothing behind when the new one has
+ * all its keys, its author and, with no delivery, its time, and the new event sets the same active
+ * turn. Only the event just before the new one is read, so no other event can depend on it, and its
+ * messages come first in the new event in the same order, so a replay adds them in the same order.
+ * Only an event with a generated command id goes: that id is new for each write, so no sender can
+ * send the command again and need its receipt.
+ */
+function supersedePreviousConversationUpdate(
+  db: DatabaseSync,
+  threadId: string,
+  sequence: number,
+  changedMessages: readonly ConversationMessage[],
+  activeTurnId: string | null,
+): void {
+  // The type and the command first: a whole snapshot holds every message of the thread, and its
+  // payload is read only when the event can be superseded.
+  const previous = databaseRow(
+    db
+      .prepare(
+        `SELECT sequence, command_id, event_type FROM orchestration_events
+         WHERE aggregate_type = 'thread' AND aggregate_id = ? AND sequence < ?
+         ORDER BY sequence DESC LIMIT 1`,
+      )
+      .get(threadId, sequence),
+  );
+  if (!previous || requiredStringColumn(previous, "event_type") !== CONVERSATION_UPDATED) return;
+  const commandId = requiredStringColumn(previous, "command_id");
+  if (!GENERATED_UPDATE_COMMAND.test(commandId)) return;
+  const previousSequence = requiredNumberColumn(previous, "sequence");
+  const payload = databaseRow(
+    db.prepare("SELECT payload_json FROM orchestration_events WHERE sequence = ?").get(previousSequence),
+  );
+  if (
+    !payload ||
+    !replacedUpdate(JSON.parse(requiredStringColumn(payload, "payload_json")), changedMessages, activeTurnId)
+  )
+    return;
+  // An update written before this key existed keeps its activity row: one row for each thread.
+  db.prepare("DELETE FROM projection_thread_activities WHERE activity_id = ?").run(updateActivityId(previousSequence));
+  db.prepare("DELETE FROM orchestration_events WHERE sequence = ?").run(previousSequence);
+  deleteReceiptsOf(db, [commandId]);
+}
+
+function replacedUpdate(
+  previous: unknown,
+  changedMessages: readonly ConversationMessage[],
+  activeTurnId: string | null,
+): boolean {
+  if (!isDynamicRecord(previous) || previous.activeTurnId !== activeTurnId) return false;
+  if (!Array.isArray(previous.removedMessageIds) || previous.removedMessageIds.length > 0) return false;
+  const messages = previous.changedMessages;
+  if (!Array.isArray(messages) || messages.length > changedMessages.length) return false;
+  return messages.every((message, index) => {
+    const next = changedMessages[index];
+    if (!isDynamicRecord(message) || next === undefined || message.id !== next.id) return false;
+    if (message.author !== next.author || (next.delivery === undefined && message.createdAt !== next.createdAt))
+      return false;
+    // A key the new message leaves undefined is not in its stored JSON, so the earlier value would stay.
+    const nextKeys = new Set(Object.entries(next).flatMap(([key, value]) => (value === undefined ? [] : [key])));
+    return Object.keys(message).every((key) => nextKeys.has(key));
+  });
 }
 
 function pruneConversationSnapshots(db: DatabaseSync, threadId: string, retainedSequence: number): void {

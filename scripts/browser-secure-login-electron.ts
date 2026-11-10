@@ -4,8 +4,12 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, join } from "node:path";
+import { decodeRecord } from "@tommy/contracts/ipc-decoding";
+import { isDynamicRecord } from "@tommy/contracts/runtime-values";
 import { app, BrowserWindow, webContents } from "electron";
 import { BrowserHost } from "../src/backend/browser-host";
+import { readBrowserState } from "../src/backend/browser-state";
+import type { BrowserToolCall } from "../src/backend/browser-tools";
 import { runCauseEffect } from "../src/backend/effect-boundary";
 import type { DynamicToolCallParams } from "../src/backend/protocol";
 
@@ -40,6 +44,26 @@ function site(request: Request, body: string): Response | Promise<Response> {
     return html("<!doctype html><title>Done</title><h1>Signed in</h1>");
   }
   if (pathname === "/login") return html(FORM("/session"));
+  if (pathname === "/fails") throw new Error("The fixture refuses its first page load.");
+  if (pathname === "/fields")
+    return html(`<!doctype html><title>Code fields</title><body>
+      <label>Masked password<input id="masked" type="text" style="-webkit-text-security:disc"></label>
+      <label>Authenticator<input id="totpmfa" type="text" autocomplete="off"></label>
+      <label>SMS code<input id="smsOtp" type="text"></label>
+      <label>Recovery code<input id="totpbackup" type="text"></label>
+      <button id="go">Continue</button></body>`);
+  if (pathname === "/large")
+    return html(`<!doctype html><title>Large page</title><body>
+      <div hidden>${"<div>Hidden menu item</div>".repeat(11_000)}</div>
+      <label>Report<input id="entry"></label>
+      <button id="commit" onclick="document.getElementById('result').textContent='Saved '+document.getElementById('entry').value">Commit</button>
+      <p id="result">Pending</p></body>`);
+  if (pathname === "/large-ambiguous")
+    return html(`<!doctype html><title>Large ambiguous page</title><body>
+      <input id="entry"><div hidden>${"<div>Hidden menu item</div>".repeat(11_000)}</div>
+      <div id="host"></div><script>
+        document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML='<input id="entry">';
+      </script></body>`);
   // A single-page sign-in: the page stays, and shows its next step with no navigation.
   if (pathname === "/spa")
     return html(`<!doctype html><title>App</title><body>
@@ -128,7 +152,7 @@ async function main() {
     const tab = await runCauseEffect(browser.open(`${SITE}${path}`, owner.threadId, owner.ownerAgentId));
     return tab.id;
   };
-  const prepare = (tabId: string, extra: object = {}) =>
+  const prepare = (tabId: string, extra: Partial<Extract<BrowserToolCall, { tool: "submit_secret" }>["args"]> = {}) =>
     runCauseEffect(
       browser.prepareSecret(
         params("submit_secret", {
@@ -142,9 +166,154 @@ async function main() {
         }),
       ),
     );
-  const tool = (name: string, args: object) => runCauseEffect(browser.handleDynamicTool(params(name, args)));
+  const tool = (name: string, args: DynamicToolCallParams["arguments"]) =>
+    runCauseEffect(browser.handleDynamicTool(params(name, args)));
   const text = (result: { contentItems: Array<{ type: string; text?: string }> }) =>
     result.contentItems.map((item) => item.text ?? "").join(" ");
+
+  await scenario(
+    "masked password and authenticator fields qualify without admitting SMS or recovery fields",
+    async () => {
+      const tabId = await openLogin("/fields");
+      try {
+        for (const [selector, method, fillable] of [
+          ["#masked", "password", true],
+          ["#totpmfa", "authenticator", true],
+          ["#smsOtp", "authenticator", false],
+          ["#totpbackup", "authenticator", false],
+        ] as const) {
+          const handoff = await prepare(tabId, {
+            method,
+            digits: method === "password" ? 0 : 6,
+            targets: [{ kind: "css", selector }],
+          });
+          assert.equal(handoff.vaultFillable, fillable, `Wrong saved-login policy for ${selector}.`);
+          handoff.cancel();
+        }
+      } finally {
+        await runCauseEffect(browser.close(tabId));
+      }
+    },
+  );
+
+  await scenario("an evaluated site waits until all exposed documents navigate before saved login", async () => {
+    const first = await openLogin("/login");
+    const second = await openLogin("/login");
+    try {
+      const evaluated = await tool("evaluate", { tabId: first, expression: "document.title" });
+      assert.ok(evaluated.success, text(evaluated));
+      const held = await prepare(second);
+      assert.equal(held.agentScriptedOrigin, true);
+      held.cancel();
+      const moved = await tool("navigate", { tabId: first, url: `${SITE}/login?fresh=first` });
+      assert.ok(moved.success, text(moved));
+      const exposed = await prepare(second);
+      assert.equal(exposed.agentScriptedOrigin, true, "The other open document was cleared too soon.");
+      exposed.cancel();
+      const reloaded = await tool("navigate", { tabId: second, url: `${SITE}/login?fresh=second` });
+      assert.ok(reloaded.success, text(reloaded));
+      const clean = await prepare(second);
+      assert.equal(clean.agentScriptedOrigin, false, "Fresh documents remained blocked after cache cleanup.");
+      clean.cancel();
+    } finally {
+      await runCauseEffect(browser.close(first));
+      await runCauseEffect(browser.close(second));
+    }
+  });
+
+  await scenario("large hidden menus do not hide controls and script values retain elements arrays", async () => {
+    const tabId = await openLogin("/large");
+    try {
+      const snapshot = await tool("snapshot", { tabId, image: "never" });
+      assert.ok(snapshot.success, text(snapshot));
+      assert.ok(text(snapshot).includes("Commit"), "The visible action was absent from the snapshot.");
+      const result = await tool("run_script", {
+        tab_id: tabId,
+        script: `await type("#entry", "A");
+          await type("#entry", "B", { replace: false });
+          await click(role("button", "Commit", { exact: true }));
+          await waitFor({ text: "Saved AB", state: "networkidle" });
+          return { elements: [{ text: "A" }], result: await evaluate(() => document.getElementById("result").textContent) };`,
+      });
+      assert.ok(result.success, text(result));
+      const payload = decodeRecord(JSON.parse(text(result)), "browser script result");
+      assert.ok(isDynamicRecord(payload));
+      assert.equal(payload.status, "completed");
+      assert.deepEqual(payload.value, { elements: [{ text: "A" }], result: "Saved AB" });
+    } finally {
+      await runCauseEffect(browser.close(tabId));
+    }
+  });
+
+  await scenario("a selector stays ambiguous when its second match follows a large hidden subtree", async () => {
+    const tabId = await openLogin("/large-ambiguous");
+    try {
+      const result = await tool("type", { tabId, target: { kind: "css", selector: "#entry" }, text: "Must not enter" });
+      assert.equal(result.success, false, "A second shadow-root match was ignored.");
+      assert.ok(text(result).includes("CSS selector is ambiguous"), text(result));
+      const contents = webContents.getAllWebContents().find((item) => item.getURL().endsWith("/large-ambiguous"));
+      assert(contents, "Missing the ambiguous fixture.");
+      assert.equal(await contents.executeJavaScript("document.getElementById('entry').value"), "");
+    } finally {
+      await runCauseEffect(browser.close(tabId));
+    }
+  });
+
+  await scenario("a crashed scripted renderer does not keep a fresh login blocked", async () => {
+    const first = await openLogin("/login?crash=first");
+    const second = await openLogin("/login?crash=second");
+    try {
+      const evaluated = await tool("evaluate", { tabId: first, expression: "document.title" });
+      assert.ok(evaluated.success, text(evaluated));
+      const contents = webContents.getAllWebContents().find((item) => item.getURL().endsWith("?crash=first"));
+      assert(contents, "Missing the renderer to crash.");
+      const crashed = new Promise<void>((resolve) => contents.once("render-process-gone", () => resolve()));
+      contents.forcefullyCrashRenderer();
+      await crashed;
+      await runCauseEffect(browser.reload(second));
+      const clean = await prepare(second);
+      assert.equal(clean.agentScriptedOrigin, false, "A dead renderer still blocked a fresh login.");
+      clean.cancel();
+    } finally {
+      await runCauseEffect(browser.close(first));
+      await runCauseEffect(browser.close(second));
+    }
+  });
+
+  await scenario("back navigation cannot make a retained scripted document eligible for automatic fill", async () => {
+    const tabId = await openLogin("/login?history=first");
+    try {
+      const evaluated = await tool("evaluate", { tabId, expression: "(window.exampleScriptedPage = true)" });
+      assert.ok(evaluated.success, text(evaluated));
+      const away = await tool("navigate", { tabId, url: `${SITE}/login?history=second` });
+      assert.ok(away.success, text(away));
+      await runCauseEffect(browser.navigate(tabId, "back"));
+      const contents = webContents.getAllWebContents().find((item) => item.getURL().endsWith("?history=first"));
+      assert(contents, "Missing the page after back navigation.");
+      const retained = await contents.executeJavaScript("window.exampleScriptedPage === true");
+      const handoff = await prepare(tabId);
+      assert.equal(
+        handoff.agentScriptedOrigin,
+        retained === true,
+        "A retained scripted page became eligible for a saved login.",
+      );
+      handoff.cancel();
+    } finally {
+      await runCauseEffect(browser.close(tabId));
+    }
+  });
+
+  await scenario("a failed person-opened tab stays available while an agent failure leaves no tab", async () => {
+    const url = `${SITE}/fails`;
+    await assert.rejects(runCauseEffect(browser.open(url, owner.threadId, owner.ownerAgentId)));
+    const kept = browser.listTabs().find((tab) => tab.url === url);
+    assert.ok(kept, "The failed person-opened address was discarded.");
+    await runCauseEffect(browser.close(kept.id));
+    const before = browser.listTabs().length;
+    const result = await tool("open", { url });
+    assert.equal(result.success, false);
+    assert.equal(browser.listTabs().length, before, "A failed agent-opened tab was retained.");
+  });
 
   await scenario("one form fills the account name and the password, and the site gets both", async () => {
     const tabId = await openLogin("/login");
@@ -257,6 +426,37 @@ async function main() {
     assert.ok(!snapshot.success, "A filled page must stay closed to the agent.");
     const closed = await tool("close_tab", { tabId });
     assert.ok(closed.success, `close_tab failed: ${text(closed)}`);
+  });
+
+  await scenario("an unavailable saved profile proxy preserves its tab without loading it", async () => {
+    const statePath = join(root, "unavailable-proxy-tabs.json");
+    const tab = {
+      id: "saved-person-tab",
+      url: "https://example.com/kept",
+      ownerThreadId: owner.threadId,
+      ownerAgentId: owner.ownerAgentId,
+      profile: "1234567890abcdef1234567890abcdef",
+      agentSession: "11111111111111111111111111111111",
+    };
+    await writeFile(statePath, JSON.stringify({ version: 2, activeTabId: tab.id, tabs: [tab] }));
+    const expected = await runCauseEffect(readBrowserState(statePath));
+    assert.ok(window);
+    const profileBrowser = new BrowserHost(window, join(root, "downloads"), statePath, {
+      profileExists: () => true,
+      profileProxy: () => {
+        throw new Error("The fixture proxy is unavailable.");
+      },
+    });
+    try {
+      await runCauseEffect(profileBrowser.restore());
+      assert.equal(profileBrowser.listTabs().length, 0, "A page loaded without its saved proxy.");
+      assert.deepEqual(profileBrowser.tabIdsInSession({ kind: "profile", profileId: tab.profile }), [tab.id]);
+    } finally {
+      await runCauseEffect(profileBrowser.destroy());
+    }
+    const saved = await runCauseEffect(readBrowserState(statePath));
+    assert.equal(saved.tabs.length, 1, "A temporary proxy failure erased the person's tab.");
+    assert.deepEqual(saved.tabs[0], expected.tabs[0]);
   });
 }
 

@@ -4,10 +4,12 @@ import { useThemeColor } from "heroui-native/hooks";
 import Check from "lucide-react-native/icons/check";
 import Copy from "lucide-react-native/icons/copy";
 import SmilePlus from "lucide-react-native/icons/face-slightly-smiling-plus";
+import GitFork from "lucide-react-native/icons/git-fork";
 import Plus from "lucide-react-native/icons/plus";
 import Reply from "lucide-react-native/icons/reply";
 import Square from "lucide-react-native/icons/square";
 import TextSelect from "lucide-react-native/icons/square-dashed-text";
+import Trash2 from "lucide-react-native/icons/trash-2";
 import Volume2 from "lucide-react-native/icons/volume-2";
 import { type PropsWithChildren, useMemo, useState } from "react";
 import { type AccessibilityState, Pressable, View } from "react-native";
@@ -106,6 +108,8 @@ export function ChatMessageActions({
   agentsById,
   onReact,
   onReply,
+  onBranch,
+  onDelete,
   onSelectText,
   selecting = false,
   readAloudId,
@@ -121,6 +125,8 @@ export function ChatMessageActions({
   /** Unset where a reaction cannot be saved. `null` removes the reader's reaction. */
   onReact?: (emoji: string | null) => Promise<void>;
   onReply?: () => void;
+  onBranch?: () => void;
+  onDelete?: () => void;
   /** Starts the selection of the text in the bubble, or ends it while `selecting`. */
   onSelectText?: () => void;
   selecting?: boolean;
@@ -240,6 +246,16 @@ export function ChatMessageActions({
             }}
           >
             <Reply size={ICON_SIZE} color={muted} />
+          </ActionButton>
+        ) : null}
+        {actionsShown && onBranch ? (
+          <ActionButton accessibilityLabel={t("mobile.chat.message.branch")} onPress={onBranch}>
+            <GitFork size={ICON_SIZE} color={muted} />
+          </ActionButton>
+        ) : null}
+        {actionsShown && onDelete ? (
+          <ActionButton accessibilityLabel={t("mobile.chat.delete.action")} onPress={onDelete}>
+            <Trash2 size={ICON_SIZE} color={muted} />
           </ActionButton>
         ) : null}
         {actionsShown && onSelectText ? (

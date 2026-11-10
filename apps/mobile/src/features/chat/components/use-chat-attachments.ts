@@ -139,8 +139,11 @@ export function useChatAttachments(
     await add(await readFile(uri, name));
   }
   function photoName(asset: ImagePicker.ImagePickerAsset) {
-    const extension = asset.uri.split(".").at(-1)?.toLowerCase();
-    return asset.fileName && isSupportedAttachmentName(asset.fileName) ? asset.fileName : `photo.${extension ?? "jpg"}`;
+    const extension = attachmentFileExtension(asset.uri.split(/[?#]/u)[0] ?? "");
+    const video = asset.type === "video";
+    return asset.fileName && isSupportedAttachmentName(asset.fileName)
+      ? asset.fileName
+      : `${video ? "video" : "photo"}.${extension ?? (video ? "mov" : "jpg")}`;
   }
   /** Swap one file in place. The rest keep their order, and a cancelled picker changes nothing. */
   async function replaceItem(id: string) {
@@ -149,8 +152,9 @@ export function useChatAttachments(
     let picked: { uri: string; name: string } | null = null;
     // The photo library has no SVG files, so an SVG is replaced from the files.
     if (current.mimeType.startsWith("image/") && current.mimeType !== "image/svg+xml") {
+      const accepted = support?.();
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ["images"],
+        mediaTypes: !accepted || accepted.media || accepted.mp4 ? ["images", "videos"] : ["images"],
         quality: 1,
         preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
       });
@@ -191,8 +195,9 @@ export function useChatAttachments(
   }
   async function choosePhotos() {
     if (itemsRef.current.length >= INPUT_LIMITS.attachments) throw new Error(limitMessage());
+    const accepted = support?.();
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
+      mediaTypes: !accepted || accepted.media || accepted.mp4 ? ["images", "videos"] : ["images"],
       allowsMultipleSelection: true,
       quality: 1,
       preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,

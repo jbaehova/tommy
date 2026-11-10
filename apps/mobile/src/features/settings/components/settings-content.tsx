@@ -1,7 +1,13 @@
 import { ListGroup } from "heroui-native";
 import ChevronRight from "lucide-react-native/icons/chevron-right";
 import { Children, type PropsWithChildren, type ReactNode, useState } from "react";
-import { type LayoutChangeEvent, useWindowDimensions, View } from "react-native";
+import {
+  type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import Animated from "react-native-reanimated";
 import { useCSSVariable } from "uniwind";
 import { SheetScrollView } from "@/shared/components/sheet-scroll-view";
@@ -9,10 +15,16 @@ import { haptics } from "@/shared/lib/haptics";
 import { useSoftPress } from "@/shared/lib/use-soft-press";
 import { Txt } from "@/shared/ui/text";
 
-export function SettingsContent({ children }: PropsWithChildren) {
+export function SettingsContent({
+  children,
+  onScroll,
+}: PropsWithChildren<{
+  onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+}>) {
   return (
     <SheetScrollView
       scrollEdgeEffect={false}
+      onScroll={onScroll}
       contentContainerClassName="gap-5 px-4 pb-safe-offset-5 pt-2"
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"

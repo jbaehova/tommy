@@ -53,4 +53,6 @@ export const messages = {
   "channel.error.update": "채널을 업데이트할 수 없어요.",
   "channel.error.loadOlder": "이전 메시지를 불러올 수 없어요.",
   "channel.error.delete": "이 채널을 삭제할 수 없어요.",
+  "channel.stoppedTask.assignmentLoop": "{names} 사이에서 작업이 너무 많이 전달되어 반복을 막기 위해 멈췄어요.",
+  "channel.stoppedTask.assignmentLoopMembers": "구성원 사이에서 작업이 너무 많이 전달되어 반복을 막기 위해 멈췄어요.",
 } as const satisfies PartialTranslation<typeof source>;

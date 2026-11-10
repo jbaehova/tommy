@@ -4,7 +4,6 @@ import {
   type VaultCardSummary,
   type VaultContactFields,
   type VaultContactSummary,
-  type VaultCountryCode,
   type VaultItemKind,
   type VaultItemSummary,
   type VaultLoginSummary,
@@ -33,6 +32,27 @@ export function vaultContactTitle(contact: VaultContactSummary, t: MobileText["t
   );
 }
 
+const MOBILE_VAULT_COUNTRIES = [
+  "AT",
+  "AU",
+  "BE",
+  "CA",
+  "CH",
+  "DE",
+  "DK",
+  "ES",
+  "FR",
+  "GB",
+  "IE",
+  "IT",
+  "JP",
+  "NL",
+  "PL",
+  "SE",
+  "US",
+] as const;
+type MobileVaultCountry = (typeof MOBILE_VAULT_COUNTRIES)[number];
+
 const COUNTRY_NAMES = {
   AT: "mobile.server.vault.countryName.AT",
   AU: "mobile.server.vault.countryName.AU",
@@ -51,7 +71,7 @@ const COUNTRY_NAMES = {
   PL: "mobile.server.vault.countryName.PL",
   SE: "mobile.server.vault.countryName.SE",
   US: "mobile.server.vault.countryName.US",
-} as const satisfies Record<VaultCountryCode, MobileTextKey>;
+} as const satisfies Record<MobileVaultCountry, MobileTextKey>;
 
 /** Example values of an address, in the format of one country. */
 export interface VaultAddressExample {
@@ -138,21 +158,38 @@ const ADDRESS_EXAMPLES = {
     postalCode: "94105",
     phone: "+1 415 555 0100",
   },
-} as const satisfies Record<VaultCountryCode, VaultAddressExample>;
+} as const satisfies Record<MobileVaultCountry, VaultAddressExample>;
 
 /** The address placeholders for `country`. With no country, or one outside the list, a US address. */
 export function vaultAddressExample(country: string): VaultAddressExample {
-  const code = VAULT_COUNTRY_CODES.find((candidate) => candidate === country.toUpperCase());
+  const code = MOBILE_VAULT_COUNTRIES.find((candidate) => candidate === country.toUpperCase());
   return ADDRESS_EXAMPLES[code ?? "US"];
 }
 
-/**
- * The country choices of the contact form, as the desktop form offers them, sorted by name. A saved
- * country outside the list, such as one that an agent saved, stays a choice under its code.
- */
-export function vaultCountryOptions(t: MobileText["t"], current: string): { value: string; label: string }[] {
-  const countries = VAULT_COUNTRY_CODES.map((code) => ({ value: code, label: t(COUNTRY_NAMES[code]) })).sort((a, b) =>
-    a.label.localeCompare(b.label),
+/** All ISO choices, keeping the existing translations and any unknown saved code. */
+export function vaultCountryOptions(
+  t: MobileText["t"],
+  current: string,
+  locale: MobileText["locale"],
+): { value: string; label: string }[] {
+  let names: Intl.DisplayNames | null = null;
+  try {
+    // Older Hermes versions have no DisplayNames. Every country remains selectable by its ISO code.
+    if (typeof Intl.DisplayNames === "function") names = new Intl.DisplayNames([locale], { type: "region" });
+  } catch {
+    names = null;
+  }
+  const name = (code: string): string => {
+    const translated = MOBILE_VAULT_COUNTRIES.find((country) => country === code);
+    if (translated) return t(COUNTRY_NAMES[translated]);
+    try {
+      return names?.of(code) || code;
+    } catch {
+      return code;
+    }
+  };
+  const countries = VAULT_COUNTRY_CODES.map((code) => ({ value: code, label: name(code) })).sort((a, b) =>
+    a.label.localeCompare(b.label, locale),
   );
   const saved =
     current && !countries.some((country) => country.value === current) ? [{ value: current, label: current }] : [];

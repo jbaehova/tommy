@@ -1,3 +1,9 @@
+import { guardedDecoder, guardedListDecoder } from "@tommy/contracts/ipc-decoding";
+import { isRoutineWithRunPlace } from "@tommy/contracts/routine-run-place-v1";
+import {
+  ROUTINE_RUN_PLACE_CAPABILITY,
+  ROUTINE_RUN_PLACE_ROUTES,
+} from "@tommy/contracts/team-protocol/routine-run-place-v1";
 import { Effect } from "effect";
 import type { RemoteWorkflowError } from "../remote-service-effects";
 // Routines: the scheduled standing instructions attached to one agent, and the calendar of every
@@ -43,6 +49,9 @@ interface RoutineIpcDependencies {
   remoteServers: RemoteServerManager;
 }
 
+const decodeRunPlaceRoutineFromHost = guardedDecoder(isRoutineWithRunPlace, "routine response");
+const decodeRunPlaceRoutinesFromHost = guardedListDecoder(isRoutineWithRunPlace, "routine list response");
+
 export function routineIpcHandlers({
   service,
   remoteServers,
@@ -52,32 +61,54 @@ export function routineIpcHandlers({
       listRoutines: scopedHandler(parseAgentId, {
         local: (agentId) => service.listRoutines(agentId),
         remote: (agentId, serverId) =>
-          runCauseEffect(remoteServers.request(serverId, TEAM_API_ROUTES.agent.routines(agentId), decodeRoutines)),
+          runCauseEffect(
+            remoteServers.supportsCapability(serverId, ROUTINE_RUN_PLACE_CAPABILITY)
+              ? remoteServers.request(serverId, ROUTINE_RUN_PLACE_ROUTES.list, decodeRunPlaceRoutinesFromHost, {
+                  method: "POST",
+                  body: { agentId },
+                })
+              : remoteServers.request(serverId, TEAM_API_ROUTES.agent.routines(agentId), decodeRoutines),
+          ),
       }),
       createRoutine: scopedHandler(parseCreateRoutine, {
         local: (parsed) => service.createRoutine(parsed),
-        remote: (parsed, serverId) =>
-          runCauseEffect(
+        remote: (parsed, serverId) => {
+          if (remoteServers.supportsCapability(serverId, ROUTINE_RUN_PLACE_CAPABILITY))
+            return runCauseEffect(
+              remoteServers.request(serverId, ROUTINE_RUN_PLACE_ROUTES.create, decodeRunPlaceRoutineFromHost, {
+                method: "POST",
+                body: parsed,
+              }),
+            );
+          if (parsed.runIn === "thread") throw new Error(sourceText("error.team.agentSettingsUnsupported"));
+          return runCauseEffect(
             remoteServers.request(serverId, TEAM_API_ROUTES.agent.routines(parsed.agentId), decodeRoutine, {
               method: "POST",
               body: parsed,
             }),
-          ),
+          );
+        },
       }),
       updateRoutine: scopedHandler(parseUpdateRoutine, {
         local: (parsed) => service.updateRoutine(parsed),
-        remote: (parsed, serverId) =>
-          runCauseEffect(
+        remote: (parsed, serverId) => {
+          if (remoteServers.supportsCapability(serverId, ROUTINE_RUN_PLACE_CAPABILITY))
+            return runCauseEffect(
+              remoteServers.request(serverId, ROUTINE_RUN_PLACE_ROUTES.update, decodeRunPlaceRoutineFromHost, {
+                method: "POST",
+                body: parsed,
+              }),
+            );
+          if (parsed.runIn === "thread") throw new Error(sourceText("error.team.agentSettingsUnsupported"));
+          return runCauseEffect(
             remoteServers.request(
               serverId,
               TEAM_API_ROUTES.agent.routine(parsed.agentId, parsed.routineId),
               decodeRoutine,
-              {
-                method: "PATCH",
-                body: parsed,
-              },
+              { method: "PATCH", body: parsed },
             ),
-          ),
+          );
+        },
       }),
       deleteRoutine: scopedHandler(parseDeleteRoutine, {
         local: (parsed) => runCauseEffect(service.deleteRoutine(parsed)),
@@ -163,7 +194,12 @@ function remoteCalendarSource(
       }),
     routines: (owner) =>
       owner.kind === "agent"
-        ? remoteServers.request(serverId, TEAM_API_ROUTES.agent.routines(owner.agentId), decodeRoutines)
+        ? remoteServers.supportsCapability(serverId, ROUTINE_RUN_PLACE_CAPABILITY)
+          ? remoteServers.request(serverId, ROUTINE_RUN_PLACE_ROUTES.list, decodeRunPlaceRoutinesFromHost, {
+              method: "POST",
+              body: { agentId: owner.agentId },
+            })
+          : remoteServers.request(serverId, TEAM_API_ROUTES.agent.routines(owner.agentId), decodeRoutines)
         : remoteServers.request(serverId, CHANNEL_ROUTES.routines, decodeChannelRoutines, {
             method: "POST",
             body: { channelId: owner.channelId },

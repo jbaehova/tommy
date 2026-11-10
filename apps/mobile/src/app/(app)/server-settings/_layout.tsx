@@ -33,6 +33,7 @@ export default function ServerSettingsLayout() {
       <Stack.Screen name="connector" options={{ title: t("mobile.server.route.connectors") }} />
       <Stack.Screen name="storage" options={{ title: t("mobile.server.route.storage") }} />
       <Stack.Screen name="storage-files" options={{ title: t("mobile.server.route.storageFiles") }} />
+      <Stack.Screen name="library" options={{ title: t("mobile.server.library.title") }} />
       <Stack.Screen name="providers" options={{ title: t("mobile.server.route.providers") }} />
       <Stack.Screen name="provider" options={{ title: t("mobile.server.route.provider") }} />
       {/* The page names its account. */}

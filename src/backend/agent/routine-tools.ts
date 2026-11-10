@@ -4,8 +4,10 @@ import {
   ROUTINE_LIMIT_POLICIES,
   ROUTINE_MINIMUM_INTERVAL_MINUTES,
   ROUTINE_MISSED_POLICIES,
+  ROUTINE_RUN_PLACES,
   type RoutineLimitPolicy,
   type RoutineMissedPolicy,
+  type RoutineRunPlace,
   type RoutineSchedule,
 } from "@tommy/contracts/ipc";
 import { type DynamicRecord, isOneOf, isString } from "@tommy/contracts/runtime-values";
@@ -47,6 +49,15 @@ export function routineToolPolicies(args: DynamicRecord): {
     ...(limitPolicy === undefined ? {} : { limitPolicy }),
     ...(missedPolicy === undefined ? {} : { missedPolicy }),
   };
+}
+
+export function routineToolRunPlace(args: DynamicRecord): { runIn?: RoutineRunPlace } {
+  const { runIn } = args;
+  if (runIn === undefined) return {};
+  if (!isOneOf(ROUTINE_RUN_PLACES, runIn)) {
+    throw new RoutineInputError(`runIn must be one of: ${ROUTINE_RUN_PLACES.join(", ")}.`);
+  }
+  return { runIn };
 }
 
 export function routineToolSchedule(value: unknown): RoutineSchedule {

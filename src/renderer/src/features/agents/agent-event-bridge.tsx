@@ -73,6 +73,7 @@ export function AgentEventBridge() {
     autoMarkAgentMessageRead,
     applyConversationDelta,
     applyConversationPage,
+    removeConversationMessages,
     markReplyCompleted,
     clearRecentReply,
   } = useConversation();
@@ -176,6 +177,13 @@ export function AgentEventBridge() {
             })
             .catch(() => undefined);
         }
+        return;
+      case "conversation-messages-deleted":
+        removeConversationMessages(event.agentId, event.threadId, event.messageIds);
+        agentTasks.removeConversationMessages(event.agentId, event.threadId, event.messageIds);
+        return;
+      case "channel-messages-deleted":
+        channels.removeMessages(event.channelId, event.messageIds);
         return;
       case "conversation-delta":
         applyConversationDelta(event);
@@ -309,7 +317,7 @@ export function AgentEventBridge() {
         ]);
         return;
       case "runtime-snapshot":
-        void channels.refresh();
+        void channels.resync();
         applyAgentRuntimeSnapshot(event.snapshot);
         return;
       case "browser-takeover-requested":
@@ -407,7 +415,7 @@ export function AgentEventBridge() {
   onSettled(() => {
     const unsubscribe = agentsPort().agent.onEvent((event) => {
       if (event.type === "channels-changed") {
-        void channels.refresh();
+        void channels.changed(event.channelId);
         return;
       }
       flush(() => handleAgentEvent(event));

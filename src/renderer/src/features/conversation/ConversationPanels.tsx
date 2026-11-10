@@ -1,5 +1,7 @@
 import type { ServerSummary } from "@tommy/contracts/ipc";
+import { AGENT_FAST_MODE_CAPABILITY } from "@tommy/contracts/team-protocol/agent-fast-mode-v1";
 import { AGENT_NOTIFICATION_LEVELS_CAPABILITY } from "@tommy/contracts/team-protocol/agent-notification-levels-v1";
+import { AGENT_SPEED_CAPABILITY } from "@tommy/contracts/team-protocol/agent-speed-v1";
 import { BROWSER_PROFILES_CAPABILITY } from "@tommy/contracts/team-protocol/browser-profiles-v1";
 import { SETTINGS_PANEL_DEFAULT, SETTINGS_PANEL_MAX } from "@tommy/ui/components/SettingsPanel";
 import { BROWSER_NEW_TAB_URL } from "@tommy/ui/features/browser/browser-suggestions";
@@ -9,6 +11,7 @@ import { SubagentPanel } from "@tommy/ui/features/conversation/Subagents";
 import { McpSignInRelayDialog } from "@tommy/ui/features/settings/McpSignInPage";
 import { useText } from "@tommy/ui/text";
 import { actionToast } from "../../action-toast";
+import { agentSkillCalls } from "../../skills-port";
 import { desktopBrowserProfileCalls } from "../browser/browser-profiles-port";
 import type { AgentFilesOptions } from "../files/AgentFilesSettings";
 import { canManageStorage, serverHasStorage } from "../files/storage-usage";
@@ -19,6 +22,7 @@ import { useConversationController } from "./conversation-controller-context";
 import { type AgentNotificationLevelCalls, conversationRuntime } from "./conversation-runtime";
 import { useConversationViewScope } from "./conversation-scope";
 import { agentSkillsMode } from "./installed-skills-source";
+import type { LocalSkillLibraryCalls } from "./LocalSkillsLibrary";
 import { desktopChatEventRoutinesApi } from "./routine-webhooks-api";
 
 const BROWSER_PANEL_DEFAULT_RATIO = 0.5;
@@ -84,6 +88,10 @@ export function ConversationPanels(panelProps: { onOpenUsage?: ((trigger: HTMLBu
     settingsModel,
     settingsProvider,
     settingsReasoning,
+    fastMode,
+    ultrafast,
+    changeFastMode,
+    changeSpeed,
     updateRuntimeSettings,
     messageLinkRelay,
     openMessageLinkRelay,
@@ -114,6 +122,28 @@ export function ConversationPanels(panelProps: { onOpenUsage?: ((trigger: HTMLBu
   // own agents, for an owner or admin, when it serves `agent-publish-v1`.
   // A remote agent's host resolves its settings, so the account defaults of this computer do not apply.
   const localAgentDefaults = () => (props.server?.kind === "local" ? props.agentDefaults : undefined);
+  const libraryServerId = createMemo(() =>
+    props.server?.kind === "remote" && serverCanAdminister(props.server, "skill-learning-v1")
+      ? props.server.id
+      : undefined,
+  );
+  const localSkillLibraryCalls = createMemo<LocalSkillLibraryCalls | undefined>(() => {
+    const serverId = libraryServerId();
+    if (serverId === undefined) return undefined;
+    const learning = props.runtime ? props.runtime.skillLearning : window.tommy.skillLearning;
+    if (!learning) return undefined;
+    const skills = props.runtime ? props.runtime.admin?.skills : agentSkillCalls(serverId);
+    if (!skills) return undefined;
+    return {
+      localList: () => learning.listLocal(serverId),
+      localGet: (input) => learning.readLocal(input, serverId),
+      // The generic host install takes latest. Old previews expose Restore instead of Install.
+      localInstall: (input) => skills.install({ agentId: input.agentId, skillId: input.skillId }),
+      setEnabled: (input) => skills.setEnabled(input),
+      restore: (input) => learning.restore(input, serverId),
+    };
+  });
+
   const localFolderCalls = agentFolderCalls();
   // An agent's folders are on the computer that runs it. A joined server serves them through
   // `agent-folders-v1` for an owner or admin, and the folder browser lists the folders of the host.
@@ -280,6 +310,11 @@ export function ConversationPanels(panelProps: { onOpenUsage?: ((trigger: HTMLBu
   /** With no side thread to show, the side panel lists the panes. */
   const launcherShown = () =>
     activeRightPanel() === "side-panel" || (activeRightPanel() === "thread" && shownPanelThreadId() === null);
+  const openRoutineThread = async (routineId: string): Promise<boolean> => {
+    const opened = (await props.threads?.onOpenRoutineThread(routineId)) ?? false;
+    if (opened) setActiveRightPanel("none");
+    return opened;
+  };
   const sideThreadTabs = () => props.threads?.side.tabs ?? [];
   const moveSideThread = (id: string, index: number) => props.threads?.side.onMove(id, index);
   return (
@@ -472,6 +507,7 @@ export function ConversationPanels(panelProps: { onOpenUsage?: ((trigger: HTMLBu
             <AgentSettingsPanel
               remoteClient={Boolean(props.runtime)}
               localHost={props.server?.kind === "local"}
+              routineRunPlace={serverCanAdminister(props.server, "routine-run-place-v1")}
               folders={folderCalls()}
               instructionsFile={instructionsCalls()}
               sessionSettingsEditable={serverCanAdminister(props.server, "agent-session-settings-v1")}
@@ -482,6 +518,7 @@ export function ConversationPanels(panelProps: { onOpenUsage?: ((trigger: HTMLBu
                 serverCanAdminister(props.server, "skills-admin-v1") ? props.onOpenMarketplace : undefined
               }
               skillsMode={agentSkillsMode(props.server, props.runtime)}
+              localSkillLibraryCalls={localSkillLibraryCalls()}
               skillsServerId={props.server?.id}
               previewWorkspaceFile={(path) =>
                 conversationRuntime(props).agent.previewWorkspaceFile({ agentId: agent().id, path })
@@ -542,6 +579,19 @@ export function ConversationPanels(panelProps: { onOpenUsage?: ((trigger: HTMLBu
                 model: settingsModel(),
                 reasoningEffort: settingsReasoning(),
               }}
+              fastMode={fastMode()}
+              ultrafast={ultrafast()}
+              onSpeedChange={
+                props.server?.kind === "local" || serverSupportsCapability(props.server, AGENT_SPEED_CAPABILITY)
+                  ? (speed) => void changeSpeed(speed)
+                  : undefined
+              }
+              onFastModeChange={
+                settingsProvider() === "codex" &&
+                (props.server?.kind === "local" || serverSupportsCapability(props.server, AGENT_FAST_MODE_CAPABILITY))
+                  ? (next) => void changeFastMode(next)
+                  : undefined
+              }
               agentStatus={props.agentStatus}
               providerRuntimeStatuses={props.providerRuntimeStatuses}
               onDownloadProvider={props.onDownloadProvider}
@@ -575,6 +625,7 @@ export function ConversationPanels(panelProps: { onOpenUsage?: ((trigger: HTMLBu
               }
               onRoutineSelectionRequestHandled={handleRoutineSettingsRequest}
               onOpenRoutineRun={props.onOpenSearchMessage ? openRoutineRunMessage : undefined}
+              onOpenRoutineThread={props.threads ? openRoutineThread : undefined}
               files={agentFiles(props.server, agent().id)}
               eventRoutines={desktopChatEventRoutinesApi(props.server, props.runtime)}
               routines={props.runtime?.routines}

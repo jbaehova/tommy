@@ -13,7 +13,7 @@ import { KeyboardGestureArea } from "react-native-keyboard-controller";
 import Animated, { useSharedValue } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getBloubAvatarColor } from "@/features/agents/model/bloub-activity";
-import { useQueryScope } from "@/features/auth/context/mobile-session-context";
+import { useMobileSession, useQueryScope } from "@/features/auth/context/mobile-session-context";
 import {
   BrowserSecretForm,
   BrowserTakeoverCard,
@@ -27,16 +27,22 @@ import { DRAFT_THREAD_ID, useChatThreadMenu } from "@/features/chat/components/c
 import { useRowsAfterOpenTransition } from "@/features/chat/components/chat-view";
 import { dictationVoice } from "@/features/chat/components/composer-voice";
 import { useMarkThreadRead } from "@/features/chat/components/use-agent-thread-reads";
+import { useBranchThread } from "@/features/chat/components/use-branch-thread";
 import { useChatAttachments } from "@/features/chat/components/use-chat-attachments";
+import { useChatDeletion } from "@/features/chat/components/use-chat-deletion";
 import { useChatMotion } from "@/features/chat/components/use-chat-motion";
 import { useQuestionPrompt } from "@/features/chat/components/use-question-prompt";
 import { useVoiceMode } from "@/features/chat/components/use-voice-mode";
 import { VoiceOverlay } from "@/features/chat/components/voice-overlay";
+import { branchDividerRowId } from "@/features/chat/model/branch-points";
 import { mentionDraft } from "@/features/chat/model/chat-mentions";
-import { latestReadableMessage, projectChatMessages } from "@/features/chat/model/chat-messages";
+import type { ChatBubbleMessage } from "@/features/chat/model/chat-messages";
+import { chatRowIndex, latestReadableMessage, projectChatMessages } from "@/features/chat/model/chat-messages";
 import type { AgentChatTarget } from "@/features/chat/model/chat-target";
+import { useComposerDraft } from "@/features/chat/model/composer-drafts";
 import { finishedTurnSummaries, type TurnStepsSummary } from "@/features/chat/model/turn-thinking";
 import { uploadChatAttachments } from "@/features/chat/model/upload-chat-attachments";
+import { useAgentMentionReferences } from "@/features/chat/model/use-agent-mention-references";
 import { voiceAccent, voicePalette } from "@/features/chat/model/voice-palette";
 import { agentTaskHoldText } from "@/features/servers/model/agent-task-text";
 import { useThreadActions } from "@/features/servers/model/use-thread-actions";
@@ -77,11 +83,23 @@ function leaveTask() {
  */
 export function AgentTaskScreen() {
   const { t } = useText();
-  const { serverId, agentId, taskId } = useLocalSearchParams<{ serverId: string; agentId: string; taskId: string }>();
+  const { serverId, agentId, taskId, messageId } = useLocalSearchParams<{
+    serverId: string;
+    agentId: string;
+    taskId: string;
+    messageId?: string;
+  }>();
   const { agents } = useMobileWorkspace();
   const agent = agents.find((item) => item.id === agentId && item.serverId === serverId);
   if (agent)
-    return <AgentTaskChat key={`${serverId}:${taskId}`} target={{ ...agent, kind: "agent" }} taskId={taskId} />;
+    return (
+      <AgentTaskChat
+        key={`${serverId}:${taskId}`}
+        target={{ ...agent, kind: "agent" }}
+        taskId={taskId}
+        focusMessageId={messageId || null}
+      />
+    );
   return <TaskNote note={t("mobile.server.threads.notFound")} />;
 }
 
@@ -114,13 +132,25 @@ function TaskNote({ note, retry }: { note: string; retry?: () => void }) {
   );
 }
 
-function AgentTaskChat({ target, taskId }: { target: AgentChatTarget; taskId: string }) {
+/**
+ * `focusMessageId` opens the thread at a message, after a tap on "Branched from" in a branch of it.
+ */
+function AgentTaskChat({
+  target,
+  taskId,
+  focusMessageId,
+}: {
+  target: AgentChatTarget;
+  taskId: string;
+  focusMessageId: string | null;
+}) {
   const { t, errorMessage } = useText();
   const { serverId, id: agentId } = target;
   const queryScope = useQueryScope();
   const queryClient = useQueryClient();
   const isDraft = taskId === DRAFT_THREAD_ID;
   const threadMenu = useChatThreadMenu(target, taskId);
+  const mentionReferences = useAgentMentionReferences(serverId, agentId, taskId);
   // A deleted thread has no screen: the agent's chat takes its place.
   const threadActions = useThreadActions(target.serverId, onThreadDeleted);
   const {
@@ -159,11 +189,52 @@ function AgentTaskChat({ target, taskId }: { target: AgentChatTarget; taskId: st
     queryFn: () => loadAgentTaskConversation({ agentId, taskId }, serverId),
   });
   const task = list.data?.tasks.find((item) => item.id === taskId);
+  const accountUserId = useMobileSession().session?.user.id ?? null;
+  const memberId = server?.membershipId ?? null;
   const messages = useMemo(
-    () => (conversation.data ? projectChatMessages(conversation.data.messages) : NO_MESSAGES),
-    [conversation.data],
+    () => (conversation.data ? projectChatMessages(conversation.data.messages, memberId, accountUserId) : NO_MESSAGES),
+    [conversation.data, memberId, accountUserId],
   );
   const activeTurnId = task?.activeTurnId ?? null;
+  const deletion = useChatDeletion({ serverId, agentId, taskId, threadId: task?.threadId, activeTurnId });
+
+  const branching = useBranchThread({
+    serverId,
+    agentId,
+    sourceTaskId: taskId,
+    messages: task ? conversation.data?.messages : undefined,
+    activeTurnId,
+  });
+  const branch = branching.branch;
+  // In a branch, the "Branched from" line follows the copied messages. The list has the current title
+  // of a listed source; an archived one can be missing, so the link's title is the fallback, and a link
+  // with no title is a deleted source. The agent's own chat shows the agent's name, as on desktop.
+  const link = task?.branch ?? null;
+  const dividerAfterId =
+    link && conversation.data ? branchDividerRowId(conversation.data.messages, messages, link.throughMessageId) : null;
+  const sourceTitle =
+    link === null
+      ? null
+      : link.sourceTaskId === null
+        ? target.name
+        : (list.data?.tasks.find((entry) => entry.id === link.sourceTaskId)?.title ?? link.sourceTitle);
+  const branchDivider = useMemo(
+    () => (dividerAfterId ? { afterId: dividerAfterId, label: sourceTitle } : null),
+    [dividerAfterId, sourceTitle],
+  );
+  // Opens the source at the message that the branch came from. A source thread replaces the branch on
+  // the screen, so Back still returns to the agent's chat.
+  const openBranchSource =
+    link && sourceTitle !== null
+      ? () => {
+          if (link.sourceTaskId === null)
+            router.dismissTo({ pathname: "/chat/[agentId]", params: { agentId, messageId: link.sourceMessageId } });
+          else router.setParams<"/task/[taskId]">({ taskId: link.sourceTaskId, messageId: link.sourceMessageId });
+        }
+      : undefined;
+  // The message that the thread opens at, until the list shows it.
+  const [focus, setFocus] = useState(focusMessageId);
+  const clearFocus = useCallback(() => setFocus(null), []);
   // As in the agent's chat: the steps row of a finished turn and the activity row open the thinking sheet.
   const turnLines = useTurnStepLines(serverId);
   const lastTurnSummaries = useRef<ReadonlyMap<string, TurnStepsSummary> | undefined>(undefined);
@@ -269,7 +340,7 @@ function AgentTaskChat({ target, taskId }: { target: AgentChatTarget; taskId: st
       : null,
     task?.updatedAt ?? null,
   );
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useComposerDraft({ kind: "thread", serverId, id: JSON.stringify([agentId, taskId]) });
   const [sendError, setSendError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const filesAllowed = canAttachThreadFiles(serverId);
@@ -289,9 +360,24 @@ function AgentTaskChat({ target, taskId }: { target: AgentChatTarget; taskId: st
     rowsShown && messages.some((row) => row.kind !== "thinking"),
     lastUserId,
     questionForm.question ? (questionForm.messageId ?? null) : null,
+    // As a chat that opens at a message from search: the list does not take the latest message first.
+    focus !== null,
   );
+  // A message that the thread shows no row for opens the thread at its latest message.
+  const focusMissing = focus !== null && Boolean(conversation.data) && chatRowIndex(messages, focus) < 0;
+  useEffect(() => {
+    if (focusMissing) setFocus(null);
+  }, [focusMissing]);
   const closed = task?.state === "closed";
   const canSend = online && !closed && (!isDraft || enabled);
+  const deletableKey =
+    !canSend || isDraft
+      ? ""
+      : messages
+          .filter((message): message is ChatBubbleMessage => message.kind === "message" && deletion.canDelete(message))
+          .map((message) => message.id)
+          .join("\u0000");
+  const deletableMessageIds = useMemo(() => new Set(deletableKey ? deletableKey.split("\u0000") : []), [deletableKey]);
   const voice = useVoiceMode({
     enabled: isFocused && canSend,
     focused: isFocused,
@@ -368,7 +454,7 @@ function AgentTaskChat({ target, taskId }: { target: AgentChatTarget; taskId: st
             ? { ...stored, tasks: [started, ...stored.tasks] }
             : stored,
         );
-        router.setParams<"/task/[taskId]">({ taskId: started.id });
+        router.setParams<"/task/[taskId]">({ taskId: started.id, messageId: undefined });
       } catch (error) {
         void haptics.notification("error");
         setDraft((current) => (current.trim() ? current : value));
@@ -527,6 +613,14 @@ function AgentTaskChat({ target, taskId }: { target: AgentChatTarget; taskId: st
           olderLoading={false}
           olderError={false}
           onLoadOlder={() => {}}
+          onBranch={branch ? (message) => void branch(message.id) : undefined}
+          deletableMessageIds={deletableMessageIds}
+          onDelete={(message) => deletion.deleteMessage(message)}
+          branchPoints={branching.branchPoints}
+          branchDivider={branchDivider}
+          onOpenBranchSource={openBranchSource}
+          focusMessageId={focus}
+          onFocusPlaced={clearFocus}
           muted={muted}
           raised={raised}
           showStarter={false}
@@ -621,6 +715,7 @@ function AgentTaskChat({ target, taskId }: { target: AgentChatTarget; taskId: st
               replyFocusVersion={0}
               onCancelReply={() => {}}
               mentionAgents={serverAgents.filter((item) => item.id !== agentId)}
+              mentionReferences={mentionReferences}
               action={action}
               actionForeground={actionForeground}
               agentName={target.name}

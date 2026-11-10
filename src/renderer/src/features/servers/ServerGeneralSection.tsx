@@ -23,6 +23,7 @@ import { type Accessor, createStore, Show, snapshot } from "solid-js";
 import { actionToast } from "../../action-toast";
 import { ServerMemoryLimitSetting } from "./ServerMemoryLimitSetting";
 import { ServerMemoryReviewSetting } from "./ServerMemoryReviewSetting";
+import { ServerSkillLearningSetting } from "./ServerSkillLearningSetting";
 import { ServerTimezoneSetting } from "./ServerTimezoneSetting";
 import { serverCanAdminister } from "./server-capabilities";
 import type { ServerSettingsSectionHost } from "./server-settings-section";
@@ -101,6 +102,7 @@ export function createServerGeneralSection(host: ServerSettingsSectionHost): Ser
   const canEditIdentity = () => serverCanAdminister(props.server, "host-admin-v1") && actionsAvailable();
   const canSetTimezone = () => serverCanAdminister(props.server, "host-timezone-v1") && actionsAvailable();
   const canSetMemoryLimit = () => serverCanAdminister(props.server, "agent-memory-limit-v1") && actionsAvailable();
+  const canSetSkillLearning = () => serverCanAdminister(props.server, "skill-learning-v1") && actionsAvailable();
   const canSetMemoryReview = () => serverCanAdminister(props.server, "memory-review-v1") && actionsAvailable();
   const trimmedName = () => panels.identity.name.trim();
   const nameError = () => {
@@ -385,7 +387,8 @@ export function createServerGeneralSection(host: ServerSettingsSectionHost): Ser
           when={
             (canSetTimezone() && props.hostTimezone) ||
             (canSetMemoryLimit() && props.hostMemoryLimit) ||
-            (canSetMemoryReview() && props.memoryReview)
+            (canSetMemoryReview() && props.memoryReview) ||
+            (canSetSkillLearning() && props.skillLearning)
           }
         >
           <SettingsSection title={t("server.settings.agents")}>
@@ -404,6 +407,17 @@ export function createServerGeneralSection(host: ServerSettingsSectionHost): Ser
               <Show when={canSetMemoryLimit() && props.hostMemoryLimit}>
                 {(options) => (
                   <ServerMemoryLimitSetting
+                    {...options()}
+                    serverId={props.server.id}
+                    disabled={Boolean(busy())}
+                    menuMount={host.menuMount()}
+                    run={run}
+                  />
+                )}
+              </Show>
+              <Show when={canSetSkillLearning() && props.skillLearning}>
+                {(options) => (
+                  <ServerSkillLearningSetting
                     {...options()}
                     serverId={props.server.id}
                     disabled={Boolean(busy())}

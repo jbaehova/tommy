@@ -95,11 +95,14 @@ export function decodeAppInfo(value: unknown): AppInfo {
   const { platform, variant } = info;
   if (!isOneOf(["darwin", "linux"] as const, platform)) throw new Error("Invalid platform.");
   if (!isOneOf(["production", "dev", "preview"] as const, variant)) throw new Error("Invalid variant.");
+  const { hourCycle } = info;
+  if (hourCycle !== undefined && hourCycle !== "h12" && hourCycle !== "h23") throw new Error("Invalid hour cycle.");
   return {
     name: requiredString(info, "name"),
     version: requiredString(info, "version"),
     platform,
     variant,
+    ...(hourCycle === undefined ? {} : { hourCycle }),
   };
 }
 

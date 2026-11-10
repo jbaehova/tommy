@@ -14,7 +14,9 @@ import { redactText } from "@tommy/logging";
 import { wokenWaitsPromptText } from "../agent-waits/agent-waits";
 import { homeSkillRoot, homeSkillTagSlug } from "../home-skills";
 import type { DeliveryContext } from "../mailbox-store";
+import { type TagReferenceSource, taggedReference } from "./chat-tag-context";
 import { quietRoutineRun, ROUTINE_NO_UPDATE_TOOL, ROUTINE_REPORT_FAILURE_TOOL } from "./routine-quiet-runs";
+import { pendingSkillSuggestionNote } from "./skill-learning-suggestion";
 
 export function responseAttachmentMessageId(threadId: string, turnId: string, callId: string): string {
   const digest = createHash("sha256").update(`${threadId}\0${turnId}\0${callId}`).digest("hex").slice(0, 32);
@@ -78,6 +80,8 @@ export type DeliveryInputItem =
 
 export interface DeliveryPromptSources {
   agentNames: ReadonlyMap<string, string>;
+  tags?: TagReferenceSource | undefined;
+  skillLearningEnabled?: boolean | undefined;
   /** The conversation the delivery joins. A user reply quotes the message it answers from it. */
   snapshot: ConversationSnapshot;
   routineRun: Pick<RoutineRun, "kind" | "source"> | null;
@@ -177,7 +181,14 @@ function escapeRegExp(value: string): string {
 export function deliveryPromptInput(context: DeliveryContext, sources: DeliveryPromptSources): DeliveryInputItem[] {
   const { delivery, managedAttachments } = context;
   const { agentNames, snapshot } = sources;
-  const displayText = displayMessageReferences(delivery.text, delivery.attachments, agentNames);
+  const tags =
+    delivery.sender.kind === "user" && context.allowTagTargets === true && sources.executionText === undefined
+      ? sources.tags
+      : undefined;
+  const displayText = displayMessageReferences(delivery.text, delivery.attachments, agentNames, {
+    fileHeadings: true,
+    tags,
+  });
   let text = sources.executionText ?? (displayText || "The user shared attached local files.");
   if (delivery.sender.kind === "user" && delivery.replyToMessageId) {
     const referenced = snapshot.messages.find((message) => message.id === delivery.replyToMessageId);
@@ -185,12 +196,20 @@ export function deliveryPromptInput(context: DeliveryContext, sources: DeliveryP
       `The user is replying to message ${delivery.replyToMessageId}.`,
       "--- referenced message ---",
       referenced
-        ? displayMessageReferences(referenced.text, referenced.attachments ?? [], agentNames)
+        ? displayMessageReferences(referenced.text, referenced.attachments ?? [], agentNames, {
+            fileHeadings: true,
+            tags: referenced.author === "user" ? tags : undefined,
+          })
         : "(The referenced message is unavailable.)",
       "--- user reply ---",
       displayText || "(The reply contains attachments only.)",
     ].join("\n");
   }
+  const learningNote =
+    context.allowTagTargets === true && sources.executionText === undefined && sources.skillLearningEnabled !== false
+      ? pendingSkillSuggestionNote(delivery, snapshot.messages, agentNames.get(delivery.recipientAgentId) ?? "Tommy")
+      : null;
+  if (learningNote) text = `${learningNote}\n\n${text}`;
   // Only `start_task` sends an agent's message to itself: it is the brief of a task.
   if (delivery.sender.kind === "agent" && delivery.sender.agentId === delivery.recipientAgentId) {
     text = [
@@ -321,6 +340,14 @@ export function nextStepContinuationPrompt(count: number, limit: number): string
   ].join("\n");
 }
 
+/** The note for a turn that a failed compaction stopped: the connection failed or stopped during it. */
+export function compactionContinuationPrompt(): string {
+  return [
+    "Tommy note, not a message from the user. Your last turn stopped because the connection failed while your context was compacted.",
+    "Continue the work now, from where you stopped. Do not repeat finished work or restate earlier answers. Check the result of an action that was interrupted before you do it again. This note does not approve a risky action. If the request is already done, say so in one short line and end your turn. If you must wait, need the user's input or approval, or are blocked, say so in one short line and end your turn.",
+  ].join("\n");
+}
+
 /**
  * The provider input for a turn that starts with several deliveries: all the answers to one request,
  * or the answers that wait when the person writes. The texts become one text item, so a history
@@ -350,18 +377,21 @@ export function displayMessageReferences(
   text: string,
   attachments: Array<{ id: string; name: string }>,
   agentNames: ReadonlyMap<string, string>,
-  options: { fileHeadings: boolean } = { fileHeadings: true },
+  options: { fileHeadings: boolean; tags?: TagReferenceSource | undefined } = { fileHeadings: true },
 ): string {
   const names = new Map(attachments.map((attachment) => [attachment.id, attachment.name]));
+  const seen = new Set<string>();
   return expandAttachmentReferences(
     expandChatTagReferences(
       text,
       (reference) =>
-        reference.kind === "agent"
-          ? agentNames.get(reference.id)
-          : reference.kind === "skill" && options.fileHeadings
-            ? homeSkillTagName(reference.id, reference.name)
-            : undefined,
+        (reference.kind === "tab" || reference.kind === "thread") && options.fileHeadings
+          ? taggedReference({ kind: reference.kind, id: reference.id, name: reference.name }, options.tags, seen)
+          : reference.kind === "agent"
+            ? agentNames.get(reference.id)
+            : reference.kind === "skill" && options.fileHeadings
+              ? homeSkillTagName(reference.id, reference.name)
+              : undefined,
       options,
     ),
     (reference) => names.get(reference.attachmentId),

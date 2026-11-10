@@ -2,6 +2,7 @@ import * as Crypto from "expo-crypto";
 import { useLocalSearchParams } from "expo-router";
 import { Button, Typography } from "heroui-native";
 import { useRef, useState } from "react";
+import { DeleteChatHistorySection } from "@/features/chat/components/delete-chat-history-section";
 import { useMobileWorkspace } from "@/features/workspace/context/mobile-workspace-context";
 import { SheetScrollView } from "@/shared/components/sheet-scroll-view";
 import { haptics } from "@/shared/lib/haptics";
@@ -93,6 +94,7 @@ export function ChannelActionsScreen() {
   }
   return (
     <SheetScrollView headerOverlaysContent={false} contentContainerClassName="gap-3 px-4 pt-3 pb-safe-offset-5">
+      <DeleteChatHistorySection serverId={serverId} channelId={channelId} />
       <ChannelTaskActions
         tasks={tasks}
         members={members}

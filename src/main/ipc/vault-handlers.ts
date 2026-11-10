@@ -1,3 +1,4 @@
+import { decodeVaultCodesFromHost } from "../remote-extension-decoding";
 // The Vault of this computer, for Server settings of the local server. Main opens the CSV file dialog
 // and writes the clipboard, so a copied secret does not pass through the renderer. The `host*`
 // endpoints do the same for one server: a joined server answers through `vault-v2`, or through
@@ -13,6 +14,7 @@ import {
 import type { TeamCurrentCapability } from "@tommy/contracts/team-protocol/current";
 import { VAULT_CAPABILITY, VAULT_ROUTES } from "@tommy/contracts/team-protocol/vault-v1";
 import { VAULT_V2_CAPABILITY, VAULT_V2_ROUTES } from "@tommy/contracts/team-protocol/vault-v2";
+import { VAULT_V3_CAPABILITY, VAULT_V3_ROUTES } from "@tommy/contracts/team-protocol/vault-v3";
 import type { AppTranslate } from "@tommy/i18n";
 import { sourceText } from "@tommy/i18n/source";
 import { registerSecretValue } from "@tommy/logging";
@@ -55,11 +57,13 @@ export function vaultIpcHandlers({
     decode: ResponseDecoder<T>,
     body: VaultSaveInput | VaultSecretRequest | { id: string } | Record<string, never> = {},
   ): Promise<T> {
-    const routes = remoteServers.supportsCapability(serverId, VAULT_V2_CAPABILITY)
-      ? VAULT_V2_ROUTES
-      : remoteServers.supportsCapability(serverId, VAULT_CAPABILITY)
-        ? VAULT_ROUTES
-        : null;
+    const routes = remoteServers.supportsCapability(serverId, VAULT_V3_CAPABILITY)
+      ? VAULT_V3_ROUTES
+      : remoteServers.supportsCapability(serverId, VAULT_V2_CAPABILITY)
+        ? VAULT_V2_ROUTES
+        : remoteServers.supportsCapability(serverId, VAULT_CAPABILITY)
+          ? VAULT_ROUTES
+          : null;
     if (!routes) throw new Error(sourceText("error.team.vaultUnsupported"));
     return runCauseEffect(remoteServers.request(serverId, routes[route], decode, { method: "POST", body }));
   }
@@ -85,6 +89,19 @@ export function vaultIpcHandlers({
 
   return {
     vault: {
+      codes: handler(() => runCauseEffect(vault.codes())),
+      hostCodes: scopedQueryHandler({
+        local: () => runCauseEffect(vault.codes()),
+        remote: (serverId) =>
+          remoteServers.supportsCapability(serverId, VAULT_V3_CAPABILITY)
+            ? runCauseEffect(
+                remoteServers.request(serverId, VAULT_V3_ROUTES.codes, decodeVaultCodesFromHost, {
+                  method: "POST",
+                  body: {},
+                }),
+              )
+            : { codes: [] },
+      }),
       list: handler(() => vault.state()),
       save: payloadHandler(decodeVaultSaveInput, (input) => runCauseEffect(vault.save(input))),
       delete: payloadHandler(stringPayload("id", 64), (id) => runCauseEffect(vault.delete(id))),
@@ -108,7 +125,14 @@ export function vaultIpcHandlers({
       hostSave: scopedHandler(decodeVaultSaveInput, {
         local: (input) => runCauseEffect(vault.save(input)),
         remote: (input, serverId) => {
-          // A new password, card number or API key crosses this computer too, so it is redacted here as well.
+          if (
+            input.kind === "login" &&
+            input.twoStepKey !== undefined &&
+            !remoteServers.supportsCapability(serverId, VAULT_V3_CAPABILITY)
+          )
+            throw new Error(sourceText("error.team.vaultUnsupported"));
+          // A new secret crosses this computer too, so it is redacted here as well.
+          if (input.kind === "login" && input.twoStepKey) registerSecretValue(input.twoStepKey);
           if (input.kind === "login" && input.password !== null)
             registerSecretValue(input.password, { allowShort: true });
           if (input.kind === "card" && input.number !== null) registerSecretValue(input.number);

@@ -1,5 +1,6 @@
 import { INPUT_LIMITS } from "@tommy/contracts/input-limits";
 import { BROWSER_TAKEOVER_REASONS, VAULT_TEXT_LIMIT, type VaultContactFields } from "@tommy/contracts/ipc";
+import { isDynamicRecord } from "@tommy/contracts/runtime-values";
 import { UI_BLOCK_LIMITS, UI_VAULT_REQUEST_KINDS } from "@tommy/contracts/ui-blocks";
 import { z } from "zod";
 import { advertisedJsonSchema } from "./agent/advertised-json-schema";
@@ -8,6 +9,7 @@ import {
   BROWSER_FILL_FIELDS_MAX_TEXT_BYTES,
   BROWSER_FILL_FIELDS_MAX_TIMEOUT_MS,
 } from "./browser-fill-fields";
+import { repairBrowserStep, repairBrowserToolInput } from "./browser-tool-input";
 
 export const TOMMY_BROWSER_NAMESPACE = "tommy_browser";
 
@@ -160,11 +162,15 @@ const evaluateFields = {
 };
 
 export const BROWSER_SCRIPT_MAX_STEPS = 200;
+export const BROWSER_SCRIPT_MAX_SLEEP_MS = 25_000;
+/** The script can process a larger page value before returning its bounded result to the model. */
+export const BROWSER_SCRIPT_EVALUATE_MAX_BYTES = 1024 * 1024;
 const BROWSER_SCRIPT_MAX_CHARS = 20_000;
 export const BROWSER_SCRIPT_DEFAULT_TIMEOUT_MS = 60_000;
 const BROWSER_SCRIPT_MAX_TIMEOUT_MS = 120_000;
 
 const browserStepSchema = z.discriminatedUnion("action", [
+  z.strictObject({ action: z.literal("sleep"), ms: z.number().int().min(0).max(BROWSER_SCRIPT_MAX_SLEEP_MS) }),
   z.strictObject({ action: z.literal("navigate"), ...navigateFields }),
   z.strictObject({ action: z.literal("click"), ...clickFields }),
   z.strictObject({ action: z.literal("type"), ...typeFields }),
@@ -182,7 +188,7 @@ export type BrowserStep = z.infer<typeof browserStepSchema>;
 
 /** Steps from a `run_script` sandbox are untrusted values, so each one is decoded before it runs. */
 export function parseBrowserStep(value: unknown): BrowserStep {
-  const result = browserStepSchema.safeParse(value);
+  const result = browserStepSchema.safeParse(isDynamicRecord(value) ? repairBrowserStep(value) : value);
   if (!result.success) throw new Error(`Invalid browser step: ${z.prettifyError(result.error)}`);
   return result.data;
 }
@@ -542,7 +548,7 @@ export type BrowserToolArguments<Name extends BrowserToolCall["tool"]> = Extract
 export function parseBrowserToolCall(tool: string, value: unknown): BrowserToolCall {
   const definition = BROWSER_TOOL_DEFINITIONS.find((candidate) => candidate.name === tool);
   if (!definition) throw new Error(`Unknown browser tool: ${tool}`);
-  return definition.parse(value);
+  return definition.parse(repairBrowserToolInput(tool, value).value);
 }
 
 // Upload staging parses the same arguments before it resolves and authorizes local files.

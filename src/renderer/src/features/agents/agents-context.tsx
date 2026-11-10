@@ -6,6 +6,7 @@ import type {
   HiddenAgent,
   UpdateAgentInput,
 } from "@tommy/contracts/ipc";
+import { PROVIDER_ACCOUNT_MODELS_CAPABILITY } from "@tommy/contracts/team-protocol/provider-account-models-v1";
 import { PROVIDER_ACCOUNTS_CAPABILITY } from "@tommy/contracts/team-protocol/provider-accounts-v1";
 import type { AgentProfile } from "@tommy/ui/data";
 import { createFirstAgentDraft, type FirstAgentDraft } from "@tommy/ui/features/agents/FirstAgentSetup";
@@ -130,6 +131,9 @@ const Agents = createSimpleContext({
      */
     const hostAccounts = createHostAccounts({
       serverId: createMemo(() => remoteAdminServer(activeServer(), PROVIDER_ACCOUNTS_CAPABILITY)?.id),
+      accountModels: createMemo(
+        () => remoteAdminServer(activeServer(), PROVIDER_ACCOUNT_MODELS_CAPABILITY) !== undefined,
+      ),
       accounts: (serverId) => agentsPort().providerAdmin.accounts(serverId),
       usage: (serverId) => agentsPort().providerAdmin.accountUsage(serverId),
       applied: (host) => {

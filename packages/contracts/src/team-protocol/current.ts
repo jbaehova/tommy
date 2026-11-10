@@ -18,6 +18,7 @@ import { AGENT_NOTIFICATION_LEVELS_CAPABILITY } from "./agent-notification-level
 import { AGENT_PLAN_CARD_CAPABILITY } from "./agent-plan-card-v1";
 import { AGENT_PUBLISH_CAPABILITY } from "./agent-publish-v1";
 import { AGENT_SESSION_SETTINGS_CAPABILITY } from "./agent-session-settings-v1";
+import { AGENT_SPEED_CAPABILITY } from "./agent-speed-v1";
 import { AGENT_TASK_LIMIT_CAPABILITY } from "./agent-task-limit-v1";
 import { AGENT_TASK_UI_BLOCKS_CAPABILITY } from "./agent-task-ui-blocks-v1";
 import { AGENT_TASKS_CAPABILITY } from "./agent-tasks-v1";
@@ -28,6 +29,7 @@ import { AGENT_THREADS_CAPABILITY } from "./agent-threads-v1";
 import { AGENT_UPDATE_CAPABILITY } from "./agent-update-v1";
 import { TEAM_BROWSER_NAVIGATION_CAPABILITY } from "./browser-navigation-v1";
 import { BROWSER_PAGE_STATE_CAPABILITY } from "./browser-page-state-v1";
+import { BROWSER_PROFILE_PROXY_CAPABILITY } from "./browser-profile-proxy-v1";
 import { BROWSER_PROFILES_EVENTS_CAPABILITY } from "./browser-profiles-events-v1";
 import { BROWSER_PROFILES_CAPABILITY } from "./browser-profiles-v1";
 import { BROWSER_SECRET_LOGIN_CAPABILITY } from "./browser-secret-login-v1";
@@ -43,6 +45,8 @@ import {
   TEAM_BROWSER_VIEW_VIEWPORT_CAPABILITY,
 } from "./browser-view-v1";
 import { TEAM_CHANNEL_ATTENTION_CAPABILITY } from "./channel-attention-v1";
+import { CHAT_HISTORY_CAPABILITY } from "./chat-history-v1";
+import { CHAT_TARGET_TAGS_CAPABILITY } from "./chat-target-tags-v1";
 import { CLAUDE_API_KEY_CAPABILITY } from "./claude-api-key-v1";
 import { CONNECTORS_CAPABILITY } from "./connectors-v1";
 import { CONTEXT_COMPACT_CAPABILITY } from "./context-compact-v1";
@@ -63,13 +67,16 @@ import { HOST_RELEASE_CAPABILITY } from "./host-release-v1";
 import { HOST_TIMEZONE_CAPABILITY } from "./host-timezone-v1";
 import { HOST_UPDATE_CAPABILITY } from "./host-update-v1";
 import { INSTANCE_TRANSFER_CAPABILITY } from "./instance-transfer-v1";
+import { LIVE_VOICE_CAPABILITY } from "./live-voice-v1";
 import { MACHINE_RESOURCES_CAPABILITY } from "./machine-resources-v1";
 import { MCP_SIGN_IN_APP_CAPABILITY } from "./mcp-sign-in-app-v1";
 import { MCP_SIGN_IN_CAPABILITY } from "./mcp-sign-in-v1";
 import { MEMORY_REVIEW_CAPABILITY } from "./memory-review-v1";
 import { TEAM_MESSAGE_CLIENT_ID_CAPABILITY } from "./message-client-id-v1";
+import { MESSAGE_DELETE_CAPABILITY } from "./message-delete-v1";
 import { PROMPT_CACHE_TTL_CAPABILITY } from "./prompt-cache-ttl-v1";
 import { TEAM_PROMPT_MULTI_SELECT_CAPABILITY } from "./prompt-multi-select-v1";
+import { PROVIDER_ACCOUNT_MODELS_CAPABILITY } from "./provider-account-models-v1";
 import { PROVIDER_ACCOUNT_RELAY_CAPABILITY } from "./provider-account-relay-v1";
 import { PROVIDER_ACCOUNT_RELAY_V2_CAPABILITY } from "./provider-account-relay-v2";
 import { PROVIDER_ACCOUNTS_CAPABILITY } from "./provider-accounts-v1";
@@ -90,12 +97,14 @@ import { TEAM_REASONING_EFFORTS_CAPABILITY } from "./reasoning-efforts-v1";
 import { ROUTINE_FLOWS_CAPABILITY } from "./routine-flows-v1";
 import { ROUTINE_RECOVERY_CAPABILITY } from "./routine-recovery-v1";
 import { ROUTINE_RESULTS_CAPABILITY } from "./routine-results-v1";
+import { ROUTINE_RUN_PLACE_CAPABILITY } from "./routine-run-place-v1";
 import { SERVER_AUDIT_CAPABILITY } from "./server-audit-v1";
 import { SHARED_TABLES_CAPABILITY } from "./shared-tables-v1";
 import { SIDE_QUESTION_CAPABILITY } from "./side-question-v1";
 import { SIDEBAR_FOLDERS_CAPABILITY } from "./sidebar-folders-v1";
 import { SIDEBAR_PINS_CAPABILITY } from "./sidebar-pins-v1";
 import { SIGN_IN_RELAY_CAPABILITY } from "./sign-in-relay-v1";
+import { SKILL_LEARNING_CAPABILITY } from "./skill-learning-v1";
 import { SKILLS_ADMIN_CAPABILITY } from "./skills-admin-v1";
 import { SKILLS_EVENTS_CAPABILITY } from "./skills-events-v1";
 import { STORAGE_DISK_CAPABILITY } from "./storage-disk-v1";
@@ -108,7 +117,10 @@ import { TEAM_LONG_CAPABILITY_LISTS_CAPABILITY, TEAM_PROTOCOL_V9_CAPABILITIES } 
 import { VAULT_IMPORT_CAPABILITY } from "./vault-import-v1";
 import { VAULT_CAPABILITY } from "./vault-v1";
 import { VAULT_V2_CAPABILITY } from "./vault-v2";
+import { VAULT_V3_CAPABILITY } from "./vault-v3";
+import { WEBHOOK_SENDER_SECRET_CAPABILITY } from "./webhook-sender-secret-v1";
 import { WEBHOOK_TESTS_CAPABILITY } from "./webhook-tests-v1";
+import { WORKFLOWS_EXTENSIONS_CAPABILITY } from "./workflows-extensions-v1";
 import { WORKFLOWS_GITHUB_CAPABILITY } from "./workflows-github-v1";
 import { WORKFLOWS_CAPABILITY } from "./workflows-v1";
 import { WORKSPACE_DIRECTORY_CAPABILITY } from "./workspace-directory-v1";
@@ -170,6 +182,7 @@ export {
   AGENT_PLAN_CARD_CAPABILITY,
   AGENT_PUBLISH_CAPABILITY,
   AGENT_SESSION_SETTINGS_CAPABILITY,
+  AGENT_SPEED_CAPABILITY,
   AGENT_TASK_LIMIT_CAPABILITY,
   AGENT_TASK_UI_BLOCKS_CAPABILITY,
   AGENT_TASKS_CAPABILITY,
@@ -180,6 +193,7 @@ export {
   AGENT_UPDATE_CAPABILITY,
   ANDROID_PUSH_NOTIFICATIONS_CAPABILITY,
   BROWSER_PAGE_STATE_CAPABILITY,
+  BROWSER_PROFILE_PROXY_CAPABILITY,
   BROWSER_PROFILES_CAPABILITY,
   BROWSER_PROFILES_EVENTS_CAPABILITY,
   BROWSER_SECRET_LOGIN_CAPABILITY,
@@ -188,6 +202,8 @@ export {
   BROWSER_USER_CONTROL_CAPABILITY,
   CHANNEL_DELETE_CAPABILITY,
   CHANNEL_TASK_CANCEL_CAPABILITY,
+  CHAT_HISTORY_CAPABILITY,
+  CHAT_TARGET_TAGS_CAPABILITY,
   CONNECTORS_CAPABILITY,
   CONTEXT_COMPACT_CAPABILITY,
   CONTEXT_RESET_CAPABILITY,
@@ -205,12 +221,15 @@ export {
   HOST_TIMEZONE_CAPABILITY,
   HOST_UPDATE_CAPABILITY,
   INSTANCE_TRANSFER_CAPABILITY,
+  LIVE_VOICE_CAPABILITY,
   MACHINE_RESOURCES_CAPABILITY,
   MCP_SERVERS_CAPABILITY,
   MCP_SIGN_IN_APP_CAPABILITY,
   MCP_SIGN_IN_CAPABILITY,
   MEMORY_REVIEW_CAPABILITY,
+  MESSAGE_DELETE_CAPABILITY,
   PROMPT_CACHE_TTL_CAPABILITY,
+  PROVIDER_ACCOUNT_MODELS_CAPABILITY,
   PROVIDER_ACCOUNT_RELAY_CAPABILITY,
   PROVIDER_ACCOUNT_RELAY_V2_CAPABILITY,
   PROVIDER_ACCOUNTS_CAPABILITY,
@@ -228,12 +247,14 @@ export {
   ROUTINE_FLOWS_CAPABILITY,
   ROUTINE_RECOVERY_CAPABILITY,
   ROUTINE_RESULTS_CAPABILITY,
+  ROUTINE_RUN_PLACE_CAPABILITY,
   SERVER_AUDIT_CAPABILITY,
   SHARED_TABLES_CAPABILITY,
   SIDE_QUESTION_CAPABILITY,
   SIDEBAR_FOLDERS_CAPABILITY,
   SIDEBAR_PINS_CAPABILITY,
   SIGN_IN_RELAY_CAPABILITY,
+  SKILL_LEARNING_CAPABILITY,
   SKILLS_ADMIN_CAPABILITY,
   SKILLS_EVENTS_CAPABILITY,
   STORAGE_CAPABILITY,
@@ -258,13 +279,28 @@ export {
   VAULT_CAPABILITY,
   VAULT_IMPORT_CAPABILITY,
   VAULT_V2_CAPABILITY,
+  VAULT_V3_CAPABILITY,
+  WEBHOOK_SENDER_SECRET_CAPABILITY,
   WEBHOOK_TESTS_CAPABILITY,
   WORKFLOWS_CAPABILITY,
+  WORKFLOWS_EXTENSIONS_CAPABILITY,
   WORKFLOWS_GITHUB_CAPABILITY,
   WORKSPACE_DIRECTORY_CAPABILITY,
 };
 
 export const TEAM_CURRENT_CAPABILITIES = [
+  ROUTINE_RUN_PLACE_CAPABILITY,
+  CHAT_TARGET_TAGS_CAPABILITY,
+  CHAT_HISTORY_CAPABILITY,
+  MESSAGE_DELETE_CAPABILITY,
+  LIVE_VOICE_CAPABILITY,
+  WEBHOOK_SENDER_SECRET_CAPABILITY,
+  PROVIDER_ACCOUNT_MODELS_CAPABILITY,
+  AGENT_SPEED_CAPABILITY,
+  BROWSER_PROFILE_PROXY_CAPABILITY,
+  SKILL_LEARNING_CAPABILITY,
+  VAULT_V3_CAPABILITY,
+  WORKFLOWS_EXTENSIONS_CAPABILITY,
   BROWSER_SECRET_CAPABILITY,
   ...TEAM_PROTOCOL_V9_CAPABILITIES,
   "remote-desktop-setup",
@@ -465,6 +501,18 @@ export function isAgentMessageRoute(method: string, path: string): boolean {
 // The v8 marker stays out: a client sends it only after the host reports protocol 8.
 export const TEAM_BOOTSTRAP_CAPABILITIES = TEAM_CURRENT_CAPABILITIES.filter(
   (capability) =>
+    capability !== ROUTINE_RUN_PLACE_CAPABILITY &&
+    capability !== CHAT_TARGET_TAGS_CAPABILITY &&
+    capability !== CHAT_HISTORY_CAPABILITY &&
+    capability !== MESSAGE_DELETE_CAPABILITY &&
+    capability !== LIVE_VOICE_CAPABILITY &&
+    capability !== WEBHOOK_SENDER_SECRET_CAPABILITY &&
+    capability !== PROVIDER_ACCOUNT_MODELS_CAPABILITY &&
+    capability !== AGENT_SPEED_CAPABILITY &&
+    capability !== BROWSER_PROFILE_PROXY_CAPABILITY &&
+    capability !== SKILL_LEARNING_CAPABILITY &&
+    capability !== VAULT_V3_CAPABILITY &&
+    capability !== WORKFLOWS_EXTENSIONS_CAPABILITY &&
     capability !== TEAM_OPEN_PROVIDERS_CAPABILITY &&
     capability !== AGENT_MEMORIES_CAPABILITY &&
     capability !== AGENT_SESSION_SETTINGS_CAPABILITY &&
@@ -553,6 +601,18 @@ export const TEAM_BOOTSTRAP_CAPABILITIES = TEAM_CURRENT_CAPABILITIES.filter(
  * leaves these out of the compatibility list of an older peer (`teamCapabilitiesVisibleToProtocol`).
  */
 export const TEAM_PROTOCOL_V9_ONLY_CAPABILITIES: ReadonlySet<string> = new Set<TeamCurrentCapability>([
+  ROUTINE_RUN_PLACE_CAPABILITY,
+  CHAT_TARGET_TAGS_CAPABILITY,
+  CHAT_HISTORY_CAPABILITY,
+  MESSAGE_DELETE_CAPABILITY,
+  LIVE_VOICE_CAPABILITY,
+  WEBHOOK_SENDER_SECRET_CAPABILITY,
+  PROVIDER_ACCOUNT_MODELS_CAPABILITY,
+  AGENT_SPEED_CAPABILITY,
+  BROWSER_PROFILE_PROXY_CAPABILITY,
+  SKILL_LEARNING_CAPABILITY,
+  VAULT_V3_CAPABILITY,
+  WORKFLOWS_EXTENSIONS_CAPABILITY,
   TEAM_LONG_CAPABILITY_LISTS_CAPABILITY,
   AGENT_NOTIFICATION_LEVELS_CAPABILITY,
   AGENT_NEW_CHAT_CAPABILITY,

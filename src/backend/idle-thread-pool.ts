@@ -32,7 +32,8 @@ export interface IdleThreadPoolOptions<Thread extends IdleThread, Released> {
 /**
  * The open threads of one provider client, and the idle ones it closed to free their processes and
  * MCP servers. A closed thread keeps a snapshot, and its next turn opens it again from its session.
- * It never closes a thread in a turn, or one whose turn is starting.
+ * Idle release never closes a thread in a turn, or one whose turn is starting. A client can force
+ * a release when a stopped turn does not end.
  */
 export class IdleThreadPool<Thread extends IdleThread, Released> {
   readonly #options: IdleThreadPoolOptions<Thread, Released>;
@@ -135,6 +136,7 @@ export class IdleThreadPool<Thread extends IdleThread, Released> {
     this: IdleThreadPool<Thread, Released>,
     thread: Thread,
   ) {
+    if (this.#threads.get(thread.id) !== thread) return;
     thread.idleSince = Date.now();
     this.#arm(thread);
     yield* this.#releaseIdleOver(this.#options.idleLimit);
@@ -208,6 +210,14 @@ export class IdleThreadPool<Thread extends IdleThread, Released> {
   releaseIdle(): Effect.Effect<void, ProviderClientOperationError> {
     return this.#releaseIdleOver(0);
   }
+
+  /** Closes a thread now and keeps its saved-session snapshot for the next turn. */
+  readonly releaseNow = Effect.fn("IdleThreadPool.releaseNow")(function* (
+    this: IdleThreadPool<Thread, Released>,
+    thread: Thread,
+  ) {
+    if (this.#threads.get(thread.id) === thread) yield* this.#release(thread);
+  });
 
   /** An armed release timer marks a thread that is idle and can be opened again. */
   readonly #releaseIdleOver = Effect.fn("IdleThreadPool.releaseIdleOver")(function* (

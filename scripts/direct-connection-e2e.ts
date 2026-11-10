@@ -98,6 +98,9 @@ const { TeamWebRtcClientTransport } = await import("../src/main/team-webrtc-clie
 
 const unused = () => Effect.die(new Error("Not used by this check."));
 const agentBrowser: AgentBrowserHost = {
+  shareTab: () => {},
+  unshareThread: () => {},
+  agentTab: () => null,
   listTabs: () => [],
   beginTakeover: unused,
   endTakeover: () => {},

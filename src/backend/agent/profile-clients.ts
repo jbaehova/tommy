@@ -47,6 +47,27 @@ export class ProfileClients {
     );
   }
 
+  /** Reserves a background slot atomically and leaves one slot for direct user work. */
+  runIfSpare<A, E, E2, R>(
+    client: AgentClient,
+    generate: (cancelled: () => boolean) => Effect.Effect<A, E, R>,
+    busyError: E2,
+  ): Effect.Effect<A, E | E2, R> {
+    return Effect.acquireUseRelease(
+      Effect.suspend(() => {
+        if (!this.hasSpare()) return Effect.fail(busyError);
+        const generation = { cancelled: false };
+        this.#clients.set(client, generation);
+        return Effect.succeed(generation);
+      }),
+      (generation) => generate(() => generation.cancelled),
+      () =>
+        Effect.sync(() => {
+          this.#clients.delete(client);
+        }),
+    );
+  }
+
   /** Every client, forgotten, for the caller to stop at shutdown. */
   release(): AgentClient[] {
     const clients = [...this.#clients.keys()];

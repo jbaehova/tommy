@@ -147,12 +147,27 @@ export function memoryReviewUsageObserver(
   provider: ProviderSession["provider"],
   model: AgentSummary["model"],
 ): (notification: { method: string; params?: unknown }) => void {
-  const session = { id: `memory-review:${randomUUID()}`, provider, createdAt: new Date().toISOString() };
+  return sideSessionUsageObserver("memory-review", usage, agentId, provider, model);
+}
+
+/** Each side session has its own counter and charges only the calling agent. */
+export function sideSessionUsageObserver(
+  kind: "memory-review" | "web-search",
+  usage: AgentUsage,
+  agentId: string,
+  provider: ProviderSession["provider"],
+  model: AgentSummary["model"],
+): (notification: { method: string; params?: unknown }) => void {
+  const session = { id: `${kind}:${randomUUID()}`, provider, createdAt: new Date().toISOString() };
   return ({ method, params }) => {
     try {
       collectProviderUsage(usage, { id: agentId, model }, session, method, params);
     } catch (error) {
-      logger.warn("Could not save the usage of a memory review.", { provider, error });
+      logger.warn("Could not save the usage of a side session.", {
+        kind,
+        provider,
+        errorName: error instanceof Error ? error.name : "Error",
+      });
     }
   };
 }

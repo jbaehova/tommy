@@ -137,4 +137,14 @@ export const messages = {
   "error.agent.screenCapturePermissionMissing":
     "Tommy에 화면 녹화 권한이 없어요. 사용자에게 시스템 설정 > 개인정보 보호 및 보안 > 화면 및 시스템 오디오 녹화를 열어 Tommy를 켠 다음, Tommy를 종료했다가 다시 열도록 요청하세요.",
   "error.agent.screenCaptureFailed": "화면 캡처에 실패했어요. 다시 시도해 주세요.",
+  "error.agent.reasoningEffortNotConfigurable": '모델 "{model}"에는 추론 강도 설정이 없어서 강도를 바꿀 수 없어요.',
+  "error.agent.compactionConnectionLost":
+    "에이전트가 컨텍스트를 압축하는 동안 연결이 끊겨 작업이 멈췄어요. 인터넷 연결을 확인한 다음 메시지를 보내 계속해 주세요.",
+  "error.agent.toolCallArgumentsNotObject":
+    "도구가 실행되지 않았어요. tool_call의 arguments는 텍스트가 아니라 JSON 객체여야 해요. arguments를 객체로 바꿔 다시 호출하세요.",
+  "error.agent.historyReadArguments":
+    "messageId와 before 중 하나만 사용해 주세요. offset에는 messageId가 필요하고, workStepsOffset에는 messageId와 includeWorkSteps가 필요해요.",
+  "error.agent.webSearchSignIn": "웹 검색을 사용하려면 ChatGPT 계정으로 Codex에 로그인해야 해요.",
+  "error.agent.webSearchBusy": "실행 중인 검색과 추가 질문이 너무 많아요. 잠시 후 다시 시도해 주세요.",
+  "error.agent.webSearchFailed": "웹 검색을 완료하지 못했어요. 다시 시도해 주세요.",
 } as const satisfies PartialTranslation<typeof source>;

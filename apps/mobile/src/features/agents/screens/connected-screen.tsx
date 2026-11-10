@@ -345,6 +345,9 @@ export function ConnectedScreen({ variant = "screen" }: { variant?: "screen" | "
   const agents = useMobileWorkspaceSelector((current) => current.agents);
   const activeAgents = useMobileWorkspaceSelector((current) => current.activeAgents);
   const activeServer = useMobileWorkspaceSelector((current) => current.activeServer);
+  const libraryAvailable = useMobileWorkspaceSelector((current) =>
+    current.canReadServerStorage(current.activeServer.id),
+  );
   const hiddenAgents = useMobileWorkspaceSelector((current) => current.hiddenAgents);
   const markAllRead = useMobileWorkspaceSelector((current) => current.markAllRead);
   const pinnedAgentIds = useMobileWorkspaceSelector((current) => current.pinnedAgentIds);
@@ -698,6 +701,7 @@ export function ConnectedScreen({ variant = "screen" }: { variant?: "screen" | "
         : []),
       ...(hasHiddenChats ? [{ id: "hidden-chats", title: t("mobile.agent.hidden.title") }] : []),
       ...(hasDeletedChannels ? [{ id: "deleted-chats", title: t("mobile.app.route.deletedChannels") }] : []),
+      ...(libraryAvailable ? [{ id: "library", title: t("mobile.server.library.title") }] : []),
     ];
     return [
       {
@@ -712,7 +716,16 @@ export function ConnectedScreen({ variant = "screen" }: { variant?: "screen" | "
       },
       ...(chatActions.length > 0 ? [{ id: "chats", title: "", displayInline: true, subactions: chatActions }] : []),
     ];
-  }, [hasHiddenChats, hasDeletedChannels, hasSelectedServer, canMarkAllRead, channels.supported, sidebar?.layout, t]);
+  }, [
+    hasHiddenChats,
+    hasDeletedChannels,
+    hasSelectedServer,
+    canMarkAllRead,
+    channels.supported,
+    sidebar?.layout,
+    libraryAvailable,
+    t,
+  ]);
 
   const onPressOption = (event: string) => {
     if (event === "add-section") router.push({ pathname: "/section-form", params: { serverId: activeServer.id } });
@@ -721,6 +734,8 @@ export function ConnectedScreen({ variant = "screen" }: { variant?: "screen" | "
     if (event === "hidden-chats") router.push("/hidden-chats");
     if (event === "deleted-chats") router.push({ pathname: "/deleted-chats", params: { serverId: activeServer.id } });
     if (event === "mark-all-read") markAllChatsRead();
+    if (event === "library" && libraryAvailable)
+      router.push({ pathname: "/server-settings/library", params: { serverId: activeServer.id } });
   };
   // The bar buttons that the screen draws: the Android header of the screen, and the bar of the pane.
   // In the pane, the status takes the room that the buttons leave: the pane can be 320 pt wide.

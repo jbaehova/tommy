@@ -126,6 +126,7 @@ export function conversationThreads(input: ConversationThreadsInput): Conversati
   };
   const focus = tabs.messageFocus();
   return {
+    tasks: list,
     header: {
       ...lists,
       activeId,
@@ -175,6 +176,18 @@ export function conversationThreads(input: ConversationThreadsInput): Conversati
       ? (sourceTaskId, messageId) => tabs.branch(agentId, sourceTaskId, messageId)
       : undefined,
     branchSource,
+    routineThread: (routineId) => {
+      const task = list.find((entry) => entry.routineId === routineId && entry.state !== "closed");
+      return task ? () => tabs.open(agentId, task.id) : undefined;
+    },
+    onOpenRoutineThread: async (routineId) => {
+      const listed = () =>
+        tasks.snapshot(agentId)?.tasks.find((task) => task.routineId === routineId && task.state !== "closed");
+      if (!listed()) await tasks.loadTasks(agentId);
+      const task = listed();
+      if (task) tabs.open(agentId, task.id);
+      return task !== undefined;
+    },
     focusMessage: focus && list.some((task) => task.id === focus.taskId) ? focus : null,
   };
 }

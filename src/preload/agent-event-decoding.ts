@@ -14,6 +14,7 @@ import {
 } from "@tommy/contracts/ipc";
 import { decodeRecord, nullableString, requiredString } from "@tommy/contracts/ipc-decoding";
 import { isBoolean, isNumber, isOneOf, isString } from "@tommy/contracts/runtime-values";
+import { decodeMessageDeletionEventFromMain } from "./message-deletion-decoding";
 
 const APPROVAL_KINDS = ["command", "file-change", "permissions"] as const;
 
@@ -29,6 +30,8 @@ export function decodeScopedAgentEvent(value: unknown): ScopedAgentEvent {
 
 function agentEvent(value: unknown): AgentEvent {
   const event = decodeRecord(value, "agent event");
+  if (event.type === "conversation-messages-deleted" || event.type === "channel-messages-deleted")
+    return decodeMessageDeletionEventFromMain(event);
   if (event.type === "approval") return { type: "approval", approval: approval(event.approval) };
   if (!isAgentEvent(event)) throw new Error("Invalid agent event.");
   return event;

@@ -130,6 +130,11 @@ export interface GetStorageUsageInput {
   force?: boolean;
 }
 
+/** Client-side save of a managed attachment to Downloads. No renderer path is accepted. */
+export interface SaveStoredFileInput {
+  fileId: string;
+}
+
 export interface DeleteStoredFileInput {
   fileId: string;
 }
@@ -206,6 +211,10 @@ export function parseGetStorageUsageInput(value: unknown): GetStorageUsageInput 
     ...(conversationId === undefined ? {} : { conversationId }),
     ...(input.force === undefined ? {} : { force: input.force }),
   };
+}
+
+export function parseSaveStoredFileInput(value: unknown): SaveStoredFileInput {
+  return parseDeleteStoredFileInput(value);
 }
 
 export function parseDeleteStoredFileInput(value: unknown): DeleteStoredFileInput {

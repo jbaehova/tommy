@@ -26,4 +26,5 @@ export const messages = defineMessages("menu", {
   "menu.pasteAndMatchStyle": "Paste and Match Style",
   "menu.delete": "Delete",
   "menu.selectAll": "Select All",
+  "menu.copyImage": "Copy Image",
 });

@@ -40,4 +40,9 @@ export const messages = defineMessages("error.import", {
     "{name}: the MCP server is added turned off. Check its command, enter its values and full address again, and turn it on in MCP settings.",
   "error.import.transferSharedKept":
     "{number} files in the Shared folder are already here, so they are kept as they are.",
+  "error.import.entryDamaged": "The file is damaged in the export.",
+  "error.import.zipInvalid":
+    "The selected file is not a valid ZIP archive. Wait for the export to finish, then choose it again.",
+  "error.import.notEnoughSpace": "There is not enough free disk space to import these files.",
+  "error.import.transferUnsafeFilesSkipped": "{number} files under .git or node_modules were left out of the import.",
 });

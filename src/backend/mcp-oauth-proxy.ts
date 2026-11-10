@@ -28,8 +28,18 @@ const MAX_INITIALIZE_BYTES = 64 * 1024;
 /** The longest agent name in the client title, so that a server does not cut "(Tommy)" off. */
 const MAX_AGENT_NAME_LENGTH = 80;
 
-/** The headers of the Streamable HTTP transport. Every other header of the provider stays here. */
-const FORWARDED_REQUEST_HEADERS = ["accept", "content-type", "mcp-session-id", "mcp-protocol-version", "last-event-id"];
+/** Only MCP transport and routing headers leave the provider connection. */
+const FORWARDED_REQUEST_HEADERS = [
+  "accept",
+  "content-type",
+  "mcp-session-id",
+  "mcp-protocol-version",
+  "mcp-method",
+  "mcp-name",
+  "last-event-id",
+];
+/** A 2026-07-28 tool can name routing parameters in its input schema. */
+const FORWARDED_REQUEST_HEADER_PREFIX = "mcp-param-";
 const FORWARDED_RESPONSE_HEADERS = ["content-type", "cache-control", "mcp-session-id", "mcp-protocol-version"];
 
 /** The port and the secret, kept so that a session resumed after a restart reaches the same address. */
@@ -435,9 +445,13 @@ function upstreamHeaders(
   }
   // A `User-Agent` that the user wrote on the row is kept. The provider's own does not go upstream.
   if (userAgent && !headers.has("user-agent")) headers.set("user-agent", userAgent);
-  for (const name of FORWARDED_REQUEST_HEADERS) {
-    const value = request.headers[name];
-    if (isString(value)) headers.set(name, value);
+  // Node normalizes incoming header names to lowercase. Provider credentials stay here.
+  for (const [name, value] of Object.entries(request.headers)) {
+    if (
+      isString(value) &&
+      (FORWARDED_REQUEST_HEADERS.includes(name) || name.startsWith(FORWARDED_REQUEST_HEADER_PREFIX))
+    )
+      headers.set(name, value);
   }
   headers.set("authorization", `Bearer ${token}`);
   return headers;

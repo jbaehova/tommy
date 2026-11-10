@@ -408,6 +408,15 @@ export function RoutineFlowsCanvas(props: RoutineFlowsCanvasProps) {
                 host().webhooks
                   ? {
                       connected: state.webhookConnected,
+                      scopeKey: host().webhooks?.scopeId,
+                      onSetSenderSecret: host().webhooks?.setSenderSecret
+                        ? async (routineNodeId, secret) => {
+                            const routine = routineOfNode(routineNodeId);
+                            const set = host().webhooks?.setSenderSecret;
+                            if (!routine || !set) throw new Error(t("routine.webhook.senderKey.failed"));
+                            await set({ id: routine.id, owner: ownerOf(routine), secret });
+                          }
+                        : undefined,
                       onSave: async (routineNodeId, change) => {
                         const routine = routineOfNode(routineNodeId);
                         if (!routine) return;

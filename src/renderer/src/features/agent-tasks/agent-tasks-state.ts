@@ -62,6 +62,21 @@ export function createAgentTasks(options: AgentTasksOptions) {
   const { port, activeAgentId, local, available, editable, readable, branchable, filesAccepted } = options;
   const scopeIsCurrent = createScopeGuard();
   const [state, setState] = createStore<AgentTasksState>({ snapshots: {}, conversations: {} });
+  const deletedMessageIds = new Map<string, Set<string>>();
+  const deletedKey = (agentId: string, threadId: string | null) => JSON.stringify([agentId, threadId]);
+  function removeConversationMessages(agentId: string, threadId: string, messageIds: readonly string[]): void {
+    const key = deletedKey(agentId, threadId);
+    const deleted = deletedMessageIds.get(key) ?? new Set<string>();
+    for (const id of messageIds) deleted.add(id);
+    deletedMessageIds.set(key, deleted);
+    setState((draft) => {
+      for (const conversation of Object.values(draft.conversations)) {
+        if (conversation.agentId === agentId && conversation.threadId === threadId)
+          conversation.messages = conversation.messages.filter((message) => !deleted.has(message.id));
+      }
+    });
+  }
+
   const listRequests = new Map<string, number>();
   const readRequests = new Map<string, number>();
   /** The message that each thread's read mark last moved to, so a redraw does not send the same mark again. */
@@ -101,6 +116,8 @@ export function createAgentTasks(options: AgentTasksOptions) {
 
   /** Keeps the newest conversation of a task. A delta raises the revision, so an older snapshot loses. */
   function applyConversation(taskId: string, snapshot: ConversationSnapshot): void {
+    const deleted = deletedMessageIds.get(deletedKey(snapshot.agentId, snapshot.threadId));
+    if (deleted) snapshot = { ...snapshot, messages: snapshot.messages.filter((message) => !deleted.has(message.id)) };
     const stored = state.conversations[taskId];
     if (stored && snapshot.revision < stored.revision) return;
     setState((current) => {
@@ -109,6 +126,7 @@ export function createAgentTasks(options: AgentTasksOptions) {
   }
 
   function applyDelta(event: Extract<AgentTaskEvent, { type: "agent-task-conversation-delta" }>): void {
+    if (deletedMessageIds.get(deletedKey(event.agentId, event.threadId))?.has(event.messageId)) return;
     const stored = state.conversations[event.taskId];
     // A task that did not load its conversation reads it whole when it opens.
     if (!stored || event.revision <= stored.revision) return;
@@ -391,6 +409,7 @@ export function createAgentTasks(options: AgentTasksOptions) {
     snapshot: (agentId: string): AgentTasksSnapshot | undefined => state.snapshots[agentId],
     conversation: (taskId: string): ConversationSnapshot | undefined => state.conversations[taskId],
     applyEvent,
+    removeConversationMessages,
     reload,
     loadTasks,
     openTask,

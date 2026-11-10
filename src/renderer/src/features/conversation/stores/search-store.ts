@@ -33,6 +33,7 @@ export function createSearchStore(deps: SearchStoreDeps) {
   let chatSearchTimer: ReturnType<typeof setTimeout> | undefined;
   let chatSearchRequest = 0;
   let lastChatSearchQuery = "";
+  const deletedMessageIds = new Set<string>();
 
   createEffect(
     () => {
@@ -75,11 +76,12 @@ export function createSearchStore(deps: SearchStoreDeps) {
               .onSearchMessages?.(query)
               .then((result) => {
                 if (request !== chatSearchRequest) return;
-                deps.setChatSearchMessageIds(result.messageIds);
-                deps.setChatSearchTotal(result.total);
-                const index = result.messageIds.length > 0 ? 0 : -1;
+                const messageIds = result.messageIds.filter((id) => !deletedMessageIds.has(id));
+                deps.setChatSearchMessageIds(messageIds);
+                deps.setChatSearchTotal(Math.max(0, result.total - (result.messageIds.length - messageIds.length)));
+                const index = messageIds.length > 0 ? 0 : -1;
                 deps.setActiveChatSearchIndex(index);
-                const messageId = result.messageIds[index];
+                const messageId = messageIds[index];
                 if (messageId) void deps.props.onOpenSearchMessage?.(messageId);
               })
               .catch(() => {
@@ -208,6 +210,20 @@ export function createSearchStore(deps: SearchStoreDeps) {
   };
 
   return {
+    removeMessages(ids: readonly string[]): void {
+      if (chatSearchTimer !== undefined) clearTimeout(chatSearchTimer);
+      if (chatSearchFrame !== undefined) cancelAnimationFrame(chatSearchFrame);
+      for (const id of ids) deletedMessageIds.add(id);
+      chatSearchRequest += 1;
+      lastChatSearchQuery = "";
+      deps.setChatSearchMatches(
+        deps
+          .chatSearchMatches()
+          .filter((match) => !deletedMessageIds.has(match.message.dataset.chatSearchMessage ?? "")),
+      );
+      deps.setChatSearchMessageIds(deps.chatSearchMessageIds().filter((id) => !deletedMessageIds.has(id)));
+      clearChatSearchHighlights();
+    },
     openChatSearch,
     closeChatSearch,
     moveChatSearch,

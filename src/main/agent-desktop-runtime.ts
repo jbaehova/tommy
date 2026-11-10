@@ -15,6 +15,7 @@ import {
 import { isDynamicRecord, isString } from "@tommy/contracts/runtime-values";
 import { createTommyLogger } from "@tommy/logging";
 import { Effect, Schema } from "effect";
+import { childProcessEnvironment } from "../backend/child-process-environment";
 
 const logger = createTommyLogger("agent-desktop");
 const run = promisify(execFile);
@@ -85,7 +86,7 @@ export class AgentDesktopRuntime {
       this.#state = "unavailable";
       return this.#state;
     }
-    const env = { ...process.env, ...this.#options.agentEnvironment };
+    const env = childProcessEnvironment({ ...process.env, ...this.#options.agentEnvironment });
     // A refused status still prints its envelope and exits non-zero, so a failed run is read too.
     const output = yield* Effect.promise((signal) =>
       run(binary, ["status"], { env, timeout: STATUS_TIMEOUT_MS, signal }).then(

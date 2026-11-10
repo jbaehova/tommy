@@ -11,9 +11,12 @@ import { type BrowserUserControlEvent, browserUserControlEvent } from "./browser
 // adapters reject them, so each transport asks here first and sends or decodes them as they are.
 import { type ChannelEvent, channelEvent } from "./channels-v1";
 import { type HostRestartEvent, hostRestartEvent } from "./host-update-v1";
+import { type LiveVoiceEvent, liveVoiceEvent } from "./live-voice-v1";
 import { type MachineAlertEvent, machineAlertEvent } from "./machine-resources-v1";
+import { type MessageDeletionWireEvent, messageDeletionEvent } from "./message-deletion-events-v1";
 import { type QuietTurnCompletedEvent, quietTurnEvent } from "./quiet-turn-v1";
 import { type RoutineFlowsEvent, routineFlowsEvent } from "./routine-flows-v1";
+import { type RoutineThreadTurnEvent, routineThreadTurnEvent } from "./routine-run-place-v1";
 import { type SidebarFoldersEvent, sidebarFoldersEvent } from "./sidebar-folders-v1";
 import { type SidebarPinsEvent, sidebarPinsEvent } from "./sidebar-pins-v1";
 import { type SkillsEvent, skillsEvent } from "./skills-events-v1";
@@ -21,6 +24,9 @@ import { type VaultEvent, vaultEvent } from "./vault-v1";
 import { type WorkflowsEvent, workflowsEvent } from "./workflows-v1";
 
 export type OptionalTeamEvent =
+  | MessageDeletionWireEvent
+  | RoutineThreadTurnEvent
+  | LiveVoiceEvent
   | AgentAccessEvent
   | AgentHiddenEvent
   | AgentNotificationLevelsEvent
@@ -51,6 +57,9 @@ export interface OptionalTeamEventOptions {
 /** The optional event in `value`, or null for any other event. A malformed optional event throws. */
 export function optionalTeamEvent(value: unknown, options?: OptionalTeamEventOptions): OptionalTeamEvent | null {
   const event =
+    messageDeletionEvent(value) ??
+    routineThreadTurnEvent(value) ??
+    liveVoiceEvent(value) ??
     agentAccessEvent(value) ??
     agentHiddenEvent(value) ??
     agentNotificationLevelsEvent(value) ??

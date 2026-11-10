@@ -283,6 +283,8 @@ export class McpOAuth implements McpOAuthAuthority {
    * first rather than leaving two browser tabs that race to answer.
    */
   readonly #attempts = new Map<string, () => void>();
+  /** A loopback name that opened a sign-in page but received no grant, for one later attempt. */
+  readonly #unanswered = new Map<string, string>();
   /** The refresh already running for a server, so two hand-offs share one exchange. See `#refresh`. */
   readonly #scope = Scope.makeUnsafe();
   readonly #refreshing = new Map<string, Fiber.Fiber<void>>();
@@ -422,6 +424,7 @@ export class McpOAuth implements McpOAuthAuthority {
           for (const cancel of [...this.#attempts.values()]) cancel();
           this.#waiting.clear();
           this.#openedElsewhere.clear();
+          this.#unanswered.clear();
         }),
       ),
     ),
@@ -432,6 +435,8 @@ export class McpOAuth implements McpOAuthAuthority {
     const key = mcpOAuthAccountKey(url);
     if (!key) return null;
     this.#attempts.get(key)?.();
+    const unanswered = this.#unanswered.get(key);
+    this.#unanswered.delete(key);
     const state = randomUUID();
     const grant = Deferred.makeUnsafe<string, Error>();
     this.#waiting.set(state, (code) => {
@@ -443,8 +448,11 @@ export class McpOAuth implements McpOAuthAuthority {
     let abandoned = false;
     let cancelled = false;
     const resource = mcpOAuthServerUrl(key);
-    const provider = this.#provider(key, state, () => abandoned, open);
+    const provider = this.#provider(key, state, () => abandoned, open, unanswered);
     const abandon = () => {
+      // A received grant removes the waiting state. A failure before opening a page keeps the old name.
+      const unansweredNow = provider.openedRedirectUrl ?? unanswered;
+      if (!abandoned && this.#waiting.has(state) && unansweredNow) this.#unanswered.set(key, unansweredNow);
       abandoned = true;
       this.#waiting.delete(state);
       this.#openedElsewhere.delete(state);
@@ -743,6 +751,7 @@ export class McpOAuth implements McpOAuthAuthority {
   #invalidate(key: string): void {
     this.#generations.set(key, (this.#generations.get(key) ?? 0) + 1);
     this.#attempts.get(key)?.();
+    this.#unanswered.delete(key);
   }
 
   /** A `state` makes the provider interactive; `null` keeps it silent. */
@@ -751,6 +760,7 @@ export class McpOAuth implements McpOAuthAuthority {
     state: string | null,
     isAbandoned: () => boolean = () => false,
     open?: McpSignInOpener,
+    unansweredRedirectUrl?: string,
   ): McpOAuthClientProvider {
     const generation = this.#generations.get(key) ?? 0;
     const storage = this.#options.storage;
@@ -789,6 +799,7 @@ export class McpOAuth implements McpOAuthAuthority {
       isAbandoned,
       legacyIssuer: legacyIssuer(stored),
       hasUnboundCredentials: hasUnboundCredentials(stored),
+      unansweredRedirectUrl,
     });
   }
 }
@@ -808,6 +819,8 @@ interface ClientProviderOptions {
   legacyIssuer: string | undefined;
   /** Whether this provider started with credentials that have no issuer binding. */
   hasUnboundCredentials: boolean;
+  /** The loopback address the last attempt opened without receiving a grant. */
+  unansweredRedirectUrl?: string;
 }
 
 /**
@@ -845,10 +858,26 @@ class McpOAuthClientProvider implements OAuthClientProvider {
 
   constructor(options: ClientProviderOptions) {
     this.#options = options;
+    this.#localhostRedirectUrl = localhostRedirectUrl(options.redirectUrl);
+    this.#retryRedirectUrl = this.#otherRedirectName(options.unansweredRedirectUrl);
+  }
+
+  readonly #localhostRedirectUrl: string | null;
+  readonly #retryRedirectUrl: string | null;
+  #openedRedirectUrl: string | null = null;
+
+  /** Only switches between names of this attempt's same loopback listener. */
+  #otherRedirectName(redirectUrl: string | null | undefined): string | null {
+    const localhost = this.#localhostRedirectUrl;
+    if (!localhost) return null;
+    if (redirectUrl === this.#options.redirectUrl) return localhost;
+    return redirectUrl === localhost ? this.#options.redirectUrl : null;
   }
 
   get redirectUrl(): string {
-    return this.#options.redirectUrl;
+    const { app, client } = this.#record();
+    const localhost = this.#localhostRedirectUrl;
+    return localhost && !app && client?.redirect_uris.includes(localhost) ? localhost : this.#options.redirectUrl;
   }
 
   /**
@@ -868,12 +897,13 @@ class McpOAuthClientProvider implements OAuthClientProvider {
    * 7591 default, `client_secret_basic`, and Make refuses that registration with a 400: "No supported
    * Token Endpoint Auth Method provided."
    */
-  get clientMetadata(): OAuthClientMetadata {
+  get clientMetadata(): OAuthClientMetadata & { application_type: "native" } {
     const scope = this.#record().app?.scope;
     const methods = this.#discoveryState?.authorizationServerMetadata?.token_endpoint_auth_methods_supported;
     return {
       client_name: "Tommy",
-      redirect_uris: [this.#options.redirectUrl],
+      redirect_uris: [this.#retryRedirectUrl ?? this.#options.redirectUrl],
+      application_type: "native",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       ...tokenEndpointAuthMethod(methods),
@@ -937,10 +967,22 @@ class McpOAuthClientProvider implements OAuthClientProvider {
       return this.#register();
     }
     if (!this.#options.state || this.#exchangingCode) return client;
-    if (client.redirect_uris.includes(this.#options.redirectUrl)) return client;
+    const retry = this.#retryRedirectUrl;
+    if (retry && !client.redirect_uris.includes(retry)) return this.#register();
+    // The registered scope must permit the offline access requested by this authorization flow.
+    const discovery = this.#discoveryState;
+    const scopeAllowed =
+      !client.scope ||
+      !discovery?.resourceMetadata?.scopes_supported?.length ||
+      !scopeWithOfflineAccess(client.scope, discovery.authorizationServerMetadata);
+    if (client.redirect_uris.includes(this.redirectUrl) && scopeAllowed) return client;
     const refreshWorthTrying = !this.#redirectAddressChecked && Boolean(record.tokens?.refresh_token);
     this.#redirectAddressChecked = true;
     return refreshWorthTrying ? client : this.#register();
+  }
+
+  get openedRedirectUrl(): string | null {
+    return this.#openedRedirectUrl;
   }
 
   get registrationPending(): boolean {
@@ -957,12 +999,32 @@ class McpOAuthClientProvider implements OAuthClientProvider {
    */
   watchRegistration(fetch: FetchLike): FetchLike {
     return async (input, init) => {
-      const response = await fetch(input, init);
       const registrationUrl = this.#registrationUrl();
-      if (init?.method === "POST" && registrationUrl !== null && new URL(String(input)).href === registrationUrl)
-        this.#registrationStatus = response.status;
+      const registering =
+        init?.method === "POST" && registrationUrl !== null && new URL(String(input)).href === registrationUrl;
+      if (!registering) return fetch(input, init);
+      const request = this.#withOfflineAccessRegistration(init);
+      let response = await fetch(input, request);
+      const retry = this.#withOtherRedirectName(request);
+      if (retry && (await runCauseEffect(refusesRedirectAddress(response)))) response = await fetch(input, retry);
+      this.#registrationStatus = response.status;
       return response;
     };
+  }
+
+  /** Replaces a single redirect with the other name of this listener, never with another address. */
+  #withOtherRedirectName(init: RequestInit): RequestInit | null {
+    if (!this.#localhostRedirectUrl || typeof init.body !== "string") return null;
+    const body = registrationBodySchema.parse(JSON.parse(init.body));
+    const other = body.redirect_uris?.length === 1 ? this.#otherRedirectName(body.redirect_uris[0]) : null;
+    return other ? { ...init, body: JSON.stringify({ ...body, redirect_uris: [other] }) } : null;
+  }
+
+  #withOfflineAccessRegistration(init: RequestInit): RequestInit {
+    if (typeof init.body !== "string") return init;
+    const body = registrationBodySchema.parse(JSON.parse(init.body));
+    const scope = scopeWithOfflineAccess(body.scope ?? null, this.#discoveryState?.authorizationServerMetadata);
+    return scope ? { ...init, body: JSON.stringify({ ...body, scope }) } : init;
   }
 
   /** Where the SDK registers: the advertised endpoint, or `/register` when no metadata was found. */
@@ -1149,6 +1211,7 @@ class McpOAuthClientProvider implements OAuthClientProvider {
             : withOfflineAccess(authorizationUrl, this.#discoveryState?.authorizationServerMetadata),
         );
         yield* mcpCall(() => this.#options.openExternal(url.toString()));
+        this.#openedRedirectUrl = url.searchParams.get("redirect_uri");
       }),
     );
   }
@@ -1403,13 +1466,44 @@ function withAppScope(authorizationUrl: URL, app: McpOAuthApp | undefined): URL 
  * `offline_access` would replace.
  */
 function withOfflineAccess(authorizationUrl: URL, metadata: OAuthDiscoveryState["authorizationServerMetadata"]): URL {
-  const scope = authorizationUrl.searchParams.get("scope");
-  if (!scope || !metadata?.scopes_supported?.includes("offline_access")) return authorizationUrl;
-  if (scope.split(/\s+/).includes("offline_access")) return authorizationUrl;
+  const scope = scopeWithOfflineAccess(authorizationUrl.searchParams.get("scope"), metadata);
+  if (!scope) return authorizationUrl;
   const url = new URL(authorizationUrl);
-  url.searchParams.set("scope", `${scope} offline_access`);
+  url.searchParams.set("scope", scope);
   if (!url.searchParams.has("prompt")) url.searchParams.set("prompt", "consent");
   return url;
+}
+
+/** Keep all other SDK registration fields intact. */
+const registrationBodySchema = z.looseObject({
+  scope: z.string().optional(),
+  redirect_uris: z.array(z.string()).optional(),
+});
+
+const registrationErrorSchema = z.looseObject({ error: z.string() });
+
+const refusesRedirectAddress = Effect.fn("McpOAuth.refusesRedirectAddress")(function* (response: Response) {
+  if (response.status !== 400) return false;
+  const body = registrationErrorSchema.safeParse(
+    yield* mcpCall(() => response.clone().json()).pipe(Effect.catch(() => Effect.succeed(null))),
+  );
+  return body.success && (body.data.error === "invalid_redirect_uri" || body.data.error === "invalid_client_metadata");
+});
+
+function localhostRedirectUrl(redirectUrl: string): string | null {
+  const url = URL.parse(redirectUrl);
+  if (url?.protocol !== "http:" || url.hostname !== "127.0.0.1") return null;
+  url.hostname = "localhost";
+  return url.href;
+}
+
+function scopeWithOfflineAccess(
+  scope: string | null,
+  metadata: OAuthDiscoveryState["authorizationServerMetadata"],
+): string | null {
+  if (!scope || !metadata?.scopes_supported?.includes("offline_access")) return null;
+  if (scope.split(/\s+/).includes("offline_access")) return null;
+  return `${scope} offline_access`;
 }
 
 /**
@@ -1522,6 +1616,7 @@ const secureOAuthRequest = Effect.fn("McpOAuth.secureFetch")(function* (
   mcpServer: URL | null,
 ): Effect.fn.Return<Response, McpOperationError> {
   let url = yield* mcpSync(() => new URL(input instanceof URL ? input.toString() : input));
+  const requested = url;
   const mcpTraffic = mcpServer !== null && withoutHash(url) === withoutHash(mcpServer);
   let request: RequestInit = { ...init, ...(signal ? { signal } : {}), redirect: "manual" };
   for (let hop = 0; ; hop++) {
@@ -1554,7 +1649,7 @@ const secureOAuthRequest = Effect.fn("McpOAuth.secureFetch")(function* (
           }),
         );
     const location = REDIRECT_STATUSES.has(response.status) ? response.headers.get("location") : null;
-    if (location === null) return response;
+    if (location === null) return mcpTraffic ? response : yield* readableAnswer(response, requested, request.method);
     // Redirect response bodies are not consumed by the SDK.
     yield* mcpCall(() => response.body?.cancel()).pipe(Effect.catch(() => Effect.void));
     if (hop >= MAX_OAUTH_REDIRECTS)
@@ -1605,6 +1700,33 @@ function limited(response: Response, origin: string): Effect.Effect<Response, Mc
         headers,
       });
     }),
+  );
+}
+
+/** Missing metadata must not stop discovery merely because the web host returned its HTML page. */
+const readableAnswer = Effect.fn("McpOAuth.readableAnswer")(function* (
+  response: Response,
+  requested: URL,
+  method: string | undefined,
+) {
+  if (!response.ok) return response;
+  const metadata = (method ?? "GET").toUpperCase() === "GET" && requested.pathname.includes("/.well-known/");
+  const page = (response.headers.get("content-type") ?? "").toLowerCase().includes("text/html");
+  if (!metadata && !page) return response;
+  const body = yield* mcpCall(() => response.clone().text());
+  if (isJsonObject(body)) return response;
+  if (metadata) return new Response(null, { status: 404, statusText: "Not Found" });
+  if (body.trim() === "") return response;
+  return yield* mcpFailure(new Error(sourceText("error.backend.mcpSignInAnswerUnreadable")));
+});
+
+function isJsonObject(body: string): boolean {
+  const parsed = Result.try((): unknown => JSON.parse(body));
+  return (
+    Result.isSuccess(parsed) &&
+    typeof parsed.success === "object" &&
+    parsed.success !== null &&
+    !Array.isArray(parsed.success)
   );
 }
 

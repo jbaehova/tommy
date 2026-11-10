@@ -7,6 +7,7 @@ import {
   ChartArea,
   DropdownMenu,
   Ellipsis,
+  FolderOpen,
   ListChecks,
   MotionTooltip,
   Pin,
@@ -175,6 +176,7 @@ export type PageRailPage =
   | "tasks"
   | "schedule"
   | "usage"
+  | "library"
   | "marketplace"
   | "settings";
 
@@ -185,6 +187,7 @@ export const PAGE_RAIL_PINNABLE_PAGES = [
   "tasks",
   "schedule",
   "usage",
+  "library",
 ] as const satisfies readonly PageRailPage[];
 export type PageRailPinnablePage = (typeof PAGE_RAIL_PINNABLE_PAGES)[number];
 
@@ -208,6 +211,7 @@ export interface PageRailProps {
   onTasks?: ((button: HTMLElement) => void) | undefined;
   /** Absent where there is no schedule page. */
   onSchedule?: ((button: HTMLElement) => void) | undefined;
+  onLibrary?: ((button: HTMLElement) => void) | undefined;
   onUsage: (button: HTMLElement) => void;
   onSettings: (button: HTMLElement) => void;
   /** A notice for the Settings button, such as an update, when no other place shows it. A dot marks it. */
@@ -342,7 +346,7 @@ export function PageRail(props: PageRailProps) {
   /** The pages that this server has, in rail order. */
   const pages = createMemo((): RailPage[] => {
     const list: RailPage[] = [];
-    const { onRoutines, onWorkflows, onTasks, onSchedule } = props;
+    const { onRoutines, onWorkflows, onTasks, onSchedule, onLibrary } = props;
     if (onRoutines) {
       list.push({
         id: "routines",
@@ -370,6 +374,7 @@ export function PageRail(props: PageRailProps) {
         open: onSchedule,
       });
     }
+    if (onLibrary) list.push({ id: "library", label: t("app.rail.library"), icon: FolderOpen, open: onLibrary });
     list.push({ id: "usage", label: t("app.rail.usage"), icon: ChartArea, open: props.onUsage });
     return list;
   });

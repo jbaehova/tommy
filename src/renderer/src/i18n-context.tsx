@@ -1,5 +1,6 @@
 import type { JSX } from "@solidjs/web";
 import { type AppLanguage, DEFAULT_APP_LANGUAGE } from "@tommy/contracts/app-language";
+import type { HourCycle } from "@tommy/contracts/ipc";
 import {
   type AppTranslate,
   formatLocale,
@@ -26,6 +27,7 @@ export interface I18nValue {
   locale: () => TranslatedLocale;
   t: AppTranslate;
   changeLanguage: (next: AppLanguage) => void;
+  hourCycle: () => HourCycle | undefined;
 }
 
 /**
@@ -56,6 +58,7 @@ function createLoadedLocale(requested: () => TranslatedLocale): () => Translated
  */
 function createI18nValue(): I18nValue {
   const [language, setLanguage] = createSignal<AppLanguage>(DEFAULT_APP_LANGUAGE);
+  const [hourCycle, setHourCycle] = createSignal<HourCycle | undefined>(undefined);
   // The last value the main process confirmed, which is what a failed write falls back to. The
   // displayed language runs ahead of it while a write is in flight.
   let confirmed: AppLanguage = DEFAULT_APP_LANGUAGE;
@@ -107,6 +110,10 @@ function createI18nValue(): I18nValue {
 
   onSettled(() => {
     void appPort()
+      .getAppInfo()
+      .then((info) => setHourCycle(info.hourCycle))
+      .catch(() => undefined);
+    void appPort()
       .getAppLanguagePreference()
       .then((preference) => {
         // A choice made before the read answered is newer than the saved value it reports, which
@@ -119,7 +126,7 @@ function createI18nValue(): I18nValue {
     return appPort().onAppLanguagePreference((preference) => confirm(preference.language));
   });
 
-  return { language, locale, t, changeLanguage };
+  return { language, locale, t, changeLanguage, hourCycle };
 }
 
 /**
@@ -141,6 +148,7 @@ const FALLBACK: I18nValue = {
   locale: () => resolveLocale(DEFAULT_APP_LANGUAGE, navigator.language),
   t: translateFor(resolveLocale(DEFAULT_APP_LANGUAGE, navigator.language)),
   changeLanguage: () => undefined,
+  hourCycle: () => undefined,
 };
 
 const I18nContext = createContext<I18nValue>(FALLBACK, { name: "I18n" });
@@ -154,7 +162,10 @@ export function I18nProvider(props: ParentProps): JSX.Element {
   const value = createI18nValue();
   return (
     <I18nContext value={value}>
-      <TextProvider locale={value.locale()} formatLocale={formatLocale(value.language(), navigator.language)}>
+      <TextProvider
+        locale={value.locale()}
+        formatLocale={formatLocale(value.language(), navigator.language, value.hourCycle())}
+      >
         {props.children}
       </TextProvider>
     </I18nContext>

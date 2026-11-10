@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { EventEmitter } from "node:events";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
 import { directSessionId } from "@tommy/contracts/direct-connection";
 import type {
@@ -21,6 +22,7 @@ import type {
   UpdateHostIdentityInput,
 } from "@tommy/contracts/ipc";
 import { type AgentAccessLevel, conversationMessageSender, SIGNED_OUT_CHANNEL_MEMBER_ID } from "@tommy/contracts/ipc";
+import type { VoiceLiveEvent } from "@tommy/contracts/ipc-voice";
 import type { HostRestartState } from "@tommy/contracts/team-protocol/host-update-v1";
 import { sourceText } from "@tommy/i18n/source";
 import { createTommyLogger, toLogValue } from "@tommy/logging";
@@ -73,6 +75,13 @@ interface HostServiceOptions {
   workflows?: ForwardedApiOptions["workflows"];
   hiddenAgents?: ForwardedApiOptions["hiddenAgents"];
   voice?: ForwardedApiOptions["voice"];
+  providerAccountModels?: ForwardedApiOptions["providerAccountModels"];
+  skillLearning?: ForwardedApiOptions["skillLearning"];
+  workflowIntegrations?: ForwardedApiOptions["workflowIntegrations"];
+  webhookSenderSecrets?: ForwardedApiOptions["webhookSenderSecrets"];
+  liveVoice?: ForwardedApiOptions["liveVoice"];
+  messageDeletion?: ForwardedApiOptions["messageDeletion"];
+
   /** The level that each person chose for each agent (`agent-notification-levels-v1`). */
   agentNotificationLevels?: AgentNotificationLevelStore;
   /** The chats that each person pinned (`sidebar-pins-v1`). */
@@ -98,6 +107,7 @@ interface HostServiceOptions {
   unattended?: boolean;
   /** Devices connect straight to this host, with no Signal and no account service. */
   directConnection?: {
+    publicHttp?: (request: IncomingMessage, response: ServerResponse) => Effect.Effect<boolean>;
     devices: DirectDeviceStore;
     listen: { host: string; port: number };
     /** The address that devices use, such as `https://tommy.example.com`. */
@@ -217,6 +227,13 @@ export class HostService extends EventEmitter<HostEvents> {
       ...(options.workflows === undefined ? {} : { workflows: options.workflows }),
       ...(options.hiddenAgents === undefined ? {} : { hiddenAgents: options.hiddenAgents }),
       ...(options.voice === undefined ? {} : { voice: options.voice }),
+      ...(options.providerAccountModels === undefined ? {} : { providerAccountModels: options.providerAccountModels }),
+      ...(options.skillLearning === undefined ? {} : { skillLearning: options.skillLearning }),
+      ...(options.workflowIntegrations === undefined ? {} : { workflowIntegrations: options.workflowIntegrations }),
+      ...(options.webhookSenderSecrets === undefined ? {} : { webhookSenderSecrets: options.webhookSenderSecrets }),
+      ...(options.liveVoice === undefined ? {} : { liveVoice: options.liveVoice }),
+      ...(options.messageDeletion === undefined ? {} : { messageDeletion: options.messageDeletion }),
+
       ...(options.agentNotificationLevels === undefined
         ? {}
         : { agentNotificationLevels: this.#agentNotificationLevels(options.agentNotificationLevels) }),
@@ -274,6 +291,7 @@ export class HostService extends EventEmitter<HostEvents> {
           transferDirectory: join(options.logDirectory ?? ".tommy-remote", "transfers"),
           closeSession,
           pathChanged,
+          ...(options.directConnection.publicHttp ? { publicHttp: options.directConnection.publicHttp } : {}),
           devices: options.directConnection.devices,
           listen: options.directConnection.listen,
           owner: () => {
@@ -282,6 +300,10 @@ export class HostService extends EventEmitter<HostEvents> {
           },
         })
       : null;
+  }
+
+  publishLiveVoice(ownerId: string, event: VoiceLiveEvent): void {
+    this.#api.publishLiveVoice(ownerId, event);
   }
 
   /** A one-time code that pairs one device with this host, or null without the direct connection. */

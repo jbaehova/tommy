@@ -121,6 +121,10 @@ import {
   type WfnSize,
   type WfnStretch,
 } from "./workflow-board";
+import { type WorkflowBuild, workflowBuildPlan } from "./workflow-build";
+
+export type { WorkflowBuild } from "./workflow-build";
+
 import { type Camera, type CameraMotion, glideCamera } from "./workflow-camera";
 import { CLIP_TYPE, type Clip, copied, setCopied } from "./workflow-clipboard";
 import type { WorkflowGitHubCanvas } from "./workflow-github";
@@ -186,6 +190,8 @@ export interface WorkflowCanvasProps {
   library: readonly WorkflowSummary[];
   /** The canvas shows the graph and the runs; nothing on it changes. */
   readOnly?: boolean | undefined;
+  /** A workflow graph saved by an agent. The canvas shows its changes in order. */
+  build?: WorkflowBuild | undefined;
   /** In the desktop window, the top bar is the window's top row, and the canvas fills the card below it. */
   frame?: "window" | undefined;
   /**
@@ -205,6 +211,8 @@ export interface WorkflowCanvasProps {
    * The first secret also makes the address. Without it, a webhook trigger offers no secret.
    */
   onRotateWebhookSecret?: ((nodeId: string) => Promise<string>) | undefined;
+  onSetWebhookSenderSecret?: ((nodeId: string, secret: string) => Promise<void>) | undefined;
+  webhookSenderKeyScope?: string | undefined;
   onLoadOlderRuns: () => void;
   onRestoreVersion: (versionId: string) => void;
   /** Shows a version, or the live canvas again with null. Without it, a version in the list restores at once. */
@@ -567,8 +575,27 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
   let scheduleEdit: string | undefined;
   const [dropHeight, setDropHeight] = createSignal(0);
 
+  const [build, setBuild] = createStore<{ hidden: readonly string[]; arrived: readonly string[] }>({
+    hidden: [],
+    arrived: [],
+  });
+  let playedBuild: number | undefined;
+  let buildTimers: number[] = [];
+  const buildState = (id: string) =>
+    build.hidden.includes(id) ? "unbuilt" : build.arrived.includes(id) ? "arrived" : undefined;
+  const endBuild = () => {
+    for (const timer of buildTimers) clearTimeout(timer);
+    buildTimers = [];
+    setBuild((draft) => {
+      draft.hidden = [];
+      draft.arrived = [];
+    });
+  };
+  onSettled(() => endBuild);
+
   const canvas = createBoard({
     catalogs: () => props.catalogs,
+    buildState: (id) => buildState(id),
     github: () => props.github,
     features: () => props.features,
     edges: initial.board.edges,
@@ -631,6 +658,10 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
     },
     // A host without it gives a webhook trigger no secret, and the host does not change.
     rotateWebhookSecret: untrack(() => props.onRotateWebhookSecret),
+    webhookScope: () => `${props.webhookSenderKeyScope ?? "host"}:${props.workflow.summary.id}`,
+    get setWebhookSenderSecret() {
+      return props.onSetWebhookSenderSecret;
+    },
     runStep: (id) => props.onRunStep(id),
     stopStep: (id) => {
       const step = stepOf(id);
@@ -1068,6 +1099,37 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
     openedId = id;
     if (before !== undefined) untrack(() => reset(props.workflow.graph, before === id));
   });
+  createEffect(
+    () => ({
+      change: props.build,
+      graph: props.workflow.graph,
+      workflowId: props.workflow.summary.id,
+      token: resetToken(),
+    }),
+    ({ change, graph, workflowId }) => {
+      endBuild();
+      if (!change || change.workflowId !== workflowId || change.key === playedBuild) return;
+      playedBuild = change.key;
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      const plan = workflowBuildPlan(change.before, graph);
+      setBuild((draft) => {
+        draft.hidden = [
+          ...plan.steps.flatMap((step) => (step.added ? [step.node, ...step.edges] : step.edges)),
+          ...plan.rest,
+        ];
+        draft.arrived = [];
+      });
+      const show = (ids: readonly string[]) =>
+        setBuild((draft) => {
+          draft.hidden = draft.hidden.filter((id) => !ids.includes(id));
+          draft.arrived = [...draft.arrived, ...ids];
+        });
+      for (const [index, step] of plan.steps.entries())
+        buildTimers.push(window.setTimeout(() => show([step.node, ...step.edges]), 240 + index * 380));
+      buildTimers.push(window.setTimeout(() => show(plan.rest), 240 + plan.steps.length * 380));
+      buildTimers.push(window.setTimeout(endBuild, 900 + plan.steps.length * 380));
+    },
+  );
   // The host opens another workflow when a delete is kept, so the canvas shows again. A switch while
   // the Undo toast is open keeps that delete.
   const workflowId = createMemo(() => props.workflow.summary.id);
@@ -2560,6 +2622,8 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
         data-frame={props.frame}
         aria-label={t("workflow.canvas.label", { name: name() })}
         onPointerDown={(event) => {
+          // The person works on the canvas, so the agent's change shows whole.
+          if (build.hidden.length > 0 || build.arrived.length > 0) endBuild();
           if (drop() && !(event.target instanceof Element && event.target.closest(".wfn-drop-menu"))) closeDrop();
           pressing = true;
           const release = () => {
@@ -2618,6 +2682,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
                         slotResize.observe(element);
                       }}
                       data-kind={node().kind}
+                      data-build={buildState(node().id)}
                       style={{
                         left: `${positions[node().id]?.x ?? 0}px`,
                         top: `${positions[node().id]?.y ?? 0}px`,

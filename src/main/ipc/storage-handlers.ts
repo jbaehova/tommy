@@ -16,6 +16,7 @@ import {
   parseGetStorageUsageInput,
   parseOpenStorageLocationInput,
   parseOpenStoredFileInput,
+  parseSaveStoredFileInput,
   STORAGE_CAPABILITY,
 } from "@tommy/contracts/ipc";
 import { isDynamicRecord } from "@tommy/contracts/runtime-values";
@@ -34,7 +35,11 @@ import type { ProviderRuntimeManager } from "../provider-runtime-manager";
 import type { ResponseDecoder } from "../remote-host-decoding";
 import type { RemoteRequestInit } from "../remote-server-client";
 import { agentRequest } from "./agent-inputs";
-import { type OpenAttachmentDependencies, openAttachmentForServer } from "./attachment-handlers";
+import {
+  type OpenAttachmentDependencies,
+  openAttachmentForServer,
+  saveAttachmentForServer,
+} from "./attachment-handlers";
 import { handler, type IpcGroupHandlers, payloadHandler } from "./define-ipc-group";
 import { scopedHandler, scopedQueryHandler } from "./scoped-handler";
 
@@ -90,6 +95,9 @@ export function storageIpcHandlers({
 
   return {
     storage: {
+      saveFile: payloadHandler(agentRequest(parseSaveStoredFileInput), (scoped) =>
+        runCauseEffect(saveAttachmentForServer({ mailbox, remoteServers }, scoped.serverId, scoped.payload.fileId)),
+      ),
       getUsage: scopedHandler(parseGetStorageUsageInput, {
         local: (parsed) => runCauseEffect(storage.usage(parsed)),
         remote: async (parsed, serverId) => {

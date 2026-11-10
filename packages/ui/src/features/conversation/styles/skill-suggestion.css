@@ -1,0 +1,15 @@
+.skill-suggestion-question {
+  margin: 0;
+  color: var(--tommy-text-secondary);
+  font-size: var(--tommy-text-md);
+  line-height: var(--tommy-leading-md);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.skill-suggestion-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--tommy-space-2);
+}

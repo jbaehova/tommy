@@ -73,6 +73,8 @@ function newlyConnected(previous: HostProviderAccounts, next: HostProviderAccoun
 export interface HostAccountsSource {
   /** The joined server that serves `provider-accounts-v1` to this account, if any. */
   serverId: Accessor<string | undefined>;
+  /** A reconnect can remove the optional account catalog while keeping the same server id. */
+  accountModels?: Accessor<boolean>;
   accounts: (serverId: string) => Promise<HostProviderAccounts>;
   usage: (serverId: string) => Promise<AccountUsage>;
   /** Runs after each list that the host gave, such as to put the accounts on the agents. */
@@ -95,6 +97,7 @@ export function createHostAccounts(source: HostAccountsSource) {
   async function refresh(): Promise<void> {
     clearTimeout(timer);
     const serverId = untrack(source.serverId);
+    const accountModels = source.accountModels ? untrack(source.accountModels) : false;
     const request = ++generation;
     if (!serverId) {
       setHost(null);
@@ -102,7 +105,13 @@ export function createHostAccounts(source: HostAccountsSource) {
       return;
     }
     const next = await source.accounts(serverId);
-    if (!isCurrent() || request !== generation) return;
+    if (
+      !isCurrent() ||
+      request !== generation ||
+      serverId !== untrack(source.serverId) ||
+      accountModels !== (source.accountModels ? untrack(source.accountModels) : false)
+    )
+      return;
     const previous = untrack(host);
     setHost(next);
     source.applied?.(next);
@@ -126,13 +135,16 @@ export function createHostAccounts(source: HostAccountsSource) {
     timer = setTimeout(() => void refresh().catch(() => undefined), 1_000);
   }
 
-  createEffect(source.serverId, () => {
-    // The previous server's accounts must not show for this one while its request runs or after it fails.
-    setHost(null);
-    setLimits([]);
-    void refresh().catch(() => undefined);
-    void refreshUsage().catch(() => undefined);
-  });
+  createEffect(
+    () => ({ serverId: source.serverId(), accountModels: source.accountModels?.() }),
+    () => {
+      // The previous server's accounts must not show for this one while its request runs or after it fails.
+      setHost(null);
+      setLimits([]);
+      void refresh().catch(() => undefined);
+      void refreshUsage().catch(() => undefined);
+    },
+  );
   onCleanup(() => clearTimeout(timer));
 
   return { host, limits, refresh, refreshUsage, schedule };

@@ -16,6 +16,7 @@ import {
   Hash,
   Info,
   LoaderCircle,
+  Trash2,
 } from "@tommy/ui";
 import { prefersReducedMotion } from "@tommy/ui/utils";
 import {
@@ -310,6 +311,7 @@ export function MessageBody(props: {
   onOpenWorkspaceFile?: ((path: string) => void) | undefined;
   /** Opens the passage that a quote in the message points to. */
   onOpenQuote?: ((messageId: string, text: string) => void) | undefined;
+  onOpenTag?: ((kind: "tab" | "thread", id: string) => void) | undefined;
   onDownload?: ((attachment: AttachmentSummary) => void) | undefined;
   mediaSource?: AttachmentMediaSource | undefined;
   /** The download state of attachments from a joined server. */
@@ -538,6 +540,7 @@ export function MessageBody(props: {
       onOpenSharedFile={props.onOpenSharedFile}
       onOpenWorkspaceFile={props.onOpenWorkspaceFile}
       onOpenQuote={props.onOpenQuote}
+      onOpenTag={props.onOpenTag}
     />
   );
 
@@ -704,6 +707,7 @@ export function MessageBody(props: {
                             onOpenSharedFile={props.onOpenSharedFile}
                             onOpenWorkspaceFile={props.onOpenWorkspaceFile}
                             onOpenQuote={props.onOpenQuote}
+                            onOpenTag={props.onOpenTag}
                             showCitationFooter={index === lastTextBlockIndex()}
                             streaming={streamingBody.revealing() && index === contentBlocks().length - 1}
                             streamingTailAfter={textTailAfter()[index]}
@@ -995,6 +999,8 @@ export function MessageMenu(props: {
   branchDisabled?: boolean | undefined;
   /** Opens a channel with this message in its composer. Without it, or with no channel, the menu has no such item. */
   sendToChannel?: { channels: { id: string; name: string }[]; onSend: (channelId: string) => void } | undefined;
+  onDelete?: (() => void) | undefined;
+  deleteDisabled?: boolean | undefined;
 }) {
   const { t } = useText();
   const authorName = () => props.authorName ?? t("chat.message.agentFallback");
@@ -1104,6 +1110,17 @@ export function MessageMenu(props: {
             <span>{t("chat.menu.markUnread")}</span>
           </ContextMenu.Item>
         )}
+      </Show>
+      <Show when={props.onDelete}>
+        <ContextMenu.Separator />
+        <ContextMenu.Item
+          class="ui-action-menu-danger"
+          disabled={props.deleteDisabled}
+          onSelectAfterClose={() => props.onDelete?.()}
+        >
+          <Trash2 aria-hidden="true" />
+          <span>{t("chat.delete.message")}</span>
+        </ContextMenu.Item>
       </Show>
     </ContextMenu.Content>
   );

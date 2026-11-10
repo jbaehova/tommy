@@ -341,4 +341,11 @@ export const messages = {
   "routine.settings.discardDescription": "이 루틴에서 저장하지 않은 변경 사항이 사라져요.",
   "routine.settings.discardConfirm": "변경 사항 취소",
   "routine.settings.keepEditing": "계속 편집",
+  "routine.settings.runInThread": "별도 스레드에서 실행",
+  "routine.webhook.senderKey.open": "발신자 키 사용",
+  "routine.webhook.senderKey.label": "발신자 서명키",
+  "routine.webhook.senderKey.hint":
+    "발신자가 제공한 Standard Webhooks 서명키를 붙여 넣으세요. 현재 서명키를 교체하고 호스트에만 보관해요.",
+  "routine.webhook.senderKey.saved": "발신자 키를 저장했어요",
+  "routine.webhook.senderKey.failed": "발신자 키를 저장하지 못했어요. 키를 확인하고 다시 입력해 주세요.",
 } as const satisfies PartialTranslation<typeof source>;

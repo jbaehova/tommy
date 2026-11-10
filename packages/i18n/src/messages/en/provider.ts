@@ -268,4 +268,7 @@ export const messages = defineMessages("provider", {
   "provider.settings.removeDownload": "Remove download",
   "provider.settings.removingDownload": "Removing…",
   "provider.settings.removeDownloadFailed": "Could not remove the download.",
+  "provider.picker.ultrafast": "Ultrafast",
+  "provider.picker.speed": "Speed",
+  "provider.picker.standard": "Standard",
 });

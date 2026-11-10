@@ -5,7 +5,9 @@ import {
   type SidebarPinnedItem,
   sidebarPinnedItemKey,
 } from "@tommy/ui/features/sidebar/sidebar-pins";
+import { SIDEBAR_CHAT_ORDERS, type SidebarChatOrder } from "@tommy/ui/features/sidebar/sidebar-types";
 import { createMemo, createSignal } from "solid-js";
+import { z } from "zod";
 import {
   readPendingSidebarPinScopes,
   readSidebarPins,
@@ -34,6 +36,27 @@ import { readSidebarCollapsed, type SidebarCollapsedByServer, writeSidebarCollap
  * server once, when the user has no list there yet.
  */
 export function createSidebarPreferences(options: { scope: () => string; sync?: SidebarPinSync }) {
+  const chatOrdersSchema = z.record(z.string(), z.enum(SIDEBAR_CHAT_ORDERS));
+  const readChatOrders = (): Record<string, SidebarChatOrder> => {
+    try {
+      return chatOrdersSchema.parse(JSON.parse(localStorage.getItem("tommy:sidebar-chat-order:v1") ?? "{}"));
+    } catch {
+      return {};
+    }
+  };
+  const [chatOrders, setChatOrders] = createSignal(readChatOrders());
+  const sidebarChatOrder = () => chatOrders()[options.scope()] ?? "manual";
+  function setSidebarChatOrder(order: SidebarChatOrder): void {
+    setChatOrders((current) => {
+      const next = { ...current, [options.scope()]: order };
+      try {
+        localStorage.setItem("tommy:sidebar-chat-order:v1", JSON.stringify(next));
+      } catch {
+        /* Storage can be unavailable. */
+      }
+      return next;
+    });
+  }
   /**
    * The pins as they are now. A Solid 2 signal shows a write only after the next flush, and a pin
    * change reads the new list at once to send it to the server.
@@ -190,6 +213,8 @@ export function createSidebarPreferences(options: { scope: () => string; sync?: 
   }
 
   return {
+    sidebarChatOrder,
+    setSidebarChatOrder,
     collapsedSidebarSectionIds,
     toggleSidebarSection,
     collapseSidebarSection,

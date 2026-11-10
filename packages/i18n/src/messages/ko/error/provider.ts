@@ -200,4 +200,10 @@ export const messages = {
     "로그인 터미널을 열 수 없었어요. 이 호스트에서 제공자 CLI를 열어 로그인한 후 제공자를 새로 고치세요.",
   "error.provider.nativeArchiveInvalid": "제공자 다운로드에 올바른 설치 파일이 없어요.",
   "error.provider.nativeChecksum": "제공자 설치 파일이 무결성 검사를 통과하지 못했어요.",
+  "error.provider.codexStateBusy":
+    "ChatGPT가 이전 시작 후 아직 로컬 기록을 준비하고 있어요. 몇 분 기다린 후 다시 시도해 주세요.",
+  "error.provider.imageTooSmall":
+    "이미지가 너무 작아서 모델이 이 채팅의 이미지를 받지 않았어요. Tommy가 채팅 기록으로 새 {provider} 세션을 시작했어요. 다시 시도해 주세요.",
+  "error.provider.claudePrivateSettings":
+    "Claude 비공개 설정을 저장하지 못했어요. Tommy 데이터 폴더에 쓸 수 있는지 확인한 뒤 다시 시도해 주세요.",
 } as const satisfies PartialTranslation<typeof source>;

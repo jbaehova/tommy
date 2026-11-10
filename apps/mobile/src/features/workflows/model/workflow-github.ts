@@ -15,6 +15,7 @@ import {
   type WorkflowGraph,
   type WorkflowNode,
   workflowGitHubEventItemKind,
+  workflowGitHubTriggerRepositories,
   workflowListField,
 } from "@tommy/contracts/ipc";
 import { isOneOf } from "@tommy/contracts/runtime-values";
@@ -93,6 +94,7 @@ const text = (node: WorkflowNode | undefined, name: string): string => {
 
 export interface GitHubTriggerSettings {
   repository: string;
+  repositories: string[];
   event: WorkflowGitHubEvent;
   labels: string[];
   /** The filters that the event can have: the base branch is a filter of pull requests only. */
@@ -113,6 +115,7 @@ export function githubTrigger(node: WorkflowNode | undefined): GitHubTriggerSett
   );
   return {
     repository: text(node, "repository"),
+    repositories: node ? workflowGitHubTriggerRepositories(node.fields) : [],
     event,
     labels: workflowListField(node?.fields.labels),
     filterOptions,

@@ -157,4 +157,14 @@ export const messages = {
   "browser.profiles.loadFailed": "Tommy가 브라우저 프로필을 불러오지 못했어요.",
   "browser.profiles.tabLabel": "프로필: {name}",
   "browser.profiles.agentTabLabel": "에이전트 전용 프로필",
+  "browser.profiles.proxy.menu": "프록시 설정",
+  "browser.profiles.proxy.title": "프로필 프록시",
+  "browser.profiles.proxy.description":
+    "이 프로필은 호스트 컴퓨터의 프록시를 사용해요. 프록시를 저장하거나 시스템 프록시로 되돌리면 이 프로필의 모든 탭이 닫혀요.",
+  "browser.profiles.proxy.address": "프록시 주소",
+  "browser.profiles.proxy.placeholder": "socks5://user:password@proxy.example.com:1080",
+  "browser.profiles.proxy.keepPassword": "저장된 비밀번호 유지",
+  "browser.profiles.proxy.system": "시스템 프록시 사용",
+  "browser.profiles.proxy.failed": "프로필 프록시를 변경하지 못했어요.",
+  "browser.profiles.proxy.invalid": "HTTP, HTTPS 또는 SOCKS5 프록시 주소를 입력해 주세요.",
 } as const satisfies PartialTranslation<typeof source>;

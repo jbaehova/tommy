@@ -5,6 +5,7 @@ import { type Client, ClientSideConnection, ndJsonStream } from "@agentclientpro
 import { createTommyLogger } from "@tommy/logging";
 import { Deferred, Effect } from "effect";
 import { AgentProcessExitError, type DiagnosticOrigin } from "./agent-client";
+import { childProcessEnvironment } from "./child-process-environment";
 import { type AgentCliInfo, cliPathEnvironment, cliSpawnTarget } from "./cli";
 import { LineTooLongError, limitLineLength } from "./jsonl";
 import type { SpawnTarget } from "./process-confinement";
@@ -74,13 +75,13 @@ export class AcpConnection {
     const child = spawnWithProviderTemp(privateTemp && { ...privateTemp, provider: this.options.label() }, (tempEnv) =>
       spawn(target.command, target.args, {
         stdio: ["pipe", "pipe", "pipe"],
-        env: {
+        env: childProcessEnvironment({
           ...process.env,
           ...cliPathEnvironment(this.options.cli),
           ...this.options.env,
           ...this.options.extraEnv?.(),
           ...tempEnv,
-        },
+        }),
         windowsHide: true,
       }),
     );

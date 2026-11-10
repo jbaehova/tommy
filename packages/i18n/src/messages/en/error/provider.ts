@@ -194,4 +194,10 @@ export const messages = defineMessages("error.provider", {
     "The sign-in terminal could not open. Open the provider CLI on this host and sign in there, then refresh providers.",
   "error.provider.nativeArchiveInvalid": "The provider download does not contain a valid installation.",
   "error.provider.nativeChecksum": "The provider installation did not pass its integrity check.",
+  "error.provider.codexStateBusy":
+    "ChatGPT is still preparing its local history after an earlier start. Wait a few minutes, then try again.",
+  "error.provider.imageTooSmall":
+    "The model did not accept an image in this chat because the image is too small. Tommy started a new {provider} session with the chat history. Try again.",
+  "error.provider.claudePrivateSettings":
+    "Tommy could not write private Claude settings. Check that Tommy can write to its data directory, then try again.",
 });

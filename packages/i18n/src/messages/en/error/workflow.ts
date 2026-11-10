@@ -50,4 +50,10 @@ export const messages = defineMessages("error.workflow", {
   "error.workflow.githubUncertain":
     "The change stopped on its way. It can be on GitHub. Look there before you run the step again.",
   "error.workflow.githubNoEvent": "GitHub has no issue or pull request that this trigger starts on.",
+  "error.workflow.outputChannelMissing": "Choose a channel for this output.",
+  "error.workflow.outputChannelFailed": "Tommy could not post the result in the channel. Run the step again.",
+  "error.workflow.slackNoMessage":
+    "This output acts on the Slack message that started the run. Start the run from a Slack mention, or choose Post in channel.",
+  "error.workflow.telegramNoMessage":
+    "This output acts on the Telegram message that started the run. Start the run from a Telegram mention, or choose Post in chat.",
 });

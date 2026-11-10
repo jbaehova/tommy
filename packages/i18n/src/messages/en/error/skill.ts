@@ -54,4 +54,9 @@ export const messages = defineMessages("error.skill", {
   "error.skill.localMissingSkillFile": "The skill folder needs SKILL.md at its root.",
   "error.skill.pathSymlink": "Skill paths cannot contain symbolic links.",
   "error.skill.folderNotRead": "{provider} does not read {folder}. Copy this folder to {target}.",
+  "error.skill.managedSlug": "Tommy gives every agent its own {slug} skill. Give this skill a different name.",
+  "error.skill.learningStopped": "Skill learning was stopped.",
+  "error.skill.learningSecret": "A learned skill cannot contain secrets.",
+  "error.skill.learningPersonal": "A learned skill must use placeholders for personal data.",
+  "error.skill.localRevisionChanged": "The skill changed. Read its latest revision before revising it.",
 });

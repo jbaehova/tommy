@@ -7,11 +7,14 @@ import { isDynamicRecord, isString } from "./runtime-values";
 export type DesktopPlatform = "darwin" | "linux";
 export type AppVariant = "production" | "dev" | "preview";
 
+export type HourCycle = "h12" | "h23";
+
 export interface AppInfo {
   name: string;
   version: string;
   platform: DesktopPlatform;
   variant: AppVariant;
+  hourCycle?: HourCycle;
 }
 
 /** The phase list is the source of truth: `UpdatePhase` is derived from it. */

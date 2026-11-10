@@ -1,3 +1,5 @@
+import { AGENT_ROUTINE_THREAD_INDEX_SQL } from "./agent-routine-thread-schema";
+
 // The tail of the latest schema for new databases. IF NOT EXISTS throughout, as the other schema parts.
 //
 // A side thread is a second conversation of one agent that runs next to its own chat: the agent keeps
@@ -63,9 +65,11 @@ export const AGENT_THREAD_SCHEMA_SQL = `
     last_event_sequence INTEGER NOT NULL,
     branch_source_thread_id TEXT,
     branch_source_message_id TEXT,
-    branch_through_message_id TEXT
+    branch_through_message_id TEXT,
+    routine_id TEXT
   );
   ${AGENT_THREAD_INDEX_SQL}
+  ${AGENT_ROUTINE_THREAD_INDEX_SQL}
 `;
 
 // Migration 47. Every task becomes a side thread with the same thread, title, state and dates: a closed

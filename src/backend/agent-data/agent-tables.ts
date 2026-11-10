@@ -1,4 +1,4 @@
-import { chmod, mkdir } from "node:fs/promises";
+import { access, chmod, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { INPUT_LIMITS } from "@tommy/contracts/input-limits";
 import type { SharedTable } from "@tommy/contracts/ipc";
@@ -190,6 +190,14 @@ export class AgentTables {
     });
     return this.#schemaLock.withPermit(remove);
   }
+
+  /** Starts a host early only when shared data exists. New installations keep no idle process. */
+  readonly prewarm = Effect.fn("AgentTables.prewarm")(function* (this: AgentTables) {
+    yield* Effect.tryPromise(() => access(this.#path)).pipe(
+      Effect.andThen(Effect.try(() => this.#supervisor.prewarm())),
+      Effect.ignore,
+    );
+  });
 
   dispose(): void {
     this.#supervisor.dispose();

@@ -22,6 +22,10 @@ export class ThreadFileHistory {
     return history?.agentId === agentId ? history.paths : [];
   }
 
+  forgetThread(threadId: string): void {
+    this.#threads.delete(threadId);
+  }
+
   forgetAgent(agentId: string): void {
     for (const [threadId, history] of this.#threads) {
       if (history.agentId === agentId) this.#threads.delete(threadId);

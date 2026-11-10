@@ -56,6 +56,8 @@ import {
 } from "./provider-model-options";
 import { SwapLabel, type SwapMotion } from "./SwapLabel";
 
+export type AgentSpeed = "standard" | "fast" | "ultrafast";
+
 interface ProviderModelPickerProps {
   provider: AgentProviderId;
   value: AgentModelId;
@@ -70,6 +72,8 @@ interface ProviderModelPickerProps {
   onReasoningEffortChange?: ((effort: AgentReasoningEffort) => void) | undefined;
   /** Fast mode. The picker shows its switch only for a model with a fast tier, and only with `onFastModeChange`. */
   fastMode?: boolean | undefined;
+  ultrafast?: boolean | undefined;
+  onSpeedChange?: ((speed: AgentSpeed) => void) | undefined;
   onFastModeChange?: ((fastMode: boolean) => void) | undefined;
   disabled?: boolean | undefined;
   disabledReason?: string;
@@ -195,7 +199,7 @@ export function ProviderModelPicker(props: ProviderModelPickerProps) {
     return id && railAccounts(props.provider).some((account) => account.id === id) ? id : null;
   };
   const selectedModel = createMemo(() =>
-    props.modelOptions.find((option) => option.provider === props.provider && option.id === props.value),
+    railModelOptions(props.provider, currentAccount()).find((option) => option.id === props.value),
   );
   const selectedFixed = createMemo(() => fixedModelSettings(selectedModel()));
   const activeProvider = (): RailId => props.provider;
@@ -208,8 +212,11 @@ export function ProviderModelPicker(props: ProviderModelPickerProps) {
   /** The provider whose mark the trigger shows, so only a changed one springs in. */
   let shownProvider = untrack(activeProvider);
 
-  function railModelOptions(rail: RailId): ClientAgentModelOption[] {
-    return props.modelOptions.filter((option) => option.provider === rail);
+  function railModelOptions(rail: RailId, accountId: string | null = null): ClientAgentModelOption[] {
+    const account = props.agentStatus.providers
+      ?.find((provider) => provider.id === rail)
+      ?.accounts?.find((entry) => entry.id === (accountId ?? DEFAULT_PROVIDER_ACCOUNT_ID));
+    return account?.models ?? props.modelOptions.filter((option) => option.provider === rail);
   }
 
   const railStatus = (rail: RailId): AgentProviderStatus =>
@@ -359,9 +366,22 @@ export function ProviderModelPicker(props: ProviderModelPickerProps) {
   const triggerFast = () =>
     props.foreignProvider === undefined &&
     (selectedFixed()?.fast === true ||
-      (props.fastMode === true && props.onFastModeChange !== undefined && Boolean(selectedModel()?.fastServiceTier)));
+      (props.fastMode === true &&
+        (props.onFastModeChange !== undefined || props.onSpeedChange !== undefined) &&
+        Boolean(selectedModel()?.fastServiceTier)));
   const triggerSummary = () =>
-    [triggerModelName(), triggerEffort(), triggerFast() ? t("provider.picker.fast") : null, triggerAccount()]
+    [
+      triggerModelName(),
+      triggerEffort(),
+      triggerFast()
+        ? t(
+            props.ultrafast && selectedModel()?.ultrafastServiceTier
+              ? "provider.picker.ultrafast"
+              : "provider.picker.fast",
+          )
+        : null,
+      triggerAccount(),
+    ]
       .filter(Boolean)
       .join(" · ");
 
@@ -566,7 +586,7 @@ export function ProviderModelPicker(props: ProviderModelPickerProps) {
                   return id && id !== DEFAULT_PROVIDER_ACCOUNT_ID ? id : null;
                 };
                 const status = () => entryStatus(key);
-                const models = createMemo(() => pickerModels(railModelOptions(provider)));
+                const models = createMemo(() => pickerModels(railModelOptions(provider, accountId())));
                 const groups = createMemo(() => groupPickerModels(models(), search()));
                 // Another account of the same provider lists the same models, but not this agent's.
                 const selected = createMemo(() =>
@@ -863,15 +883,49 @@ export function ProviderModelPicker(props: ProviderModelPickerProps) {
                         </div>
                       )}
                     </Show>
-                    <Show when={ownsSelection() && selectedModel()?.fastServiceTier && props.onFastModeChange}>
+                    <Show
+                      when={
+                        ownsSelection() &&
+                        selectedModel()?.fastServiceTier &&
+                        (props.onSpeedChange || props.onFastModeChange)
+                      }
+                    >
                       <div class="provider-model-effort">
-                        <span>{t("provider.picker.fast")}</span>
-                        <Switch
-                          aria-label={t("provider.picker.fastLabel")}
-                          checked={props.fastMode === true}
-                          disabled={props.disabled || effortLocked()}
-                          onChange={(next) => props.onFastModeChange?.(next)}
-                        />
+                        <span>{t("provider.picker.speed")}</span>
+                        <Show
+                          when={props.onSpeedChange}
+                          fallback={
+                            <Switch
+                              aria-label={t("provider.picker.fastLabel")}
+                              checked={props.fastMode === true}
+                              disabled={props.disabled || effortLocked()}
+                              onChange={(next) => props.onFastModeChange?.(next)}
+                            />
+                          }
+                        >
+                          <EffortSegments
+                            label={t("provider.picker.speed")}
+                            options={[
+                              { id: "standard", name: t("provider.picker.standard") },
+                              { id: "fast", name: t("provider.picker.fast") },
+                              ...(selectedModel()?.ultrafastServiceTier
+                                ? [{ id: "ultrafast", name: t("provider.picker.ultrafast") }]
+                                : []),
+                            ]}
+                            value={
+                              props.fastMode
+                                ? props.ultrafast && selectedModel()?.ultrafastServiceTier
+                                  ? "ultrafast"
+                                  : "fast"
+                                : "standard"
+                            }
+                            disabled={Boolean(props.disabled || effortLocked())}
+                            onChange={(speed) => {
+                              if (speed === "standard" || speed === "fast" || speed === "ultrafast")
+                                props.onSpeedChange?.(speed);
+                            }}
+                          />
+                        </Show>
                       </div>
                     </Show>
                   </Tabs.Content>

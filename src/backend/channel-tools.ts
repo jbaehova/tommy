@@ -1,5 +1,6 @@
 import { INPUT_LIMITS } from "@tommy/contracts/input-limits";
 import { z } from "zod";
+import { CHANNEL_REPLY_CHARACTERS, CHANNEL_REPLY_LIMIT } from "./channel-replies";
 import {
   routineInstructionZodSchema,
   routineLimitPolicyZodSchema,
@@ -38,7 +39,7 @@ export const CHANNEL_TOOL_DEFINITIONS: readonly { name: string; description: str
   {
     name: "channel_assign",
     description:
-      "Assign one specific subtask to another channel member. You stay the owner: integrate the result and report to the user. End your turn while waiting for required results. Use only inside a channel task; for direct teammate work outside a channel use tommy.send_message.",
+      "Give a subtask to another member only when the person asks for that member or for help, or a part needs their role. You stay the owner: integrate the result and report. End your turn to wait for needed results. In a channel task only; else use tommy.send_message.",
     shape: handoff,
   },
   {
@@ -52,6 +53,14 @@ export const CHANNEL_TOOL_DEFINITIONS: readonly { name: string; description: str
     description:
       "Publish the requested task result once in the shared chat when answering an assigned or transferred task. End your turn without repeating it.",
     shape: { text: z.string().min(1).max(INPUT_LIMITS.messageText) },
+  },
+  {
+    name: "channel_reply",
+    description: `Reply in the shared chat to a message of another channel member when you need its answer before you can finish. That member gets one turn to answer, then you continue with its answer. End your turn after the call. Use channel_assign for work. A request allows ${CHANNEL_REPLY_LIMIT} member replies, and none after your result. Do not reply only to thank or acknowledge.`,
+    shape: {
+      messageId: z.string().min(1).max(INPUT_LIMITS.identifier),
+      text: z.string().min(1).max(CHANNEL_REPLY_CHARACTERS),
+    },
   },
   {
     name: "channel_remember",

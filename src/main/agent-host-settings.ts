@@ -1,3 +1,4 @@
+import type { AgentSpeedModels, AgentSpeedSettings, UpdateAgentSpeedInput } from "@tommy/contracts/ipc-agent-speed";
 import { Effect, Schema } from "effect";
 // Computer Use, local scripts, the busy-message mode, the backup models, the task limit, the agent's
 // own new chats, the plan card and the fast mode of one agent, as this computer holds them. The
@@ -55,6 +56,9 @@ export interface AgentHostSettingsService {
   updateFastMode(input: UpdateAgentFastModeInput): Effect.Effect<AgentFastModeSettings, AgentHostSettingsFailure>;
   /** The models of this computer that have a fast service tier. The released model list drops the tier. */
   listFastModels(): AgentFastModel[];
+  readSpeed(agentId: string): AgentSpeedSettings;
+  updateSpeed(input: UpdateAgentSpeedInput): Effect.Effect<AgentSpeedSettings, AgentHostSettingsFailure>;
+  listSpeedModels(): AgentSpeedModels;
 }
 
 export function createAgentHostSettings({
@@ -150,10 +154,38 @@ export function createAgentHostSettings({
       try: () => requireAgent(agentId),
       catch: (cause) => new AgentHostSettingsFailure({ cause }),
     });
-    const agent = yield* agents.updateAgent({ agentId, fastMode: next }).pipe(toAgentHostSettingsFailure);
+    const agent = yield* agents
+      .updateAgent({ agentId, fastMode: next, ultrafast: false })
+      .pipe(toAgentHostSettingsFailure);
     return fastMode(agent);
   });
+  const speed = (agent: AgentSummary): AgentSpeedSettings => ({
+    fastMode: agent.fastMode ?? null,
+    ultrafast: agent.fastMode === true && agent.ultrafast === true,
+  });
+  const updateSpeed = Effect.fn("AgentHostSettings.updateSpeed")(function* ({
+    agentId,
+    fastMode,
+    ultrafast,
+  }: UpdateAgentSpeedInput) {
+    yield* Effect.try({ try: () => requireAgent(agentId), catch: (cause) => new AgentHostSettingsFailure({ cause }) });
+    const agent = yield* agents
+      .updateAgent({ agentId, fastMode, ultrafast: fastMode && ultrafast })
+      .pipe(toAgentHostSettingsFailure);
+    return speed(agent);
+  });
   return {
+    readSpeed: (agentId) => speed(requireAgent(agentId)),
+    updateSpeed: (input) => updateSpeed(input).pipe(Effect.uninterruptible),
+    listSpeedModels: () => ({
+      models: agents
+        .listModels()
+        .flatMap(({ provider, id, fastServiceTier, ultrafastServiceTier }) =>
+          fastServiceTier
+            ? [{ provider, id, fastServiceTier, ...(ultrafastServiceTier ? { ultrafastServiceTier } : {}) }]
+            : [],
+        ),
+    }),
     read: (agentId) => settings(requireAgent(agentId)),
     update: (input) => update(input).pipe(Effect.uninterruptible),
     readBackupModels: (agentId) => backupModels(requireAgent(agentId)),

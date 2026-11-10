@@ -29,8 +29,8 @@ export interface WorkflowGitHubCanvas {
   run: (runId: string) => WorkflowGitHubRun | undefined;
   /** The labels and people of a repository. Undefined until the host reads them; the first call asks for them. */
   options: (repository: string) => WorkflowGitHubRepositoryOptions | undefined;
-  /** The GitHub connection of the host, for the connect dialog of a card. */
-  connection: () => GitHubConnection;
+  /** An interactive connection flow, when the host provides one. Host-managed credentials omit it. */
+  connection?: () => GitHubConnection;
   /**
    * Opens the installation of the GitHub App on GitHub, where the owner chooses the repositories and
    * accepts new permissions. One page fixes access, write access and events.

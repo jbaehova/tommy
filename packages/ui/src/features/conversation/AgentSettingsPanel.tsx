@@ -73,7 +73,7 @@ import {
   SUPPORTED_AVATAR_SILHOUETTES,
   type SupportedAvatarSilhouetteId,
 } from "@tommy/ui/bloub-avatar";
-import { ProviderModelPicker, reasoningLabel } from "@tommy/ui/components/ProviderModelPicker";
+import { type AgentSpeed, ProviderModelPicker, reasoningLabel } from "@tommy/ui/components/ProviderModelPicker";
 import { ResizableTextarea } from "@tommy/ui/components/ResizableTextarea";
 import {
   SettingsField,
@@ -120,6 +120,11 @@ export type AgentRuntimeSettingsPatch =
 export interface AgentSettingsPanelProps {
   agent: AgentProfile;
   runtimeSettings: AgentRuntimeSettings;
+  fastMode?: boolean | undefined;
+  ultrafast?: boolean | undefined;
+  /** The consumer confirms additional provider costs before saving. */
+  onSpeedChange?: ((speed: AgentSpeed) => void) | undefined;
+  onFastModeChange?: ((fastMode: boolean) => void) | undefined;
   agentStatus: AgentStatus;
   modelOptions: ClientAgentModelOption[];
   working: boolean;
@@ -536,8 +541,10 @@ export default function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   });
 
   onCleanup(() => {
-    if (lastAgentId) flushDirtyTextFields(lastAgentId);
+    // First, so the saves below do not read `props.agent`: the parent's <Show> that holds it is
+    // already closed and throws on the read, which lost an edit closed with Escape (#6205).
     disposed = true;
+    if (lastAgentId) flushDirtyTextFields(lastAgentId);
   });
 
   async function saveAgentPatch(
@@ -665,7 +672,9 @@ export default function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     }
   }
 
+  // The blur that a closing panel causes comes after its cleanup, which saved the field already.
   function saveName(): void {
+    if (disposed) return;
     const value = draft.fields.name.trim() || t("agent.setup.nameFallback");
     setDraft((state) => {
       state.fields.name = value;
@@ -674,6 +683,7 @@ export default function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   }
 
   function saveTitle(): void {
+    if (disposed) return;
     const value = draft.fields.title.trim();
     setDraft((state) => {
       state.fields.title = value;
@@ -682,6 +692,7 @@ export default function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   }
 
   function saveDescription(): void {
+    if (disposed) return;
     cancelInstructionsSaveTimer();
     queueTextSave(textSaveRequest("description", props.agent.id));
   }
@@ -1315,6 +1326,20 @@ export default function AgentSettingsPanel(props: AgentSettingsPanelProps) {
                   disabledReason={t("agentSettings.runtime.modelUnavailable")}
                   accountChoice
                   providerAccountId={agentNextProviderAccountId(props.agent)}
+                  fastMode={props.fastMode}
+                  ultrafast={props.ultrafast}
+                  onSpeedChange={
+                    draft.runtime.provider === props.runtimeSettings.provider &&
+                    draft.runtime.model === props.runtimeSettings.model
+                      ? props.onSpeedChange
+                      : undefined
+                  }
+                  onFastModeChange={
+                    draft.runtime.provider === props.runtimeSettings.provider &&
+                    draft.runtime.model === props.runtimeSettings.model
+                      ? props.onFastModeChange
+                      : undefined
+                  }
                   onChange={(nextModel, provider, accountId) => void selectModel(nextModel, provider, accountId)}
                 />
                 <Select<AgentReasoningEffort>

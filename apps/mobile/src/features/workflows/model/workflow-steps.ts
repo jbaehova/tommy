@@ -43,6 +43,8 @@ const TRIGGER_LABEL = {
   message: "mobile.workflow.trigger.message",
   github: "mobile.workflow.trigger.github",
   discord: "mobile.workflow.trigger.discord",
+  slack: "mobile.workflow.trigger.slack",
+  telegram: "mobile.workflow.trigger.telegram",
 } as const satisfies Record<WorkflowTriggerType, MobileTextKey>;
 
 export const RUN_STATUS_LABEL = {
@@ -80,6 +82,8 @@ const TRIGGER_TEXT = {
   message: "mobile.workflow.trigger.messageHint",
   github: "mobile.workflow.trigger.githubHint",
   discord: "mobile.workflow.trigger.discordHint",
+  slack: "mobile.workflow.trigger.slackHint",
+  telegram: "mobile.workflow.trigger.telegramHint",
 } as const satisfies Record<WorkflowTriggerType, MobileTextKey>;
 
 /** Why the host kept a version, as the desktop version list says it. */
@@ -111,7 +115,7 @@ function triggerText(node: WorkflowNode, t: MobileTranslate): string {
     const github = githubTrigger(node);
     return github.repository
       ? t("mobile.workflow.github.summary", {
-          repository: github.repository,
+          repository: github.repositories.join(", "),
           event: t(GITHUB_EVENT_LABEL[github.event]),
         })
       : t(TRIGGER_TEXT.github);
@@ -162,6 +166,12 @@ function outputText(node: WorkflowNode, t: MobileTranslate): string {
   switch (text(node, "target")) {
     case "channel":
       return t("mobile.workflow.output.channel");
+    case "slack":
+      return t("mobile.workflow.output.slack");
+    case "telegram":
+      return t("mobile.workflow.output.telegram");
+    case "chat-channel":
+      return t("mobile.workflow.output.tommyChannel");
     case "file":
       return t("mobile.workflow.output.file");
     case "github": {

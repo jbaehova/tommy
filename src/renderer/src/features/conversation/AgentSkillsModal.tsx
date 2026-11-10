@@ -23,7 +23,7 @@ import { useText } from "@tommy/ui/text";
 import { createEffect, createMemo, createSignal, For, onSettled, Show, untrack } from "solid-js";
 import { SkillPreview } from "../../components/SkillPreview";
 import { type AgentSkillCalls, agentSkillCalls, type SkillCatalogCalls, skillsPort } from "../../skills-port";
-import { LocalSkillsLibrary } from "./LocalSkillsLibrary";
+import { type LocalSkillLibraryCalls, LocalSkillsLibrary } from "./LocalSkillsLibrary";
 
 /**
  * `mutable`: an agent on this computer. `host`: an agent on a joined server where this account is an
@@ -41,6 +41,8 @@ interface AgentSkillsModalProps {
   skillsMode?: AgentSkillsMode;
   /** The joined server that runs the agent. Read in `host` mode only. */
   serverId?: string | undefined;
+  /** The joined host library, present only with skill-learning-v1 and admin access. */
+  localLibraryCalls?: LocalSkillLibraryCalls | undefined;
   /** Replaces the desktop calls, for a client that reaches the host another way. */
   calls?: AgentSkillCalls | undefined;
   /** `null`: no marketplace catalog, so the list and details show only what the host sends. */
@@ -75,7 +77,7 @@ export function AgentSkillsModal(props: AgentSkillsModalProps) {
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [filter, setFilter] = createSignal("all");
-  const libraryOpen = () => filter() === "local";
+  const libraryOpen = () => filter() === "local" && libraryAvailable();
   const visibleSkills = createMemo(() => (filter() === "enabled" ? skills().filter(isSkillEnabled) : skills()));
   const [savingId, setSavingId] = createSignal<string | null>(null);
   const [confirm, setConfirm] = createSignal<ConfirmRequest | null>(null);
@@ -88,6 +90,7 @@ export function AgentSkillsModal(props: AgentSkillsModalProps) {
   const mutable = () => skillsMode() === "mutable" || skillsMode() === "host";
   /** The local skills library is on this computer, so only its own agents can use it. */
   const localLibrary = () => skillsMode() === "mutable";
+  const libraryAvailable = () => localLibrary() || props.localLibraryCalls !== undefined;
   const calls = () => props.calls ?? agentSkillCalls(skillsMode() === "host" ? props.serverId : undefined);
   const catalogCalls = () => (props.catalog === undefined ? skillsPort().skills : props.catalog);
   const assignmentCount = createMemo(() => assignedSkillCount(skills()));
@@ -123,8 +126,9 @@ export function AgentSkillsModal(props: AgentSkillsModalProps) {
       const targetId = props.selectionRequest?.skillId;
       if (showLoading && targetId) {
         const target = next.find((skill) => skill.skillId === targetId);
-        if (target) await openDetail(target);
-        else if (localLibrary()) setFilter("local");
+        if (target?.skillId.startsWith("local-skill-") && libraryAvailable()) setFilter("local");
+        else if (target) await openDetail(target);
+        else if (libraryAvailable()) setFilter("local");
       }
     } catch (caught) {
       if (request === listRequest) setError(errorMessage(caught, t("skill.loadFailed")));
@@ -138,8 +142,9 @@ export function AgentSkillsModal(props: AgentSkillsModalProps) {
   // value. The memos keep an open skill until the agent or the request changes.
   const agentId = createMemo(() => props.agentId);
   const selectionRequest = createMemo(() => props.selectionRequest);
+  const serverScope = createMemo(() => props.serverId);
   createEffect(
-    () => [props.open, agentId(), skillsMode(), selectionRequest()] as const,
+    () => [props.open, agentId(), skillsMode(), selectionRequest(), serverScope()] as const,
     ([open]) => {
       closeDetail();
       if (!open) {
@@ -395,7 +400,7 @@ export function AgentSkillsModal(props: AgentSkillsModalProps) {
             >
               <Show when={!selectedSkill() && mutable()}>
                 <SkillLibraryToolbar
-                  localTab={localLibrary()}
+                  localTab={libraryAvailable()}
                   canCreate={Boolean(props.onCreateSkill) && !atCap()}
                   onCreate={() => {
                     props.onCreateSkill?.();
@@ -414,6 +419,8 @@ export function AgentSkillsModal(props: AgentSkillsModalProps) {
                           <LocalSkillsLibrary
                             initialSkillId={props.selectionRequest?.skillId}
                             agentId={props.agentId}
+                            serverId={props.serverId}
+                            calls={props.localLibraryCalls}
                             installed={skills()}
                             disabled={loading() || savingId() !== null}
                             onInstalled={async () => {

@@ -25,7 +25,12 @@ export interface RoutineFlowsHost {
    * Webhook routines: their config, signing secret, relay status and a test run. Absent for an
    * account that may not manage them; the canvas then hides the config and refuses their edits.
    */
-  readonly webhooks: Pick<EventRoutinesApi, "getStatus" | "saveRoutine" | "rotateSecret" | "testRoutine"> | undefined;
+  readonly webhooks:
+    | Pick<
+        EventRoutinesApi,
+        "getStatus" | "saveRoutine" | "rotateSecret" | "testRoutine" | "setSenderSecret" | "scopeId"
+      >
+    | undefined;
   conversation: {
     /** Sends a request to the agent. Resolves to the delivery that names it, or null without one. */
     send(input: { agentId: string; text: string; clientMessageId: string }): Promise<string | null>;
@@ -41,7 +46,12 @@ export interface RoutineFlowsHost {
  * The desktop adapter for one server. `window.tommy` is read on each call: tests and stories
  * replace it per case. `webhooks` is read when the canvas asks, so a role change reaches it.
  */
-export function desktopRoutineFlowsHost(serverId: string, webhooks: () => boolean): RoutineFlowsHost {
+export function desktopRoutineFlowsHost(
+  serverId: string,
+  webhooks: () => boolean,
+  senderKeys: () => boolean = () => serverId === "local",
+  senderKeyScope: () => string = () => serverId,
+): RoutineFlowsHost {
   const flows = () => window.tommy.routineFlows;
   const agent = () => window.tommy.agent;
   return {
@@ -58,7 +68,7 @@ export function desktopRoutineFlowsHost(serverId: string, webhooks: () => boolea
       test: (input) => agent().testRoutine(input, serverId),
     },
     get webhooks() {
-      return webhooks() ? desktopEventRoutinesApi(serverId) : undefined;
+      return webhooks() ? desktopEventRoutinesApi(serverId, false, false, senderKeys(), senderKeyScope()) : undefined;
     },
     conversation: {
       send: async ({ agentId, text, clientMessageId }) => {

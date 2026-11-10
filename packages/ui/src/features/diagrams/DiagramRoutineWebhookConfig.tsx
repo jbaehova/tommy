@@ -24,6 +24,8 @@ export interface DiagramWebhookActions {
   onSave: (routineNodeId: string, change: { eventType: string | null; filters: EventFilter[] }) => Promise<void>;
   /** Makes a new signing secret and answers it, to be shown one time. */
   onRegenerateSecret: (routineNodeId: string) => Promise<string>;
+  scopeKey?: string | undefined;
+  onSetSenderSecret?: ((routineNodeId: string, secret: string) => Promise<void>) | undefined;
 }
 
 export function DiagramRoutineWebhookConfig(props: {
@@ -68,6 +70,14 @@ export function DiagramRoutineWebhookConfig(props: {
         onFiltersChange={setFilters}
         secret={secret()}
         onSecretDismiss={() => setSecret(null)}
+        senderKeyScope={`${props.actions.scopeKey ?? "host"}:${props.routineNodeId}`}
+        onSetSenderSecret={
+          props.actions.onSetSenderSecret
+            ? (value) =>
+                props.actions.onSetSenderSecret?.(props.routineNodeId, value) ??
+                Promise.reject(new Error("Webhook sender keys are unavailable."))
+            : undefined
+        }
         onRegenerateSecret={async () => {
           setSecret(await props.actions.onRegenerateSecret(props.routineNodeId));
         }}

@@ -11,12 +11,6 @@ import {
 } from "@tommy/contracts/ipc";
 import { BROWSER_PROFILES_CAPABILITY } from "@tommy/contracts/team-protocol/browser-profiles-v1";
 import { hasVisibleToasts } from "@tommy/ui";
-import {
-  type BackupModelSource,
-  rememberedBackupModels,
-  type UsageLimitAskCardProps,
-  usageLimitAskOptions,
-} from "@tommy/ui/features/conversation/BackupModels";
 import { unloadedHistory } from "@tommy/ui/features/conversation/ChatScrollRail";
 import { sidebarAgentWaits } from "@tommy/ui/features/sidebar/sidebar-agent-states";
 import { useText } from "@tommy/ui/text";
@@ -55,6 +49,7 @@ import { useConversation } from "./conversation-context";
 import { useConversationController } from "./conversation-controller-context";
 import { messagePromptRequestKey, promptRequestKey } from "./conversation-keys";
 import type { ConversationThreads } from "./conversation-types";
+import { useUsageLimitAsk } from "./usage-limit-ask";
 
 /**
  * The transcript of the active Agent, with everything the composer needs to send
@@ -130,8 +125,6 @@ export function WorkspaceConversation(props: { account: () => CentralAuthUser })
     stopActiveTurn,
     usageLimits,
     usageLimitedModels,
-    waitedUsageLimits,
-    setWaitedUsageLimits,
     queues,
   } = useTurns();
   const {
@@ -241,6 +234,7 @@ export function WorkspaceConversation(props: { account: () => CentralAuthUser })
     const taskLimit = remoteAgentAdmin.taskLimit();
     const quickAcknowledgement = remoteAgentAdmin.quickAcknowledgement();
     const fastMode = remoteAgentAdmin.fastMode();
+    const ultrafast = remoteAgentAdmin.ultrafast();
     const computerUse = remoteAgentAdmin.computerUse();
     const allowNewChat = remoteAgentAdmin.allowNewChat();
     return agent
@@ -254,6 +248,7 @@ export function WorkspaceConversation(props: { account: () => CentralAuthUser })
           ...(activeServer()?.kind === "remote" && typeof taskLimit === "number" ? { taskLimit } : {}),
           ...(activeServer()?.kind === "remote" && quickAcknowledgement !== undefined ? { quickAcknowledgement } : {}),
           ...(activeServer()?.kind === "remote" && typeof fastMode === "boolean" ? { fastMode } : {}),
+          ...(activeServer()?.kind === "remote" && typeof ultrafast === "boolean" ? { ultrafast } : {}),
           ...(activeServer()?.kind === "remote" && computerUse !== undefined ? { computerUse } : {}),
           ...(activeServer()?.kind === "remote" && allowNewChat !== undefined ? { allowNewChat } : {}),
         }
@@ -408,56 +403,11 @@ export function WorkspaceConversation(props: { account: () => CentralAuthUser })
    * A usage limit holds the active agent's queued message on this computer. The chat asks where to
    * send it, unless the agent switches by itself to a saved backup model that is ready.
    */
-  const usageLimitAsk = createMemo((): UsageLimitAskCardProps | undefined => {
+  const askAtLimit = useUsageLimitAsk();
+  const usageLimitAsk = createMemo(() => {
     const agent = activeAgent();
-    // Only this computer holds a message at a usage limit, and its agents use the providers it knows.
-    if (!agent || activeServer()?.kind !== "local" || !isKnownAgentProvider(agent.provider)) return undefined;
-    const provider = agent.provider;
-    const limits = usageLimits();
-    if (!(agent.id in limits)) return undefined;
-    const resetsAt = limits[agent.id] ?? null;
-    if (waitedUsageLimits()[agent.id] === resetsAt && agent.id in waitedUsageLimits()) return undefined;
-    if (!queues()[agent.id]?.deliveries.some((delivery) => delivery.status === "queued")) return undefined;
-    const source: BackupModelSource = {
-      modelOptions: modelOptions(),
-      providers: agentStatus().providers,
-      limited: usageLimited,
-    };
-    const options = usageLimitAskOptions({ ...agent, provider }, agent.backupModels, source);
-    if (options.length === 0) return undefined;
-    const backupModels = agent.backupModels;
-    if (
-      backupModels?.automatic &&
-      backupModels.order.some((choice) => options.some((option) => sameAgentModelChoice(option.choice, choice)))
-    )
-      return undefined;
-    const agentId = agent.id;
-    const reasoningEffort = agent.reasoningEffort;
-    return {
-      provider,
-      resetsAt,
-      options,
-      onSend: async (option, remember) => {
-        // The agent keeps its reasoning effort where the other model has it.
-        const model = modelOptions().find(
-          (candidate) => candidate.provider === option.choice.provider && candidate.id === option.choice.model,
-        );
-        await updateAgent(agentId, {
-          provider: option.choice.provider,
-          model: option.choice.model,
-          providerAccountId: option.choice.providerAccountId ?? null,
-          reasoningEffort:
-            model && !model.supportedReasoningEfforts.includes(reasoningEffort)
-              ? model.defaultReasoningEffort
-              : reasoningEffort,
-          leaveUsageLimit: true,
-          ...(remember ? { backupModels: rememberedBackupModels(option.choice, backupModels) } : {}),
-        });
-      },
-      onWait: () => {
-        setWaitedUsageLimits((current) => ({ ...current, [agentId]: resetsAt }));
-      },
-    };
+    if (!agent || !queues()[agent.id]?.deliveries.some((delivery) => delivery.status === "queued")) return undefined;
+    return askAtLimit(agent);
   });
   // One "shown" for each limit that asks, also when the user opens the agent again; a new reset time is a
   // new limit.

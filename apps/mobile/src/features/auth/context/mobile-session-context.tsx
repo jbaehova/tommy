@@ -14,6 +14,7 @@ import {
   MobileSessionExpiredError,
   readMobileSession,
 } from "@/features/auth/api/mobile-auth";
+import { deleteComposerDrafts } from "@/features/chat/model/composer-drafts";
 import { deleteAgentAvatars } from "@/features/workspace/model/agent-avatar-cache";
 import type { QueryScope } from "@/features/workspace/model/query-keys";
 import { deleteWorkspaceCaches } from "@/features/workspace/model/workspace-cache";
@@ -46,7 +47,10 @@ export function MobileSessionProvider({ children }: PropsWithChildren) {
   const sessionScope = useRef(0);
 
   const setCurrentSession = useCallback((session: MobileSession | null) => {
-    if (sessionRef.current?.sessionToken !== session?.sessionToken) sessionScope.current += 1;
+    if (sessionRef.current?.sessionToken !== session?.sessionToken) {
+      sessionScope.current += 1;
+      deleteComposerDrafts();
+    }
     // A removed pairing deletes the phone's copy.
     if (sessionRef.current && !session) void deleteWorkspaceCaches();
     sessionRef.current = session;

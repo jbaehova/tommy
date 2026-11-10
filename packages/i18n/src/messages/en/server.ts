@@ -205,4 +205,10 @@ export const messages = defineMessages("server", {
   // The notice of an update whose dialog the user hid.
   // The work that a restart waits for, in "Waiting for {reasons}".
   // A notice to every member when a joined server restarts into an update. {name} is the server.
+  "server.settings.skillLearningLoadFailed": "Could not load the skill learning setting.",
+  "server.settings.skillLearningAsk": "Ask first",
+  "server.settings.skillLearningAutomatic": "Automatic",
+  "server.settings.skillLearningOff": "Off",
+  "server.settings.skillLearning": "Skill learning",
+  "server.settings.skillLearningDescription": "Whether agents on this server save what they learn as skills.",
 });

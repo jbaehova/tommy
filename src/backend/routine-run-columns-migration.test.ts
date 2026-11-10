@@ -114,7 +114,12 @@ function withAddedColumns(before: Record<string, TableRow[]>): Record<string, Ta
       table,
       tableRows.map((row) =>
         table.endsWith("_routines")
-          ? { limit_policy: "wait", ...row, missed_policy: "skip" }
+          ? {
+              limit_policy: "wait",
+              ...row,
+              missed_policy: "skip",
+              ...(table === "projection_agent_routines" ? { run_in: "chat" } : {}),
+            }
           : table.endsWith("_runs")
             ? { missed_count: null, missed_until: null, ...row, run_source: null }
             : row,
@@ -132,7 +137,7 @@ describe("routine missed-run and run source migrations", () => {
       const before = rows(db);
       migrateTommyDatabase(db);
       expect(rows(db, Object.keys(before))).toEqual(withAddedColumns(before));
-      expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 52 });
+      expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 58 });
       expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
       expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       expect(db.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
@@ -187,9 +192,9 @@ describe("routine missed-run and run source migrations", () => {
     const db = databaseAt(32);
     seedRoutines(db, 32);
     const before = rows(db);
-    db.exec("INSERT INTO schema_migrations VALUES(53, 'now')");
+    db.exec("INSERT INTO schema_migrations VALUES(59, 'now')");
     expect(() => migrateTommyDatabase(db)).toThrow("newer than this application supports");
-    db.exec("DELETE FROM schema_migrations WHERE version = 53; DELETE FROM schema_migrations WHERE version = 27");
+    db.exec("DELETE FROM schema_migrations WHERE version = 59; DELETE FROM schema_migrations WHERE version = 27");
     expect(() => migrateTommyDatabase(db)).toThrow("missing version 27");
     expect(rows(db)).toEqual(before);
   });
@@ -244,9 +249,9 @@ describe("routine run source migration", () => {
     const db = databaseAt(34);
     seedRoutines(db, 34);
     const before = rows(db);
-    db.exec("INSERT INTO schema_migrations VALUES(53, 'now')");
+    db.exec("INSERT INTO schema_migrations VALUES(59, 'now')");
     expect(() => migrateTommyDatabase(db)).toThrow("newer than this application supports");
-    db.exec("DELETE FROM schema_migrations WHERE version = 53; DELETE FROM schema_migrations WHERE version = 33");
+    db.exec("DELETE FROM schema_migrations WHERE version = 59; DELETE FROM schema_migrations WHERE version = 33");
     expect(() => migrateTommyDatabase(db)).toThrow("missing version 33");
     expect(rows(db)).toEqual(before);
   });

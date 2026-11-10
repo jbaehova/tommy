@@ -22,6 +22,11 @@ const requireModule = createRequire(import.meta.url);
 const webSockets: typeof Ws = requireModule(join(dirname(requireModule.resolve("ws/package.json")), "index.js"));
 
 const CONNECT_TIMEOUT_MS = 10_000;
+/**
+ * The hello must arrive in this time after the connect socket starts. A socket that a network
+ * without a route holds open, for example right after the user signs in, is closed after it.
+ */
+const HELLO_TIMEOUT_MS = 15_000;
 /** A file waits this long for the files socket. After it, files go on the connect socket. */
 const FILES_SOCKET_TIMEOUT_MS = 5_000;
 /** A silent socket that does not answer a ping in this time is closed. */
@@ -37,6 +42,9 @@ interface ClientConnection {
   filesDecided: Deferred.Deferred<void>;
   alive: boolean;
   heartbeat: ReturnType<typeof setInterval> | null;
+  /** Set when the hello arrives. Until then a closed socket is a failed connect. */
+  ready: boolean;
+  helloTimer: ReturnType<typeof setTimeout> | null;
 }
 
 /**
@@ -111,8 +119,15 @@ export class DirectClientBridge extends EventEmitter<TeamWebRtcBridgeEvents> {
       filesDecided: Deferred.makeUnsafe<void>(),
       alive: true,
       heartbeat: null,
+      ready: false,
+      helloTimer: null,
     };
     this.#connections.set(peerId, connection);
+    connection.helloTimer = setTimeout(() => {
+      connection.helloTimer = null;
+      socket.terminate();
+    }, HELLO_TIMEOUT_MS);
+    connection.helloTimer.unref?.();
     socket.on("open", () => this.emit("signalOpen", peerId));
     socket.on("pong", () => {
       connection.alive = true;
@@ -126,6 +141,8 @@ export class DirectClientBridge extends EventEmitter<TeamWebRtcBridgeEvents> {
       if (this.#connections.get(peerId) !== connection) return;
       if (response.statusCode === 401) this.#revoked(peerId);
       else this.emit("error", peerId, "host_unavailable", "host_unavailable", false);
+      // The failure is reported. The close that follows must not report it again.
+      this.#close(peerId);
     });
     socket.on("close", (code) => this.#socketEnded(peerId, connection, code));
   }
@@ -162,6 +179,9 @@ export class DirectClientBridge extends EventEmitter<TeamWebRtcBridgeEvents> {
       connection.socket.terminate();
       return;
     }
+    connection.ready = true;
+    if (connection.helloTimer) clearTimeout(connection.helloTimer);
+    connection.helloTimer = null;
     connection.heartbeat = setInterval(() => {
       if (!connection.alive) {
         connection.socket.terminate();
@@ -217,7 +237,11 @@ export class DirectClientBridge extends EventEmitter<TeamWebRtcBridgeEvents> {
   #socketEnded(peerId: string, connection: ClientConnection, code: number): void {
     if (this.#connections.get(peerId) !== connection) return;
     if (code === DIRECT_CLOSE_DEVICE_REVOKED) this.#revoked(peerId);
-    if (code === DIRECT_CLOSE_REPLACED) this.emit("error", peerId, "connection_replaced", "connection_replaced", true);
+    else if (code === DIRECT_CLOSE_REPLACED)
+      this.emit("error", peerId, "connection_replaced", "connection_replaced", true);
+    // A socket that closed before the hello is a failed connect: no host, or no network yet. Without
+    // this error the attempt waited 30 s, and a retry joined that attempt and did nothing.
+    else if (!connection.ready) this.emit("error", peerId, "host_unavailable", "host_unavailable", false);
     this.#close(peerId);
   }
 
@@ -226,6 +250,7 @@ export class DirectClientBridge extends EventEmitter<TeamWebRtcBridgeEvents> {
     if (!connection) return;
     this.#connections.delete(peerId);
     if (connection.heartbeat) clearInterval(connection.heartbeat);
+    if (connection.helloTimer) clearTimeout(connection.helloTimer);
     Deferred.doneUnsafe(connection.filesDecided, Effect.void);
     connection.files?.terminate();
     connection.socket.terminate();

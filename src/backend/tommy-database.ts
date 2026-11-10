@@ -13,9 +13,15 @@ import type {
 import { AgentHistoryQueries, type AgentHistorySelection } from "./database/agent-history-queries";
 import { type AgentModelChange, AgentRoster } from "./database/agent-roster";
 import { AgentUsage } from "./database/agent-usage";
+import {
+  ConversationDeletion,
+  type DeleteConversationMessage,
+  type DeleteThreadHistory,
+} from "./database/conversation-deletion";
 import { type ConversationMarkerExclusions, ConversationQueries } from "./database/conversation-queries";
 import { ConversationWriter } from "./database/conversation-writer";
 import { DatabaseCore, type OrchestrationEventInput } from "./database/database-core";
+import { isDeletedProviderHistoryImport } from "./database/deleted-thread-messages";
 import {
   MailboxProjection,
   type MailboxProjectionChanges,
@@ -63,6 +69,7 @@ export class TommyDatabase {
   readonly #conversations: ConversationQueries;
   readonly #roster: AgentRoster;
   readonly #conversationWrites: ConversationWriter;
+  readonly #conversationDeletion: ConversationDeletion;
   readonly #replay: ThreadReplay;
   readonly #mailbox: MailboxProjection;
   readonly #sessions: ProviderSessions;
@@ -76,6 +83,7 @@ export class TommyDatabase {
     this.#conversations = new ConversationQueries({ core: this.#core });
     this.#roster = new AgentRoster({ core: this.#core });
     this.#conversationWrites = new ConversationWriter({ core: this.#core, roster: this.#roster });
+    this.#conversationDeletion = new ConversationDeletion(this.#core);
     this.#replay = new ThreadReplay({ core: this.#core, conversations: this.#conversations });
     this.#mailbox = new MailboxProjection({ core: this.#core });
     this.#agentHistory = new AgentHistoryQueries(this.#core);
@@ -171,6 +179,10 @@ export class TommyDatabase {
     return this.#agentHistory.read(agentId, threadId, selection);
   }
 
+  readTurnTrace(threadId: string, turnId: string) {
+    return this.#agentHistory.turnTrace(threadId, turnId);
+  }
+
   readConversationMessages(
     agentId: string,
     threadId: string | null,
@@ -255,12 +267,29 @@ export class TommyDatabase {
     return this.#conversationWrites.changedConversationMessages(threadId, messages);
   }
 
+  deleteConversationMessage(input: DeleteConversationMessage) {
+    return this.#conversationDeletion.deleteMessage(input);
+  }
+
+  deleteThreadHistory(input: DeleteThreadHistory): number {
+    return this.#conversationDeletion.deleteHistory(input).revision;
+  }
+
+  threadHistoryDeletionReceipt(threadId: string, requestId: string) {
+    return this.#conversationDeletion.historyReceipt(threadId, requestId);
+  }
+
+  threadMessageIds(threadId: string): string[] {
+    return this.#conversationDeletion.messageIds(threadId);
+  }
+
   persistConversationChanges(input: {
     agentId: string;
     threadId: string;
     activeTurnId: string | null;
     changedMessages: readonly ConversationMessage[];
     removedMessageIds?: readonly string[];
+    deletedMessageIds?: readonly string[];
     eventType: string;
     detail?: unknown;
     commandId?: string;
@@ -292,6 +321,7 @@ export class TommyDatabase {
     detail?: unknown;
   }): void {
     const db = this.connection;
+    if (isDeletedProviderHistoryImport(db, input.sessionId)) return;
     const ownsTransaction = !db.isTransaction;
     if (ownsTransaction) db.exec("BEGIN IMMEDIATE");
     try {

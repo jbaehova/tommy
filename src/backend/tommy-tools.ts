@@ -49,6 +49,8 @@ import {
   routineScheduleZodSchema,
 } from "./routine-tool-schema";
 
+import { WORKFLOW_TOOL_DEFINITIONS } from "./workflows/workflow-tools";
+
 interface TommyToolDefinition {
   name: string;
   description: string;
@@ -276,6 +278,11 @@ export const requestApiKeyToolSchema = z.strictObject({
 
 export const removeApiKeyToolSchema = z.strictObject({ name: apiKeyNameSchema });
 
+/** A bounded question for a disposable Codex search session. */
+export const webSearchToolSchema = z.strictObject({
+  query: z.string().trim().min(1).max(1_000).describe("The whole question, with its context."),
+});
+
 export const sendToChannelToolSchema = z.strictObject({
   channelId: z.string().min(1).max(INPUT_LIMITS.identifier),
   text: z.string().trim().min(1).max(INPUT_LIMITS.messageText),
@@ -285,11 +292,18 @@ export const sendToChannelToolSchema = z.strictObject({
 
 /** Shared declarations for Codex, Grok, and Claude. Service handlers enforce execution rules. */
 export const TOMMY_TOOL_DEFINITIONS: readonly TommyToolDefinition[] = [
+  {
+    name: "web_search",
+    description:
+      "Search the web for current facts. Returns a short answer with source URLs. One question per call. Uses this host's Codex sign-in and usage. To read or use a page, use tommy_browser.",
+    shape: webSearchToolSchema.shape,
+  },
   ...CHANNEL_TOOL_DEFINITIONS,
   ...HISTORY_TOOL_DEFINITIONS,
   ...DATA_TOOL_DEFINITIONS,
   ...LOCAL_SKILL_TOOL_DEFINITIONS,
   ...ROUTINE_FLOW_TOOL_DEFINITIONS,
+  ...WORKFLOW_TOOL_DEFINITIONS,
   ...MCP_SERVER_TOOL_DEFINITIONS,
   {
     name: "attach_files_to_response",

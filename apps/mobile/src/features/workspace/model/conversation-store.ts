@@ -27,6 +27,7 @@ export class MobileConversationStore {
   #upToDate = new Set<string>();
   /** Chats from the phone's cache. The first latest page from the host replaces them, at any revision. */
   #cached = new Set<string>();
+  #versions = new Map<string, number>();
 
   constructor(private schedule: (flush: () => void) => () => void) {}
 
@@ -50,8 +51,10 @@ export class MobileConversationStore {
   }
 
   /** A new connection can have missed events, so each chat loads again before it counts as current. */
-  markStale() {
-    this.#upToDate.clear();
+  markStale(agentIds?: Iterable<string>) {
+    if (agentIds) {
+      for (const agentId of agentIds) this.#upToDate.delete(agentId);
+    } else this.#upToDate.clear();
   }
 
   /**
@@ -83,7 +86,48 @@ export class MobileConversationStore {
     };
   }
 
+  version(agentId: string) {
+    return this.#versions.get(agentId) ?? 0;
+  }
+
+  deleteMessages(agentId: string, threadId: string, messageIds: ReadonlySet<string>) {
+    const current = this.get(agentId);
+    if (current && current.threadId !== threadId) return;
+    this.#versions.set(agentId, this.version(agentId) + 1);
+    const pending = this.#loads.get(agentId);
+    if (pending) pending.dirty = true;
+    this.#olderLoads.delete(agentId);
+    this.#upToDate.delete(agentId);
+    this.#deltas.set(
+      agentId,
+      (this.#deltas.get(agentId) ?? []).filter((delta) => !messageIds.has(delta.messageId)),
+    );
+    if (!current) return;
+    this.#publish(agentId, {
+      ...current,
+      messages: current.messages.filter((message) => !messageIds.has(message.id)),
+      references: Object.fromEntries(Object.entries(current.references ?? {}).filter(([id]) => !messageIds.has(id))),
+      ...(current.readState
+        ? {
+            readState: {
+              ...current.readState,
+              firstUnreadMessageId:
+                current.readState.firstUnreadMessageId && messageIds.has(current.readState.firstUnreadMessageId)
+                  ? null
+                  : current.readState.firstUnreadMessageId,
+              throughMessageId:
+                current.readState.throughMessageId && messageIds.has(current.readState.throughMessageId)
+                  ? null
+                  : current.readState.throughMessageId,
+            },
+          }
+        : {}),
+      olderLoading: false,
+    });
+  }
+
   remove(agentId: string) {
+    this.#versions.set(agentId, this.version(agentId) + 1);
     this.#entries.delete(agentId);
     this.#latestPages.delete(agentId);
     this.#upToDate.delete(agentId);
@@ -262,9 +306,14 @@ export class MobileConversationStore {
           let page: ConversationPage;
           do {
             load.dirty = false;
+            const version = this.version(agentId);
             page = await read();
             if (page.agentId !== agentId) throw new Error("The server returned a page for another conversation.");
             if (!isCurrent() || this.#loads.get(agentId) !== load) return page;
+            if (version !== this.version(agentId)) {
+              load.dirty = true;
+              continue;
+            }
             this.applyPage(page, undefined, load.attach);
           } while (load.dirty);
           this.#upToDate.add(agentId);

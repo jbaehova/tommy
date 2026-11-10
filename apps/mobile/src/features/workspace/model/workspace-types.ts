@@ -37,6 +37,7 @@ import type {
   ApplyInstanceTransferInput,
   AvatarHue,
   AvatarImageInput,
+  BranchAgentTaskInput,
   BrowserProfileList,
   BrowserProfileSummary,
   ClearableStorageCategory,
@@ -131,6 +132,7 @@ import type {
   WorkflowVersionInput,
   WorkflowWebhookSecret,
 } from "@tommy/contracts/ipc";
+import type { AgentSpeedSettings, UpdateAgentSpeedInput } from "@tommy/contracts/ipc-agent-speed";
 import type {
   EventActivity,
   EventRoutine,
@@ -141,6 +143,17 @@ import type {
   SaveEventRoutineResult,
   WebhookSecret,
 } from "@tommy/contracts/ipc-events";
+import type { MachineMetrics } from "@tommy/contracts/ipc-machine-resources";
+import type {
+  ChannelHistoryDeleteInput,
+  ChannelMessageDeleteInput,
+  HistoryDeleteInput,
+  HistoryDeleteResult,
+  MessageDeleteInput,
+  MessageDeleteResult,
+  TaskMessageDeleteInput,
+} from "@tommy/contracts/ipc-message-deletion";
+import type { VoiceLiveSession, VoiceLiveStart } from "@tommy/contracts/ipc-voice";
 import type { QueueEditRequest } from "@tommy/contracts/team-protocol/queue-edit-v1";
 import type { TeamProtocolV2Json } from "@tommy/contracts/team-protocol/v2";
 import type { RemoteConnectionFailure, RemoteRecoveryStatus } from "@tommy/team-client";
@@ -410,6 +423,8 @@ export interface MobileWorkspaceContextValue {
   canTransferServer: (serverId: string) => boolean;
   /** The same for API keys in the Vault (`vault-v2`). */
   canManageVaultApiKeys: (serverId: string) => boolean;
+  /** An owner or admin of an online host with the optional Vault TOTP routes. */
+  canManageVaultTwoStep: (serverId: string) => boolean;
   /**
    * True for an owner or admin of a host that serves its named browser profiles and the profile of
    * each agent (`browser-profiles-v1`). The host checks the role again.
@@ -569,6 +584,8 @@ export interface MobileWorkspaceContextValue {
   /** Null when the host does not advertise `storage-v1`. */
   loadAgentStorage: (agentId: string, serverId: string, force?: boolean) => Promise<StorageUsage | null>;
   /** True when the host advertises `storage-v1`. Every member reads the host's storage. */
+  canReadMachineResources: (serverId: string) => boolean;
+  loadMachineMetrics: (serverId: string) => Promise<MachineMetrics>;
   canReadServerStorage: (serverId: string) => boolean;
   /** Every location on the host, its agents, its largest chats and its stored files. */
   loadServerStorage: (serverId: string, force?: boolean) => Promise<StorageUsage>;
@@ -629,6 +646,10 @@ export interface MobileWorkspaceContextValue {
    * Null when the host does not advertise `agent-fast-mode-v1`. A member with view access reads the
    * setting, and with manage access changes it, as the model. The host checks the access.
    */
+  loadAgentSpeed: (agentId: string, serverId: string) => Promise<AgentSpeedSettings | null>;
+  updateAgentSpeed: (input: UpdateAgentSpeedInput, serverId: string) => Promise<AgentSpeedSettings>;
+  canChooseAgentSpeed: (serverId: string) => boolean;
+  canReadProviderAccountModels: (serverId: string) => boolean;
   loadAgentFastMode: (agentId: string, serverId: string) => Promise<AgentFastModeSettings | null>;
   /** Resolves with the setting the host saved. It applies from the next turn. */
   updateAgentFastMode: (input: UpdateAgentFastModeInput, serverId: string) => Promise<AgentFastModeSettings>;
@@ -721,13 +742,27 @@ export interface MobileWorkspaceContextValue {
   /** Searches file names in the server's agent chats. An empty query lists the newest files. */
   searchFiles: (query: string, serverId: string, cursor?: string) => Promise<ConversationFileSearchPage>;
   /** True when the host advertises `agent-tasks-v1`. A member who can message an agent can use its tasks. */
+  canDeleteMessages: (serverId: string) => boolean;
+  canDeleteChatHistory: (serverId: string) => boolean;
+  deleteAgentMessage: (input: MessageDeleteInput, serverId: string) => Promise<MessageDeleteResult>;
+  deleteTaskMessage: (input: TaskMessageDeleteInput, serverId: string) => Promise<MessageDeleteResult>;
+  deleteChannelMessage: (input: ChannelMessageDeleteInput, serverId: string) => Promise<MessageDeleteResult>;
+  deleteAgentHistory: (input: HistoryDeleteInput, serverId: string) => Promise<HistoryDeleteResult>;
+  deleteChannelHistory: (input: ChannelHistoryDeleteInput, serverId: string) => Promise<HistoryDeleteResult>;
   canUseTasks: (serverId: string) => boolean;
+  /** The host authorizes and expands browser and thread tags. */
+  canTagChatTargets: (serverId: string) => boolean;
+  canUseLiveVoice: (serverId: string) => boolean;
+  startLiveVoice: (input: VoiceLiveStart, serverId: string) => Promise<VoiceLiveSession>;
+  stopLiveVoice: (sessionId: string, serverId: string) => Promise<void>;
+  cancelLiveVoice: (requestId: string, serverId: string) => Promise<void>;
   /** True when the host advertises `agent-threads-v1`: a member who can message an agent can rename and delete its threads. */
   canEditThreads: (serverId: string) => boolean;
   /** True when the host advertises `agent-thread-reads-v1`: the host keeps the person's read mark of each thread. */
   canReadThreads: (serverId: string) => boolean;
   /** True when the host advertises `agent-thread-files-v1`: a message in a thread can carry files. */
   canAttachThreadFiles: (serverId: string) => boolean;
+  canBranchThreads: (serverId: string) => boolean;
   /** True when the host advertises `workflows-v1`. The host shows each member the workflows of their agents. */
   canUseWorkflows: (serverId: string) => boolean;
   listWorkflows: (serverId: string) => Promise<WorkflowSummary[]>;
@@ -757,6 +792,8 @@ export interface MobileWorkspaceContextValue {
   restoreWorkflowVersion: (input: WorkflowVersionInput, serverId: string) => Promise<WorkflowDetail>;
   /** True when the host advertises `workflows-github-v1`: it runs GitHub triggers and outputs. */
   canUseWorkflowGitHub: (serverId: string) => boolean;
+  /** Whether this host accepts a write-only Standard Webhooks sender key. The host checks the role. */
+  canUseWebhookSenderKeys: (serverId: string) => boolean;
   /** The repositories of the host's GitHub connection. Only an owner or admin reads them. */
   loadWorkflowGitHubCatalog: (serverId: string) => Promise<WorkflowGitHubCatalog>;
   /** The labels and people of one repository. Only an owner or admin reads them. */
@@ -784,6 +821,7 @@ export interface MobileWorkspaceContextValue {
   renameAgentThread: (input: AgentTaskInput & { title: string }, serverId: string) => Promise<void>;
   /** Deletes a thread, its conversation, its files and its queued messages for good. */
   deleteAgentThread: (input: AgentTaskInput, serverId: string) => Promise<void>;
+  branchAgentThread: (input: BranchAgentTaskInput, serverId: string) => Promise<AgentTask>;
   /** The person's read mark of each open thread of the agent. The member's devices share it. */
   loadAgentThreadReads: (agentId: string, serverId: string) => Promise<AgentTaskReadState[]>;
   /** Moves the person's read mark of a thread to a message that they see. */
@@ -864,12 +902,21 @@ export type MobileWorkspaceCapabilityCheck =
   | "canInstallAgentTemplate"
   | "canSearchFiles"
   | "canUseTasks"
+  | "canTagChatTargets"
+  | "canDeleteMessages"
+  | "canDeleteChatHistory"
+  | "canChooseAgentSpeed"
+  | "canReadProviderAccountModels"
+  | "canUseLiveVoice"
   | "canEditThreads"
   | "canReadThreads"
   | "canAttachThreadFiles"
+  | "canBranchThreads"
   | "canUseWorkflows"
   | "canUseWorkflowGitHub"
+  | "canUseWebhookSenderKeys"
   | "canReadServerStorage"
+  | "canReadMachineResources"
   | "canSetAgentNotificationLevel";
 
 type MobileWorkspaceStateKey =
@@ -900,6 +947,7 @@ type MobileWorkspaceStateKey =
   | "canImportVault"
   | "canTransferServer"
   | "canManageVaultApiKeys"
+  | "canManageVaultTwoStep"
   | "canManageBrowserProfiles"
   | "serverUpdateAccess"
   | "canReadServerRelease"

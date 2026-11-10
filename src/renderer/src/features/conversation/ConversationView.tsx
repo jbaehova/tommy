@@ -1,5 +1,6 @@
 import { agentProviderDescriptor, isKnownAgentProvider } from "@tommy/contracts/agent-providers";
 import { DEFAULT_AGENT_ACCESS } from "@tommy/contracts/ipc";
+import { ConfirmDialog } from "@tommy/ui";
 import { AgentFolderDropOverlay, createAgentFolders } from "@tommy/ui/features/conversation/AgentFolders";
 import { MessageSelectionActions } from "@tommy/ui/features/conversation/SelectionActions";
 import { useText } from "@tommy/ui/text";
@@ -41,6 +42,9 @@ export function ConversationView(props: ConversationProps) {
     settingsPanelWidth,
     submitting,
     sideThreadOpen,
+    fastModeConfirmationOpen,
+    confirmFastMode,
+    cancelFastModeConfirmation,
   } = scope;
   const { t } = useText();
   const folderCalls = agentFolderCalls();
@@ -141,6 +145,16 @@ export function ConversationView(props: ConversationProps) {
         </Show>
 
         <ConversationPanels onOpenUsage={props.onOpenUsage} />
+        <ConfirmDialog
+          open={fastModeConfirmationOpen()}
+          tone="default"
+          initialFocus="cancel"
+          title={t("composer.fastMode.confirmTitle")}
+          description={t("composer.fastMode.confirmDescription")}
+          confirmLabel={t("composer.fastMode.confirm")}
+          onConfirm={confirmFastMode}
+          onCancel={cancelFastModeConfirmation}
+        />
       </main>
     </ConversationViewScopeContext>
   );

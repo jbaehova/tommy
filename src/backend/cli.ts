@@ -8,6 +8,7 @@ import { type AgentProviderId, agentProviderName } from "@tommy/contracts/ipc";
 import { isDynamicRecord } from "@tommy/contracts/runtime-values";
 import { sourceText } from "@tommy/i18n/source";
 import { Deferred, Effect, Result } from "effect";
+import { childProcessEnvironment } from "./child-process-environment";
 import { type ProviderClientOperationError, providerCall, providerFailure } from "./provider-client-effects";
 
 const execFileAsync = promisify(execFile);
@@ -552,6 +553,7 @@ export function runInLoginShell(
     const child = spawn(shell.command, [...shell.args, script], {
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
+      env: childProcessEnvironment(),
     });
     const chunks: Buffer[] = [];
     let size = 0;
@@ -733,7 +735,7 @@ const readCliVersion = Effect.fn("Cli.readVersion")(function* (
     execFileAsync(candidate, ["--version"], {
       timeout: CLI_VERSION_TIMEOUT_MS,
       maxBuffer: 64 * 1024,
-      env: { ...process.env, ...cliPathEnvironment(launch) },
+      env: childProcessEnvironment({ ...process.env, ...cliPathEnvironment(launch) }),
     }),
   ).pipe(
     Effect.mapError((failure) =>

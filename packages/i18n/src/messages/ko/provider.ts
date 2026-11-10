@@ -236,4 +236,7 @@ export const messages = {
   "provider.settings.removeDownload": "다운로드 삭제",
   "provider.settings.removingDownload": "삭제 중…",
   "provider.settings.removeDownloadFailed": "다운로드를 삭제하지 못했어요.",
+  "provider.picker.ultrafast": "초고속",
+  "provider.picker.speed": "속도",
+  "provider.picker.standard": "표준",
 } as const satisfies PartialTranslation<typeof source>;

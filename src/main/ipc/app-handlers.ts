@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { systemHourCycle } from "../system-hour-cycle";
 // App identity, first-run setup, the analytics preference, external links and the data and
 // diagnostics exports.
 
@@ -144,11 +145,13 @@ export function appIpcHandlers({
         }
         // electron-vite starts a script, so Electron reports its own version in development.
         const version = app.isPackaged ? app.getVersion() : developmentVersion;
+        const hourCycle = systemHourCycle();
         return {
           name: app.getName(),
           version,
           platform,
           variant: appVariant,
+          ...(hourCycle === undefined ? {} : { hourCycle }),
         };
       }),
       getSetupState: handler(() => runCauseEffect(readSetupState(setupFile))),

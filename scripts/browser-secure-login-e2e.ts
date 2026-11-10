@@ -4,7 +4,7 @@
 // Run: `bun scripts/browser-secure-login-e2e.ts`.
 // Writes .tommy-build/browser-secure-login-e2e/report.json.
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +36,10 @@ try {
       `--outfile=${entry}`,
     ],
     process.env,
+  );
+  await copyFile(
+    join(projectRoot, "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.wasm"),
+    join(root, "emscripten-module.wasm"),
   );
   await run(
     join(projectRoot, "node_modules/.bin/electron"),

@@ -1,4 +1,6 @@
+import type { BrowserProfileProxyInput, BrowserProfileProxySummary } from "@tommy/contracts/browser-profile-proxy";
 import { Effect, Schema, Semaphore } from "effect";
+import type { BrowserProfileProxyStore } from "../backend/browser-profiles/browser-profile-proxy-store";
 // Named browser profiles, and the profile of each agent, as this computer holds them. The local
 // window uses this; the agent setting writes through `AgentService.updateAgent`, which closes the
 // agent's tabs when its profile changes. A profile name is user data: it is never logged.
@@ -26,14 +28,18 @@ import { AgentNotFoundError } from "./agent-admin-settings";
 
 export interface BrowserProfileServiceDependencies {
   store: Pick<BrowserProfileStore, "list" | "get" | "create" | "rename" | "setHue" | "delete">;
+  proxies?: BrowserProfileProxyStore;
   agents: Pick<AgentService, "listAgents" | "updateAgent">;
-  browser: Pick<BrowserHost, "tabIdsInSession" | "listTabSessions" | "close" | "clearTabSession">;
+  browser: Pick<BrowserHost, "tabIdsInSession" | "listTabSessions" | "close" | "clearTabSession"> &
+    Partial<Pick<BrowserHost, "releaseProfileProxy">>;
   /** Runs after each change that succeeds, so every open profile list reads them again. */
   onChanged?: () => void;
 }
 
 export interface BrowserProfileService {
   list(): BrowserProfileList;
+  proxy(profileId: string): Effect.Effect<BrowserProfileProxySummary, BrowserProfileFailure>;
+  setProxy(input: BrowserProfileProxyInput): Effect.Effect<BrowserProfileProxySummary, BrowserProfileFailure>;
   create(name: string): Effect.Effect<BrowserProfileSummary, BrowserProfileFailure>;
   /** Changes the name, the color, or both. Data and tabs stay. */
   update(input: UpdateBrowserProfileInput): Effect.Effect<BrowserProfileSummary, BrowserProfileFailure>;
@@ -49,6 +55,7 @@ export interface BrowserProfileService {
 
 export function createBrowserProfileService({
   store,
+  proxies,
   agents,
   browser,
   onChanged,
@@ -124,6 +131,25 @@ export function createBrowserProfileService({
     });
   });
 
+  const readProxy = Effect.fn("BrowserProfiles.proxy")(function* (profileId: string) {
+    return yield* check(() => {
+      requireProfile(profileId);
+      if (!proxies) throw new Error("Browser profile proxies are unavailable.");
+      return proxies.summary(profileId);
+    });
+  });
+  const setProxy = Effect.fn("BrowserProfiles.setProxy")(function* (input: BrowserProfileProxyInput) {
+    yield* check(() => {
+      requireProfile(input.profileId);
+      if (!proxies || !browser.releaseProfileProxy) throw new Error("Browser profile proxies are unavailable.");
+      proxies.save(input.profileId, input.address, input.keepPassword);
+    });
+    const tabSession: BrowserTabSession = { kind: "profile", profileId: input.profileId };
+    for (const tabId of browser.tabIdsInSession(tabSession)) yield* browser.close(tabId).pipe(toBrowserProfileFailure);
+    if (browser.releaseProfileProxy) yield* browser.releaseProfileProxy(input.profileId).pipe(toBrowserProfileFailure);
+    return yield* readProxy(input.profileId);
+  });
+
   const clear = Effect.fn("BrowserProfiles.clear")(function* (input: ClearBrowserDataInput) {
     const tabSession = yield* check((): BrowserTabSession => {
       if ("profileId" in input) {
@@ -173,6 +199,8 @@ export function createBrowserProfileService({
           .map((agent) => agent.id),
       };
     },
+    proxy: readProxy,
+    setProxy: (input) => serialized(setProxy(input)),
     create: (name) => serialized(create(name)),
     update: (input) => serialized(update(input)),
     clear: (input) => serialized(clear(input)),

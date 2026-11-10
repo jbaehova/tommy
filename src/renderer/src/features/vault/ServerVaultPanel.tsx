@@ -9,6 +9,8 @@ export interface ServerVaultOptions {
   store: VaultStore;
   /** False for a joined server without `vault-v2`: it cannot keep API keys. */
   apiKeys: boolean;
+  /** False when the host does not advertise vault-v3. */
+  twoStep?: boolean;
   /** The Link account of this computer. Absent for a joined server: its host has no Link. */
 }
 
@@ -45,6 +47,7 @@ export function ServerVaultPanel(props: ServerVaultOptions & { menuMount: HTMLEl
           }}
           onImportCsv={props.store.importCsv}
           onReset={props.store.reset}
+          onCodes={props.twoStep === false ? undefined : props.store.codes}
           menuMount={props.menuMount}
         />
       )}

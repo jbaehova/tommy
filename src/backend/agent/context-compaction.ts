@@ -41,7 +41,7 @@ const CONTEXT_COMPACTION_THRESHOLD = 0.8;
  * above compacts again after a small growth or a retry, so a share between the threshold and 90%
  * compacted it without end.
  */
-const INEFFECTIVE_COMPACTION_SHARE = CONTEXT_COMPACTION_THRESHOLD;
+const INEFFECTIVE_COMPACTION_SHARE = CONTEXT_COMPACTION_THRESHOLD - 0.1;
 /** After this many such compactions in a row, Tommy stops asking for more and tells the user. */
 const INEFFECTIVE_COMPACTION_LIMIT = 2;
 /**
@@ -166,6 +166,11 @@ export class ContextCompaction {
     this.#rotateSession = options.rotateSession;
     this.#rotatesSession = options.rotatesSession;
     this.#isStopping = options.isStopping;
+  }
+
+  /** How long a started compaction runs before Tommy stops it. */
+  get runTimeoutMs(): number {
+    return this.#runTimeoutMs;
   }
 
   /** Only personal sessions appear in the desktop snapshot; execution threads remain separate. */
@@ -332,8 +337,10 @@ export class ContextCompaction {
     if (!pressured) {
       budget.pending = false;
       budget.lastCompactedTokens = null;
-      budget.ineffectiveCompactions = 0;
       budget.failedCompactions = 0;
+      // A session that a compaction left just below the threshold keeps its count. One that became
+      // smaller in another way, such as with fewer tools, compacts again.
+      if (usedTokens / contextWindow < INEFFECTIVE_COMPACTION_SHARE) budget.ineffectiveCompactions = 0;
       return;
     }
     if (budget.phase !== "idle") return;

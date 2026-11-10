@@ -220,6 +220,8 @@ export interface WfnBoard {
   endScheduleEdit: () => void;
   /** Makes a new signing secret for a webhook trigger, and gives it. Without it, a trigger offers no secret. */
   rotateWebhookSecret?: ((id: string) => Promise<string>) | undefined;
+  webhookScope?: (() => string) | undefined;
+  setWebhookSenderSecret?: ((id: string, secret: string) => Promise<void>) | undefined;
   /**
    * Runs one step alone, with the inputs that it has now. The step shows the run states, and the host
    * records its result. A step does not run alone while a workflow run is active.
@@ -291,6 +293,11 @@ export function BoardProvider(props: { board: WfnBoard; children: JSX.Element })
 export interface BoardOptions {
   /** The agents, models, places and files that the nodes offer. The host reads them. */
   catalogs: () => WorkflowCatalogs;
+  /**
+   * While the canvas plays an agent's change: `unbuilt` for a connection that does not show yet, and
+   * `arrived` for one that just showed.
+   */
+  buildState?: (edgeId: string) => "unbuilt" | "arrived" | undefined;
   selected?: string | undefined;
   edges?: readonly WfnEdge[] | undefined;
   /** The world scale. The canvas zooms; the gallery does not. */
@@ -309,6 +316,8 @@ export interface BoardOptions {
   setSchedule?: (id: string, schedule: RoutineSchedule) => void;
   endScheduleEdit?: () => void;
   rotateWebhookSecret?: ((id: string) => Promise<string>) | undefined;
+  webhookScope?: (() => string) | undefined;
+  setWebhookSenderSecret?: ((id: string, secret: string) => Promise<void>) | undefined;
   runStep?: (id: string) => void;
   stopStep?: (id: string) => void;
   running?: () => boolean;
@@ -851,6 +860,10 @@ export function createBoard(options: BoardOptions) {
     setSchedule: (id, schedule) => options.setSchedule?.(id, schedule),
     endScheduleEdit: () => options.endScheduleEdit?.(),
     rotateWebhookSecret: options.rotateWebhookSecret,
+    webhookScope: options.webhookScope,
+    get setWebhookSenderSecret() {
+      return options.setWebhookSenderSecret;
+    },
     runStep: (id) => options.runStep?.(id),
     stopStep: options.stopStep,
     running: () => options.running?.() ?? false,
@@ -1218,6 +1231,7 @@ export function createBoard(options: BoardOptions) {
                       state.removing === edge.id || isDoomed(edge.from) || isDoomed(edge.to) ? "" : undefined
                     }
                     data-motion={motion ? "" : undefined}
+                    data-build={options.buildState?.(edge.id)}
                   >
                     <path class="wfn-edge-line" d={line().path} />
                     <Show when={tone(edge) === "run"}>
@@ -1297,6 +1311,7 @@ export function createBoard(options: BoardOptions) {
                   <span
                     class="wfn-edge-label"
                     data-branch={edge.branch}
+                    data-build={options.buildState?.(edge.id)}
                     aria-hidden="true"
                     style={{ left: `${spot().x}px`, top: `${spot().y}px` }}
                   >

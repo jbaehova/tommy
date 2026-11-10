@@ -15,7 +15,7 @@ import { RemoteTeamTransport, type RemoteTeamTransportRef } from "./remote-team-
 
 /**
  * How long the first attempt after a return to the app runs without a reconnect status. The app
- * stops its connection work in the background on iOS and Android, so the connection must come back
+ * stops its connection work in the background on Android, so the connection must come back
  * on each return. Most returns are online again in this time, and the app looks as the user left it.
  */
 const QUIET_RESUME_MS = 5_000;
@@ -41,6 +41,8 @@ export interface ServerConnectionHandle {
 }
 
 export interface ServerLoadContext {
+  /** A foreground return can refresh only reads if the direct socket stayed live. */
+  checkOnly: boolean;
   isCurrent(): boolean;
   stage: RemoteConnectionStage;
 }
@@ -92,6 +94,7 @@ export const ServerConnection = memo(function ServerConnection({
   const resumeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /** Set when the connection becomes inactive online, or in its quiet return. */
   const resumeOnReturn = useRef(false);
+  const nextCheckOnly = useRef(false);
   const onStatusRef = useRef(onStatus);
   onStatusRef.current = onStatus;
   /** Shows the status that the quiet time held back, such as an attempt that still connects. */
@@ -119,6 +122,7 @@ export const ServerConnection = memo(function ServerConnection({
   onMembershipChangedRef.current = onMembershipChanged;
   const handleNetworkRestored = useCallback(() => {
     supportLog.add("info", "connection", `${hostId} network restored`);
+    nextCheckOnly.current = false;
     controller.current?.networkRestored();
   }, [hostId]);
   const handleConnectionUpdate = useCallback(
@@ -130,6 +134,7 @@ export const ServerConnection = memo(function ServerConnection({
         `${hostId} ${update.state}${update.code ? ` (${update.code})` : ""}${update.message ? `: ${update.message}` : ""}${update.resync ? ", resync" : ""}`,
       );
       if (update.state === "offline") {
+        nextCheckOnly.current = false;
         if (update.code === "session_revoked") {
           if (activeRef.current) void onMembershipChangedRef.current?.().catch(() => undefined);
           else membershipRefreshPending.current = true;
@@ -138,7 +143,10 @@ export const ServerConnection = memo(function ServerConnection({
         if (update.code === "protocol_error") controller.current?.suspend(error);
         else controller.current?.offline(error);
       }
-      if (update.resync) controller.current?.refresh();
+      if (update.resync) {
+        nextCheckOnly.current = false;
+        controller.current?.refresh();
+      }
     },
     [hostId],
   );
@@ -148,14 +156,16 @@ export const ServerConnection = memo(function ServerConnection({
     let disposed = false;
     let failure: RemoteConnectionFailure | null = null;
     let loggedStatus = "";
-    let context: ServerLoadContext = { stage: "connection", isCurrent: () => false };
+    let context: ServerLoadContext = { checkOnly: false, stage: "connection", isCurrent: () => false };
     const recovery = createRemoteConnectionRecovery(
       () => {
         const attempt = ++generation.current;
         context = {
+          checkOnly: nextCheckOnly.current,
           stage: "connection",
           isCurrent: () => !disposed && activeRef.current && attempt === generation.current,
         };
+        nextCheckOnly.current = false;
         const initiatingContext = context;
         const started = Date.now();
         supportLog.add("info", "connection", `${hostId} attempt ${attempt} started`);
@@ -199,7 +209,14 @@ export const ServerConnection = memo(function ServerConnection({
       },
     );
     controller.current = recovery;
-    register(hostId, { client, refresh: () => recovery.refresh(), quietStart });
+    register(hostId, {
+      client,
+      refresh: () => {
+        nextCheckOnly.current = false;
+        recovery.refresh();
+      },
+      quietStart,
+    });
     recovery.setActive(activeRef.current);
     return () => {
       disposed = true;
@@ -223,6 +240,7 @@ export const ServerConnection = memo(function ServerConnection({
     } else if (inactiveSince.current !== null) {
       // Set before the controller starts the attempt, so its first status is already quiet.
       if (resumeOnReturn.current) {
+        nextCheckOnly.current = true;
         resumeOnReturn.current = false;
         resuming.current = true;
         resumeTimer.current = setTimeout(endResume, QUIET_RESUME_MS);

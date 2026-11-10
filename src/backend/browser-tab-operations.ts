@@ -462,6 +462,7 @@ export const runTabEvaluation = Effect.fn("BrowserTab.evaluate")(
     awaitPromise: boolean,
     timeoutMs: number,
     undefinedAsNull: boolean,
+    maxBytes?: number,
   ) =>
     enqueueTabOperation(tab, (_tab, keepQueueBlocked) =>
       Effect.gen(function* () {
@@ -477,6 +478,7 @@ export const runTabEvaluation = Effect.fn("BrowserTab.evaluate")(
             awaitPromise,
             yield* browserSync(() => remainingTime(deadline, timeoutMessage)),
             undefinedAsNull,
+            maxBytes,
           ),
           yield* browserSync(() => remainingTime(deadline, timeoutMessage)),
           timeoutMessage,

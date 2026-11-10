@@ -1,3 +1,4 @@
+import { decodeMessageDeletionEventFromHost } from "./remote-extension-decoding";
 // How an invalidation turns back into state the renderer can show.
 //
 // A host does not send a new conversation page when a message lands. It sends
@@ -80,6 +81,8 @@ export class RemoteEventRefresh {
     event: AgentEvent,
     bufferedLive = false,
   ) {
+    if (event.type === "conversation-messages-deleted" || event.type === "channel-messages-deleted")
+      event = decodeMessageDeletionEventFromHost(event);
     this.#advance(serverId);
     if (event.type === "agents-changed") this.#rosterLoads.delete(serverId);
     if (event.type === "conversation-invalidated") {

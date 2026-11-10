@@ -8,6 +8,7 @@ import type {
   VaultItemSummary,
   VaultState,
   VaultStatus,
+  VaultTwoStepCodes,
 } from "@tommy/contracts/ipc";
 import {
   decodeList,
@@ -22,7 +23,7 @@ import { type DynamicRecord, isOneOf, isString } from "@tommy/contracts/runtime-
 
 const STATUSES: readonly VaultStatus[] = ["ready", "unavailable", "unreadable"];
 const BRANDS: readonly VaultCardBrand[] = ["visa", "mastercard", "amex", "discover"];
-const SECRET_KEYS = ["password", "number", "securityCode", "key"] as const;
+const SECRET_KEYS = ["password", "number", "securityCode", "key", "twoStepKey", "secret"] as const;
 const decodeFillSites = guardedListDecoder(isString, "fillSites");
 
 function contactFields(item: DynamicRecord) {
@@ -59,6 +60,7 @@ function vaultItem(item: DynamicRecord): VaultItemSummary {
         username: requiredString(item, "username"),
         notes: requiredString(item, "notes"),
         hasPassword: requiredBoolean(item, "hasPassword"),
+        ...(item.hasTwoStep === undefined ? {} : { hasTwoStep: requiredBoolean(item, "hasTwoStep") }),
       };
     case "card": {
       const brand = item.brand;
@@ -114,4 +116,34 @@ export function decodeVaultImportResult(value: unknown): VaultImportResult {
 export function decodeVaultSecret(value: unknown): string {
   if (!isString(value)) throw new Error("Invalid Vault secret.");
   return value;
+}
+
+/** Codes can reach the settings UI; setup keys cannot. This is independent of the host decoder. */
+export function decodeVaultCodesFromMain(value: unknown): VaultTwoStepCodes {
+  const answer = decodeRecord(value, "Vault codes");
+  if (!Array.isArray(answer.codes) || answer.codes.length > 10_000 || SECRET_KEYS.some((key) => key in answer))
+    throw new Error("Invalid Vault codes from main.");
+  return {
+    codes: answer.codes.map((value) => {
+      const item = decodeRecord(value, "Vault code");
+      const id = requiredString(item, "id");
+      const code = requiredString(item, "code");
+      const period = requiredNumber(item, "period");
+      const remainingMs = requiredNumber(item, "remainingMs");
+      if (
+        !id ||
+        id.length > 64 ||
+        !/^\d{6,8}$/u.test(code) ||
+        !Number.isInteger(period) ||
+        period < 10 ||
+        period > 300 ||
+        !Number.isFinite(remainingMs) ||
+        remainingMs < 0 ||
+        remainingMs > period * 1_000 ||
+        SECRET_KEYS.some((key) => key in item)
+      )
+        throw new Error("Invalid Vault code from main.");
+      return { id, code, period, remainingMs };
+    }),
+  };
 }

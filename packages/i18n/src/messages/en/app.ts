@@ -74,4 +74,5 @@ export const messages = defineMessages("app", {
     "{name} moves to Full access. It will run commands and tools, change files, publish sites and widen its own filesystem and network access on the computer that runs it without asking again. You can change this in the agent's Permissions settings.",
   "app.standingApproval.descriptionUnnamed":
     "This agent moves to Full access. It will run commands and tools, change files, publish sites and widen its own filesystem and network access on the computer that runs it without asking again. You can change this in the agent's Permissions settings.",
+  "app.rail.library": "Library",
 });

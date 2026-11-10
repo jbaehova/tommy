@@ -69,4 +69,10 @@ export const messages = {
   "skill.preview.examplePrompt": "이 스킬을 사용할 수 있게 도와줘.",
   "skill.preview.try": "스킬 사용해 보기",
   "skill.preview.linkFailed": "링크를 열 수 없어요.",
+  "skill.local.revision": "버전 {revision}",
+  "skill.local.revisions": "스킬 버전",
+  "skill.local.restore": "이 버전 복원",
+  "skill.local.restoreTitle": "이 스킬 버전을 복원할까요?",
+  "skill.local.restoreDescription": "버전 {revision}의 내용을 새 버전으로 복원해요. 이전 버전은 모두 보존돼요.",
+  "skill.local.restoreFailed": "스킬 버전을 복원하지 못했어요. 다시 시도해 주세요.",
 } as const satisfies PartialTranslation<typeof source>;

@@ -16,6 +16,7 @@ import {
   decodeChannelRoutineRuns,
   decodeChannelRoutines,
   decodeChannelSummaries,
+  decodeHostVaultState,
   decodeInstalledSkills,
   decodeStorageUsage,
   type HiddenAgent,
@@ -32,6 +33,7 @@ import {
   type TeamRole,
   withFastServiceTiers,
 } from "@tommy/contracts/ipc";
+import { decodeMachineMetrics } from "@tommy/contracts/ipc-machine-resources";
 import { isDynamicRecord, isString } from "@tommy/contracts/runtime-values";
 import { TEAM_API_ROUTES } from "@tommy/contracts/team-api-routes";
 import { AGENT_ACCESS_CAPABILITY } from "@tommy/contracts/team-protocol/agent-access-v1";
@@ -59,17 +61,24 @@ import { AGENT_NOTIFICATION_LEVELS_CAPABILITY } from "@tommy/contracts/team-prot
 import { AGENT_PLAN_CARD_CAPABILITY, AGENT_PLAN_CARD_ROUTES } from "@tommy/contracts/team-protocol/agent-plan-card-v1";
 import { AGENT_PUBLISH_CAPABILITY } from "@tommy/contracts/team-protocol/agent-publish-v1";
 import { AGENT_SESSION_SETTINGS_CAPABILITY } from "@tommy/contracts/team-protocol/agent-session-settings-v1";
+import { AGENT_SPEED_CAPABILITY } from "@tommy/contracts/team-protocol/agent-speed-v1";
 import {
   AGENT_TASK_LIMIT_CAPABILITY,
   AGENT_TASK_LIMIT_ROUTES,
 } from "@tommy/contracts/team-protocol/agent-task-limit-v1";
 import { AGENT_TASKS_CAPABILITY } from "@tommy/contracts/team-protocol/agent-tasks-v1";
+import {
+  AGENT_THREAD_BRANCHES_CAPABILITY,
+  withAgentThreadBranches,
+} from "@tommy/contracts/team-protocol/agent-thread-branches-v1";
 import { AGENT_THREAD_FILES_CAPABILITY } from "@tommy/contracts/team-protocol/agent-thread-files-v1";
 import { AGENT_THREAD_READS_CAPABILITY } from "@tommy/contracts/team-protocol/agent-thread-reads-v1";
 import { AGENT_THREADS_CAPABILITY } from "@tommy/contracts/team-protocol/agent-threads-v1";
 import { AGENT_UPDATE_CAPABILITY } from "@tommy/contracts/team-protocol/agent-update-v1";
 import { BROWSER_PROFILES_CAPABILITY } from "@tommy/contracts/team-protocol/browser-profiles-v1";
 import { CHANNEL_ROUTES } from "@tommy/contracts/team-protocol/channels-v1";
+import { CHAT_HISTORY_CAPABILITY } from "@tommy/contracts/team-protocol/chat-history-v1";
+import { CHAT_TARGET_TAGS_CAPABILITY } from "@tommy/contracts/team-protocol/chat-target-tags-v1";
 import { CONTEXT_COMPACT_CAPABILITY, CONTEXT_COMPACT_ROUTES } from "@tommy/contracts/team-protocol/context-compact-v1";
 import { CONTEXT_RESET_CAPABILITY } from "@tommy/contracts/team-protocol/context-reset-v1";
 import {
@@ -94,7 +103,14 @@ import { HOST_RELEASE_CAPABILITY } from "@tommy/contracts/team-protocol/host-rel
 import { HOST_TIMEZONE_CAPABILITY } from "@tommy/contracts/team-protocol/host-timezone-v1";
 import { HOST_UPDATE_CAPABILITY } from "@tommy/contracts/team-protocol/host-update-v1";
 import { INSTANCE_TRANSFER_CAPABILITY } from "@tommy/contracts/team-protocol/instance-transfer-v1";
+import { LIVE_VOICE_CAPABILITY } from "@tommy/contracts/team-protocol/live-voice-v1";
+import {
+  MACHINE_RESOURCES_CAPABILITY,
+  MACHINE_RESOURCES_ROUTES,
+} from "@tommy/contracts/team-protocol/machine-resources-v1";
 import { MCP_SIGN_IN_CAPABILITY } from "@tommy/contracts/team-protocol/mcp-sign-in-v1";
+import { MESSAGE_DELETE_CAPABILITY } from "@tommy/contracts/team-protocol/message-delete-v1";
+import { PROVIDER_ACCOUNT_MODELS_CAPABILITY } from "@tommy/contracts/team-protocol/provider-account-models-v1";
 import { PROVIDER_ACCOUNTS_CAPABILITY } from "@tommy/contracts/team-protocol/provider-accounts-v1";
 import { PROVIDERS_ADMIN_CAPABILITY } from "@tommy/contracts/team-protocol/providers-v1";
 import { TEAM_QUEUE_EDIT_CAPABILITY } from "@tommy/contracts/team-protocol/queue-edit-v1";
@@ -109,6 +125,8 @@ import type { TeamProtocolV2Json } from "@tommy/contracts/team-protocol/v2";
 import { VAULT_IMPORT_CAPABILITY } from "@tommy/contracts/team-protocol/vault-import-v1";
 import { VAULT_CAPABILITY } from "@tommy/contracts/team-protocol/vault-v1";
 import { VAULT_V2_CAPABILITY } from "@tommy/contracts/team-protocol/vault-v2";
+import { VAULT_V3_CAPABILITY, VAULT_V3_ROUTES } from "@tommy/contracts/team-protocol/vault-v3";
+import { WEBHOOK_SENDER_SECRET_CAPABILITY } from "@tommy/contracts/team-protocol/webhook-sender-secret-v1";
 import { WORKFLOWS_GITHUB_CAPABILITY } from "@tommy/contracts/team-protocol/workflows-github-v1";
 import { WORKFLOWS_CAPABILITY } from "@tommy/contracts/team-protocol/workflows-v1";
 import type { MobileTextKey } from "@tommy/i18n/mobile";
@@ -194,11 +212,21 @@ import {
   type AgentMemoriesRequest,
   agentTaskControl,
   applyInstanceTransfer,
+  branchAgentThread,
+  cancelLiveVoice,
   clearAgentContext,
+  deleteAgentHistory,
+  deleteAgentMessage,
   deleteAgentThread,
+  deleteChannelHistory,
+  deleteChannelMessage,
+  deleteTaskMessage,
   discardInstanceTransfer,
   downloadInstanceTransfer,
+  getAgentSpeed,
+  getAgentSpeedModels,
   listAgentTasks,
+  listAgentThreadBranches,
   listAgentThreadReads,
   loadInstanceTransferSummary,
   markAgentThreadRead,
@@ -210,8 +238,11 @@ import {
   setAgentMemoryInclusion,
   stageInstanceTransfer,
   startAgentTask,
+  startLiveVoice,
+  stopLiveVoice,
   type TeamApiRequest,
   TeamRequestError,
+  updateAgentSpeed,
 } from "@tommy/team-client/team-api-requests";
 import { Effect } from "effect";
 import * as Crypto from "expo-crypto";
@@ -272,6 +303,7 @@ type HostRequestActions = Pick<
   | "rotateEventRoutineSecret"
   | "listEventActivity"
   | "loadHostAnalytics"
+  | "loadMachineMetrics"
   | "searchMessages"
   | "searchFiles"
   | "loadAgentTasks"
@@ -281,6 +313,7 @@ type HostRequestActions = Pick<
   | "controlAgentTask"
   | "renameAgentThread"
   | "deleteAgentThread"
+  | "branchAgentThread"
   | "loadAgentThreadReads"
   | "markAgentThreadRead"
   | "respondToTaskPrompt"
@@ -303,6 +336,16 @@ type HostRequestActions = Pick<
   | "updateAgentNewChat"
   | "loadAgentPlanCard"
   | "updateAgentPlanCard"
+  | "deleteAgentMessage"
+  | "deleteTaskMessage"
+  | "deleteChannelMessage"
+  | "deleteAgentHistory"
+  | "deleteChannelHistory"
+  | "cancelLiveVoice"
+  | "startLiveVoice"
+  | "stopLiveVoice"
+  | "loadAgentSpeed"
+  | "updateAgentSpeed"
   | "loadAgentFastMode"
   | "updateAgentFastMode"
   | "loadAgentInstructions"
@@ -471,6 +514,8 @@ export function createHostRequestActions({
       ? capabilityApi(serverId, AGENT_THREAD_FILES_CAPABILITY, "mobile.chat.threads.filesUnsupported")
       : tasksApi(serverId);
   /** The read marks of the threads are an optional route set beside the tasks. */
+  const threadBranchesApi = (serverId: string) =>
+    capabilityApi(serverId, AGENT_THREAD_BRANCHES_CAPABILITY, "mobile.chat.threads.unsupported");
   const threadReadsApi = (serverId: string) =>
     capabilityApi(serverId, AGENT_THREAD_READS_CAPABILITY, "mobile.chat.threads.unsupported");
   /** The server timezone and the agent memory limit are optional admin route sets. */
@@ -520,12 +565,21 @@ export function createHostRequestActions({
   const checks: HostRequestChecks = {
     canSearchFiles: (serverId) => has(serverId, CONVERSATION_FILE_SEARCH_CAPABILITY),
     canUseTasks: (serverId) => has(serverId, AGENT_TASKS_CAPABILITY),
+    canTagChatTargets: (serverId) => has(serverId, CHAT_TARGET_TAGS_CAPABILITY),
+    canChooseAgentSpeed: (serverId) => has(serverId, AGENT_SPEED_CAPABILITY),
+    canReadProviderAccountModels: (serverId) => has(serverId, PROVIDER_ACCOUNT_MODELS_CAPABILITY),
+    canDeleteMessages: (serverId) => has(serverId, MESSAGE_DELETE_CAPABILITY),
+    canDeleteChatHistory: (serverId) => has(serverId, CHAT_HISTORY_CAPABILITY),
+    canUseLiveVoice: (serverId) => has(serverId, LIVE_VOICE_CAPABILITY),
     canEditThreads: (serverId) => has(serverId, AGENT_THREADS_CAPABILITY),
     canReadThreads: (serverId) => has(serverId, AGENT_THREAD_READS_CAPABILITY),
     canAttachThreadFiles: (serverId) => has(serverId, AGENT_THREAD_FILES_CAPABILITY),
+    canBranchThreads: (serverId) => has(serverId, AGENT_THREAD_BRANCHES_CAPABILITY),
     canUseWorkflows: (serverId) => has(serverId, WORKFLOWS_CAPABILITY),
+    canUseWebhookSenderKeys: (serverId) => has(serverId, WEBHOOK_SENDER_SECRET_CAPABILITY),
     canUseWorkflowGitHub: (serverId) =>
       has(serverId, WORKFLOWS_CAPABILITY) && has(serverId, WORKFLOWS_GITHUB_CAPABILITY),
+    canReadMachineResources: (serverId) => has(serverId, MACHINE_RESOURCES_CAPABILITY),
     canReadServerStorage: (serverId) => has(serverId, STORAGE_CAPABILITY),
     canSetAgentNotificationLevel: (serverId) => has(serverId, AGENT_NOTIFICATION_LEVELS_CAPABILITY),
     canStartNewChat: (serverId) => has(serverId, CONTEXT_RESET_CAPABILITY),
@@ -563,11 +617,32 @@ export function createHostRequestActions({
     setOwnServerNotificationLevel: async (level, serverId) =>
       runTeamRequest(setOwnServerNotificationLevel(notificationLevelsApi(serverId), level)),
     loadVault: async (serverId) =>
-      runTeamRequest(listHostVault(vaultAdmin(serverId), has(serverId, VAULT_V2_CAPABILITY))),
+      has(serverId, VAULT_V3_CAPABILITY)
+        ? capabilityApi(serverId, VAULT_V3_CAPABILITY, "mobile.server.vault.unsupported")(
+            "POST",
+            VAULT_V3_ROUTES.list,
+            decodeHostVaultState,
+            {},
+          )
+        : runTeamRequest(listHostVault(vaultAdmin(serverId), has(serverId, VAULT_V2_CAPABILITY))),
     saveVaultItem: async (input, serverId) =>
-      runTeamRequest(saveHostVaultItem(vaultAdmin(serverId), input, has(serverId, VAULT_V2_CAPABILITY))),
+      has(serverId, VAULT_V3_CAPABILITY)
+        ? capabilityApi(serverId, VAULT_V3_CAPABILITY, "mobile.server.vault.unsupported")(
+            "POST",
+            VAULT_V3_ROUTES.save,
+            decodeHostVaultState,
+            { ...input },
+          )
+        : runTeamRequest(saveHostVaultItem(vaultAdmin(serverId), input, has(serverId, VAULT_V2_CAPABILITY))),
     deleteVaultItem: async (id, serverId) =>
-      runTeamRequest(deleteHostVaultItem(vaultAdmin(serverId), id, has(serverId, VAULT_V2_CAPABILITY))),
+      has(serverId, VAULT_V3_CAPABILITY)
+        ? capabilityApi(serverId, VAULT_V3_CAPABILITY, "mobile.server.vault.unsupported")(
+            "POST",
+            VAULT_V3_ROUTES.delete,
+            decodeHostVaultState,
+            { id },
+          )
+        : runTeamRequest(deleteHostVaultItem(vaultAdmin(serverId), id, has(serverId, VAULT_V2_CAPABILITY))),
     importVaultCsv: async (csv, serverId) => runTeamRequest(importHostVaultCsv(vaultImportAdmin(serverId), csv)),
     loadInstanceTransferSummary: async (serverId) =>
       runTeamRequest(loadInstanceTransferSummary(transferAdmin(serverId))),
@@ -737,6 +812,22 @@ export function createHostRequestActions({
       // The released model list drops the fast tier, so a host with `agent-fast-mode-v1` gives it on
       // its own route, as for desktop. The tiers are optional: when that route fails, the models
       // show with no Fast mode switch.
+      if (has(serverId, AGENT_SPEED_CAPABILITY)) {
+        const [options, speed] = await Promise.all([
+          models,
+          runTeamRequest(getAgentSpeedModels(teamApi(serverId))).catch(() => ({ models: [] })),
+        ]);
+        return options.map((option) => {
+          const tier = speed.models.find((entry) => entry.provider === option.provider && entry.id === option.id);
+          return tier
+            ? {
+                ...option,
+                fastServiceTier: tier.fastServiceTier,
+                ...(tier.ultrafastServiceTier ? { ultrafastServiceTier: tier.ultrafastServiceTier } : {}),
+              }
+            : option;
+        });
+      }
       if (!has(serverId, AGENT_FAST_MODE_CAPABILITY)) return models;
       const [options, fast] = await Promise.all([
         models,
@@ -808,7 +899,12 @@ export function createHostRequestActions({
       );
     },
     // Async, so a host without the capability rejects the promise and does not throw at the call.
-    loadAgentTasks: async (agentId, serverId) => runTeamRequest(listAgentTasks(tasksApi(serverId), agentId)),
+    loadAgentTasks: async (agentId, serverId) => {
+      const snapshot = await runTeamRequest(listAgentTasks(tasksApi(serverId), agentId));
+      if (!has(serverId, AGENT_THREAD_BRANCHES_CAPABILITY)) return snapshot;
+      const links = await runTeamRequest(listAgentThreadBranches(threadBranchesApi(serverId), agentId));
+      return withAgentThreadBranches(snapshot, links);
+    },
     loadAgentTaskConversation: async (input, serverId) => runTeamRequest(readAgentTask(tasksApi(serverId), input)),
     startAgentTask: async (input, serverId) =>
       runTeamRequest(startAgentTask(threadMessageApi(serverId, input.attachmentDraftIds), input)),
@@ -818,6 +914,7 @@ export function createHostRequestActions({
       runTeamRequest(agentTaskControl(tasksApi(serverId), action, input)),
     renameAgentThread: async (input, serverId) => runTeamRequest(renameAgentThread(threadsApi(serverId), input)),
     deleteAgentThread: async (input, serverId) => runTeamRequest(deleteAgentThread(threadsApi(serverId), input)),
+    branchAgentThread: async (input, serverId) => runTeamRequest(branchAgentThread(threadBranchesApi(serverId), input)),
     loadAgentThreadReads: async (agentId, serverId) =>
       runTeamRequest(listAgentThreadReads(threadReadsApi(serverId), agentId)),
     markAgentThreadRead: async (input, serverId) =>
@@ -924,6 +1021,49 @@ export function createHostRequestActions({
       requireCapability(capabilities, serverId, AGENT_PLAN_CARD_CAPABILITY, "mobile.agent.host.unsupported");
       return request("POST", AGENT_PLAN_CARD_ROUTES.update, decodeAgentPlanCardSettings, { ...input }, serverId);
     },
+    deleteAgentMessage: async (input, serverId) =>
+      runTeamRequest(
+        deleteAgentMessage(capabilityApi(serverId, MESSAGE_DELETE_CAPABILITY, "mobile.chat.delete.unsupported"), input),
+      ),
+    deleteTaskMessage: async (input, serverId) =>
+      runTeamRequest(
+        deleteTaskMessage(capabilityApi(serverId, MESSAGE_DELETE_CAPABILITY, "mobile.chat.delete.unsupported"), input),
+      ),
+    deleteChannelMessage: async (input, serverId) =>
+      runTeamRequest(
+        deleteChannelMessage(
+          capabilityApi(serverId, MESSAGE_DELETE_CAPABILITY, "mobile.chat.delete.unsupported"),
+          input,
+        ),
+      ),
+    deleteAgentHistory: async (input, serverId) =>
+      runTeamRequest(
+        deleteAgentHistory(capabilityApi(serverId, CHAT_HISTORY_CAPABILITY, "mobile.chat.delete.unsupported"), input),
+      ),
+    deleteChannelHistory: async (input, serverId) =>
+      runTeamRequest(
+        deleteChannelHistory(capabilityApi(serverId, CHAT_HISTORY_CAPABILITY, "mobile.chat.delete.unsupported"), input),
+      ),
+    startLiveVoice: async (input, serverId) =>
+      runTeamRequest(
+        startLiveVoice(capabilityApi(serverId, LIVE_VOICE_CAPABILITY, "mobile.chat.liveVoice.unsupported"), input),
+      ),
+    cancelLiveVoice: async (requestId, serverId) => {
+      await runTeamRequest(cancelLiveVoice(teamApi(serverId), { requestId }));
+    },
+    stopLiveVoice: async (sessionId, serverId) => {
+      await runTeamRequest(stopLiveVoice(teamApi(serverId), { sessionId }));
+    },
+    loadMachineMetrics: async (serverId) => {
+      requireCapability(capabilities, serverId, MACHINE_RESOURCES_CAPABILITY, "mobile.server.resources.unsupported");
+      return request("POST", MACHINE_RESOURCES_ROUTES.metrics, decodeMachineMetrics, {}, serverId);
+    },
+    loadAgentSpeed: async (agentId, serverId) =>
+      has(serverId, AGENT_SPEED_CAPABILITY) ? runTeamRequest(getAgentSpeed(teamApi(serverId), agentId)) : null,
+    updateAgentSpeed: async (input, serverId) =>
+      runTeamRequest(
+        updateAgentSpeed(capabilityApi(serverId, AGENT_SPEED_CAPABILITY, "mobile.agent.speed.unsupported"), input),
+      ),
     loadAgentFastMode: async (agentId, serverId) =>
       has(serverId, AGENT_FAST_MODE_CAPABILITY)
         ? request("POST", AGENT_FAST_MODE_ROUTES.settings, decodeAgentFastModeSettings, { agentId }, serverId)
@@ -963,7 +1103,9 @@ export function createHostRequestActions({
       );
     },
     loadProviderAccounts: async (serverId) =>
-      has(serverId, PROVIDER_ACCOUNTS_CAPABILITY) ? runTeamRequest(listProviderAccounts(teamApi(serverId))) : null,
+      has(serverId, PROVIDER_ACCOUNTS_CAPABILITY)
+        ? runTeamRequest(listProviderAccounts(teamApi(serverId), has(serverId, PROVIDER_ACCOUNT_MODELS_CAPABILITY)))
+        : null,
     loadPlanLimits: (serverId, accounts) => runTeamRequest(readPlanLimits(teamApi(serverId), accounts)),
     setAgentProviderAccount: async (input, serverId) => {
       requireCapability(

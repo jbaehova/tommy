@@ -6,17 +6,38 @@ import { Effect } from "effect";
 import type { LocalMcpSession } from "./local-mcp-bridge";
 import type { ClaudeMcpServer } from "./mcp-provider-shapes";
 import { providerCall } from "./provider-client-effects";
+import { TOMMY_DYNAMIC_TOOLS } from "./tommy-tools";
 
 // Pi owns MCP framing, reconnection, cancellation and tool registration. This extension only
 // adds the servers for this process. Credentials are not written to the extension file. Pi runs
 // the extension again when it switches sessions, so the list stays in a process slot for those runs.
-const EXTENSION = `export default function (pi) {
+const EXTENSION = String.raw`export default function (pi) {
   const slot = Symbol.for("tommy.pi.mcpServers");
   globalThis[slot] ??= JSON.parse(process.env.TOMMY_PI_MCP_SERVERS || "[]");
   delete process.env.TOMMY_PI_MCP_SERVERS;
   for (const server of globalThis[slot]) pi.registerMcpServer(server.name, server.config);
+  const workspace = Symbol.for("tommy.pi.workspace");
+  pi.on("project_trust", (event) => {
+    globalThis[workspace] ??= event.cwd;
+    return { trusted: event.cwd === globalThis[workspace] ? "yes" : "undecided" };
+  });
+  const piDocs = (message) =>
+    message.role === "system" && message.sections?.docs?.startsWith?.("<docs>\nPi documentation (read only when ");
+  pi.on("context_with_system", (event) => {
+    if (!event.messages.some(piDocs)) return undefined;
+    const messages = event.messages.flatMap((message, index) => {
+      if (!piDocs(message)) return [message];
+      const { docs, ...sections } = message.sections;
+      const empty = Object.keys(sections).length === 0 && !message.content?.length && !message.toolsAdded && !message.toolsRemoved;
+      return index > 0 && empty ? [] : [{ ...message, sections }];
+    });
+    return { messages };
+  });
 }
 `;
+
+/** These tools remain available through Tommy tool_search and tool_call. */
+const PI_SEARCH_ONLY_TOMMY_TOOLS = ["request_api_key"] as const;
 
 export interface PiMcpExtension {
   path: string;
@@ -69,12 +90,17 @@ export const createPiMcpExtension = Effect.fn("PiMcp.createExtension")(function*
         ? { ...server, headers: values(server.headers), exposure: "deferred", description: name }
         : { ...server, env: values(server.env), exposure: "deferred", description: name },
   }));
+  // `hidden` and not `deferred`: a deferred tool adds Pi's `tool_search` and an `<mcp_servers>` line,
+  // which take 928 of the 2,686 characters back.
   const bridge = local.servers.map((server) => ({
     name: serverName("local", server.name),
     config: {
       url: server.url,
       headers: values(Object.fromEntries(server.headers.map(({ name, value }) => [name, value]))),
       exposure: "direct",
+      ...(server.name === TOMMY_DYNAMIC_TOOLS.name
+        ? { toolExposure: Object.fromEntries(PI_SEARCH_ONLY_TOMMY_TOOLS.map((tool) => [tool, "hidden"])) }
+        : {}),
     },
   }));
   environment.TOMMY_PI_MCP_SERVERS = JSON.stringify([...entries, ...bridge]);

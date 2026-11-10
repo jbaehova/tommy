@@ -148,7 +148,11 @@ export function ServerVaultScreen() {
         {logins.map((login) => (
           <SettingsRow
             key={login.id}
-            supportingText={login.username || addedBy(login.addedBy)}
+            supportingText={
+              vault.canManageTwoStep && login.hasTwoStep
+                ? t("mobile.server.vault.twoStep.loginSummary", { username: login.username || vaultLoginTitle(login) })
+                : login.username || addedBy(login.addedBy)
+            }
             onPress={() => open({ itemId: login.id })}
           >
             <Typography.Paragraph numberOfLines={1}>{vaultLoginTitle(login)}</Typography.Paragraph>

@@ -1,22 +1,46 @@
+import { CONVERSATION_TRACE_STEP_LIMIT, type ConversationTurnTrace } from "@tommy/contracts/ipc";
+import { isDynamicRecord } from "@tommy/contracts/runtime-values";
 import { sourceText } from "@tommy/i18n/source";
 import { redactText } from "@tommy/logging";
 import { Effect } from "effect";
 import { z } from "zod";
 import type { AgentStore } from "../agent-store";
+import type { AgentTasks } from "../agent-tasks/agent-tasks";
 import type { ProviderSession } from "../database/provider-sessions";
 import { tommyToolResult } from "./routine-tools";
 import { type ToolOperationFailed, toolStep } from "./tool-operation";
+
+/**
+ * The tool steps of a turn trace, in the form of a capture. Null when the turn has no tool step.
+ * Thinking and answers stay out: the answers are in the history, and reasoning stays with the provider.
+ */
+function traceSteps(trace: ConversationTurnTrace): string | null {
+  const steps = trace.steps.flatMap((step) => {
+    if (step.kind !== "tool") return [];
+    const status = step.failed ? "failed" : step.endedAt === null ? "unfinished" : "completed";
+    const name = step.command ? `$ ${step.command}` : `tool ${step.text ?? "step"}`;
+    return [`${name} (${status})`];
+  });
+  if (!steps.length) return null;
+  // The trace keeps only the first steps of a turn.
+  const cut = trace.steps.length >= CONVERSATION_TRACE_STEP_LIMIT ? ["(later steps left out)"] : [];
+  return ["[work steps]", ...steps, ...cut, "[end work steps]"].join("\n");
+}
 
 const id = z.string().min(1).max(512);
 const cursorText = z.string().min(1).max(4096);
 /** Messages one search call reads before it returns a cursor, whether or not they match. */
 const SEARCH_SCAN_ROWS = 200;
+/** A side thread of the calling agent, in place of the current conversation. The router checks the owner. */
+const taskId = id.optional();
 const searchShape = {
+  taskId,
   query: z.string().trim().min(1).max(200),
   cursor: cursorText.optional(),
   limit: z.number().int().min(1).max(10).optional(),
 };
 const readShape = {
+  taskId,
   messageId: id.optional(),
   before: cursorText.optional(),
   offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
@@ -32,6 +56,7 @@ const readSchema = z
       !(value.messageId && value.before) &&
       (value.offset === undefined || Boolean(value.messageId)) &&
       (value.workStepsOffset === undefined || Boolean(value.messageId && value.includeWorkSteps)),
+    { message: sourceText("error.agent.historyReadArguments") },
   );
 const cursorSchema = z.strictObject({
   version: z.literal(1),
@@ -45,13 +70,13 @@ export const HISTORY_TOOL_DEFINITIONS = [
   {
     name: "history_search",
     description:
-      "Search messages in this conversation after its latest context reset. Returns bounded excerpts and a cursor; use history_read for omitted text. Does not search other chats or channels.",
+      "Search this conversation, or your thread by taskId, after its latest reset. Returns bounded excerpts and a cursor; history_read gives omitted text. No other chats or channels.",
     shape: searchShape,
   },
   {
     name: "history_read",
     description:
-      "Read current-conversation history after its latest reset. Read a messageId with offset for large text, or use before from an earlier response for older messages. Optional captured work steps contain no raw reasoning; continue them with workStepsOffset from nextWorkStepsOffset. Channels use channel_history.",
+      "Read this chat, or your thread by taskId, after its latest reset. Read a messageId with offset for large text, or use before from an earlier response for older messages. Optional captured work steps contain no raw reasoning; continue them with workStepsOffset from nextWorkStepsOffset. Channels use channel_history.",
     shape: readShape,
   },
 ];
@@ -131,6 +156,7 @@ export class HistoryTools {
     const maximum = search ? 8000 : 16000;
     const sessions = read?.includeWorkSteps ? store.database.listProviderSessions(threadId) : [];
     const captures = new Map<string, Map<string, string> | null>();
+    const traces = new Map<string, string | null>();
     let more = page.messages.length > scanLimit;
     for (const row of page.messages.slice(0, scanLimit)) {
       if (result.messages.length === limit) {
@@ -168,10 +194,18 @@ export class HistoryTools {
       if (read?.includeWorkSteps) {
         const session = sessions.find((candidate) => candidate.id === row.providerSessionId);
         if (session && !captures.has(session.id)) captures.set(session.id, yield* this.#options.capturedSteps(session));
-        const stepText = redact(
-          (session && message.turnId ? captures.get(session.id)?.get(message.turnId) : null) ??
-            "Captured work steps are unavailable.",
-        );
+        let steps = session && message.turnId ? captures.get(session.id)?.get(message.turnId) : undefined;
+        // Only a session that a provider switch or a rotation replaced has a capture. A turn of the
+        // current session, such as a routine run, has the trace that the chat shows.
+        const turnId = message.turnId;
+        if (!steps && turnId) {
+          if (!traces.has(turnId)) {
+            const trace = yield* toolStep(() => store.database.readTurnTrace(threadId, turnId));
+            traces.set(turnId, trace ? traceSteps(trace) : null);
+          }
+          steps = traces.get(turnId) ?? undefined;
+        }
+        const stepText = redact(steps ?? "Captured work steps are unavailable.");
         const stepOffset = read.workStepsOffset ?? 0;
         if (stepOffset > stepText.length) throw new Error(sourceText("error.agent.historyUnavailable"));
         let size = Math.min(4000, stepText.length - stepOffset);
@@ -225,4 +259,18 @@ export class HistoryTools {
       throw new Error(sourceText("error.agent.historyUnavailable"));
     return tommyToolResult(result);
   }).bind(this);
+}
+
+/** Resolve only after ConversationRuntime.historyScope validates the calling client and thread. */
+export function historyTaskThreadId(
+  agentId: string,
+  currentThreadId: string,
+  argumentsValue: unknown,
+  tasks: Pick<AgentTasks, "has" | "require">,
+): string | null {
+  const taskId = isDynamicRecord(argumentsValue) ? argumentsValue.taskId : undefined;
+  if (taskId === undefined) return currentThreadId;
+  if (typeof taskId !== "string" || !tasks.has(agentId, taskId)) return null;
+  const task = tasks.require(agentId, taskId);
+  return task.agentId === agentId ? task.threadId : null;
 }

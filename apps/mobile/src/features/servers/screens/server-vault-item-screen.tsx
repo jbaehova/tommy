@@ -9,12 +9,14 @@ import {
   type VaultSaveInput,
   type VaultState,
 } from "@tommy/contracts/ipc";
-import { router, Stack, useLocalSearchParams } from "expo-router";
+import { normalizeTwoStepKey, TWO_STEP_KEY_LIMIT } from "@tommy/contracts/two-step-code";
+import { router, Stack, useIsFocused, useLocalSearchParams } from "expo-router";
 import { usePreventRemove } from "expo-router/react-navigation";
 import { Typography } from "heroui-native";
-import { Children, type ReactNode, useEffect, useRef, useState } from "react";
+import { Children, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, View } from "react-native";
 import { useUniwind } from "uniwind";
+import { VaultTwoStepCode } from "@/features/servers/components/vault-two-step-code";
 import { useServerVault } from "@/features/servers/model/use-server-vault";
 import {
   type VaultDraft,
@@ -39,6 +41,8 @@ import type { SheetFormFieldProps } from "@/shared/components/sheet-form-field.t
 import { SheetSaveAction } from "@/shared/components/sheet-save-action";
 import { haptics } from "@/shared/lib/haptics";
 import { useText } from "@/shared/lib/text";
+import { useAppForeground } from "@/shared/lib/use-app-foreground";
+import { Txt } from "@/shared/ui/text";
 
 const KINDS: readonly VaultItemKind[] = ["login", "card", "contact", "apiKey"];
 // Examples that are the same in each language.
@@ -98,7 +102,7 @@ export function ServerVaultItemScreen() {
   );
   return (
     <VaultItemForm
-      key={saved?.id ?? itemKind}
+      key={`${vault.identity}:${saved?.id ?? itemKind}`}
       serverId={serverId}
       host={vault.server.name}
       kind={itemKind}
@@ -136,7 +140,7 @@ export function VaultItemForm({
   vault: ReturnType<typeof useServerVault>;
   request?: VaultItemRequest | undefined;
 }) {
-  const { t, errorMessage } = useText();
+  const { t, errorMessage, locale } = useText();
   const { theme } = useUniwind();
   const { saveVaultItem, deleteVaultItem } = useMobileWorkspaceActions();
   const { action, perform, setState } = vault;
@@ -144,6 +148,18 @@ export function VaultItemForm({
   const { label: suggestedLabel, ...prefill } = request?.prefill ?? {};
   const [initial] = useState(() => ({ ...vaultDraft(saved), ...prefill }));
   const [draft, setDraft] = useState<VaultDraft>(initial);
+  // A setup key is a temporary secret, separate from ordinary drafts and agent-prefilled values.
+  const [twoStepKey, setTwoStepKey] = useState("");
+  const [removeTwoStep, setRemoveTwoStep] = useState(false);
+  const focused = useIsFocused();
+  const foreground = useAppForeground();
+  const canEditTwoStep = vault.canManageTwoStep && kind === "login" && !request;
+  useEffect(() => {
+    if (!focused || !foreground || !canEditTwoStep) {
+      setTwoStepKey("");
+      setRemoveTwoStep(false);
+    }
+  }, [focused, foreground, canEditTwoStep]);
   // Navigation runs a render later, once the guard below reads `leaving`.
   const [leaving, setLeaving] = useState(false);
   const [discarding, setDiscarding] = useState(false);
@@ -158,9 +174,21 @@ export function VaultItemForm({
     removedState.current = null;
     if (state) void showState.current(state);
   }, [leaving]);
-  const input = vaultSaveInput(kind, saved?.id ?? null, draft);
+  const baseInput = vaultSaveInput(kind, saved?.id ?? null, draft);
+  const hasTypedKey = twoStepKey.trim().length > 0;
+  const normalizedKey = hasTypedKey ? normalizeTwoStepKey(twoStepKey) : null;
+  const invalidTwoStepKey = canEditTwoStep && hasTypedKey && normalizedKey === null;
+  const input = invalidTwoStepKey
+    ? null
+    : baseInput?.kind === "login" && canEditTwoStep
+      ? { ...baseInput, ...(removeTwoStep ? { twoStepKey: "" } : normalizedKey ? { twoStepKey: normalizedKey } : {}) }
+      : baseInput;
   const example = vaultAddressExample(draft.country);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
+  const countryOptions = useMemo(
+    () => (kind === "contact" ? vaultCountryOptions(t, draft.country, locale) : []),
+    [kind, t, draft.country, locale],
+  );
+  const dirty = JSON.stringify(draft) !== JSON.stringify(initial) || (canEditTwoStep && (hasTypedKey || removeTwoStep));
   const locked = action.isPending;
 
   usePreventRemove(!discarding && (dirty || locked) && !leaving, ({ repeat }) => {
@@ -172,6 +200,8 @@ export function VaultItemForm({
         text: t("mobile.agent.discard.discard"),
         style: "destructive",
         onPress: () => {
+          setTwoStepKey("");
+          setRemoveTwoStep(false);
           setDiscarding(true);
           repeat();
         },
@@ -189,7 +219,11 @@ export function VaultItemForm({
       if (request) await request.save(input);
       else await setState(await saveVaultItem(input, serverId));
     }).then((done) => {
-      if (done) setLeaving(true);
+      if (done) {
+        setTwoStepKey("");
+        setRemoveTwoStep(false);
+        setLeaving(true);
+      }
     });
   };
   const remove = () => {
@@ -305,6 +339,63 @@ export function VaultItemForm({
               maxLength: VAULT_PASSWORD_LIMIT,
               hint: t("mobile.server.vault.secretHint", { host }),
             })}
+            {canEditTwoStep ? (
+              <View className="gap-3">
+                {!removeTwoStep ? (
+                  <SheetFormField
+                    label={t("mobile.server.vault.twoStep.setupKey")}
+                    value={twoStepKey}
+                    onChangeText={(value) => {
+                      setTwoStepKey(value);
+                      if (action.error) action.reset();
+                    }}
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                    autoComplete="off"
+                    importantForAutofill="no"
+                    secureTextEntry
+                    editable={!locked}
+                    maxLength={TWO_STEP_KEY_LIMIT}
+                    placeholder={
+                      saved?.kind === "login" && saved.hasTwoStep ? t("mobile.server.vault.twoStep.saved") : undefined
+                    }
+                    hint={t("mobile.server.vault.twoStep.keyHint")}
+                  />
+                ) : (
+                  <SettingsNote>{t("mobile.server.vault.twoStep.removeOnSave")}</SettingsNote>
+                )}
+                {invalidTwoStepKey ? (
+                  <Txt variant="caption" tone="danger" accessibilityRole="alert">
+                    {t("mobile.server.vault.twoStep.invalidKey")}
+                  </Txt>
+                ) : null}
+                {saved?.kind === "login" && saved.hasTwoStep ? (
+                  <SettingsSection>
+                    <SettingsRow
+                      disclosure={false}
+                      disabled={locked}
+                      onPress={() => {
+                        setTwoStepKey("");
+                        setRemoveTwoStep((value) => !value);
+                        if (action.error) action.reset();
+                      }}
+                    >
+                      <Txt tone={removeTwoStep ? "accent" : "danger"}>
+                        {t(removeTwoStep ? "mobile.server.vault.twoStep.keep" : "mobile.server.vault.twoStep.remove")}
+                      </Txt>
+                    </SettingsRow>
+                  </SettingsSection>
+                ) : null}
+                {saved?.kind === "login" && saved.hasTwoStep && !removeTwoStep && !hasTypedKey ? (
+                  <VaultTwoStepCode
+                    identity={vault.identity}
+                    itemId={saved.id}
+                    allowed={vault.canManageTwoStep && !locked}
+                    load={vault.loadCodes}
+                  />
+                ) : null}
+              </View>
+            ) : null}
             {request
               ? null
               : field("notes", t("mobile.server.vault.notes"), {
@@ -393,7 +484,7 @@ export function VaultItemForm({
                     enabled={!locked}
                     dark={theme === "dark"}
                     label={t("mobile.server.vault.country")}
-                    options={vaultCountryOptions(t, draft.country)}
+                    options={countryOptions}
                     onChange={(value) => edit({ country: value })}
                   />
                 }

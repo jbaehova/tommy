@@ -79,6 +79,7 @@ import {
   type UpdateQueuedMessageInput,
   type UpdateRoutineInput,
 } from "@tommy/contracts/ipc";
+import { isRoutineRunPlace } from "@tommy/contracts/routine-run-place-v1";
 import { isBoolean, isNumber, isOneOf, isString } from "@tommy/contracts/runtime-values";
 import { decodeQueueEditRequest } from "@tommy/contracts/team-protocol/queue-edit-v1";
 import { sourceText } from "@tommy/i18n/source";
@@ -281,6 +282,7 @@ export function parseCreateRoutine(value: unknown): CreateRoutineInput {
     schedule: parseRoutineSchedule(value.schedule),
     ...optionalLimitPolicy(value.limitPolicy),
     ...optionalMissedPolicy(value.missedPolicy),
+    ...optionalRunPlace(value.runIn),
   };
 }
 
@@ -299,9 +301,20 @@ export function parseUpdateRoutine(value: unknown): UpdateRoutineInput {
     parsed.active = value.active;
   }
   if (value.schedule !== undefined) parsed.schedule = parseRoutineSchedule(value.schedule);
-  Object.assign(parsed, optionalLimitPolicy(value.limitPolicy), optionalMissedPolicy(value.missedPolicy));
+  Object.assign(
+    parsed,
+    optionalLimitPolicy(value.limitPolicy),
+    optionalMissedPolicy(value.missedPolicy),
+    optionalRunPlace(value.runIn),
+  );
   if (Object.keys(parsed).length === 2) throw new Error("A routine update is required.");
   return parsed;
+}
+
+function optionalRunPlace(value: unknown): { runIn?: "chat" | "thread" } {
+  if (value === undefined) return {};
+  if (!isRoutineRunPlace(value)) throw new Error("Invalid routine run place.");
+  return { runIn: value };
 }
 
 function optionalLimitPolicy(value: unknown): { limitPolicy?: RoutineLimitPolicy } {
@@ -717,6 +730,11 @@ export function parseUpdateAgent(value: unknown): UpdateAgentInput {
   if (value.fastMode !== undefined) {
     if (!isBoolean(value.fastMode)) throw new Error("Invalid fast mode value.");
     result.fastMode = value.fastMode;
+  }
+  if (value.ultrafast !== undefined) {
+    if (!isBoolean(value.ultrafast) || (value.ultrafast && value.fastMode !== true))
+      throw new Error("Invalid ultrafast mode value.");
+    result.ultrafast = value.ultrafast;
   }
   if (value.providerAccountId !== undefined) {
     if (value.providerAccountId !== null && !isProviderAccountId(value.providerAccountId))

@@ -24,6 +24,18 @@ export function serverSupportsCapability(
 ): boolean {
   if (
     (capability === "remote-desktop-setup" ||
+      capability === "provider-account-models-v1" ||
+      capability === "skill-learning-v1" ||
+      capability === "browser-profile-proxy-v1" ||
+      capability === "vault-v3" ||
+      capability === "agent-speed-v1" ||
+      capability === "chat-target-tags-v1" ||
+      capability === "live-voice-v1" ||
+      capability === "message-delete-v1" ||
+      capability === "chat-history-v1" ||
+      capability === "workflows-extensions-v1" ||
+      capability === "routine-run-place-v1" ||
+      capability === "webhook-sender-secret-v1" ||
       capability === "channel-chats-v1" ||
       capability === "channel-delete-v1" ||
       capability === "channel-attention-v1" ||

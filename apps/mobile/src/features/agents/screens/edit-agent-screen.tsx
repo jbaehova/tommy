@@ -50,6 +50,7 @@ import { AgentSharedTables } from "@/features/agents/components/agent-shared-tab
 import { AgentTasksRow } from "@/features/agents/components/agent-tasks-row";
 import { BloubAvatarPreview } from "@/features/agents/components/bloub-avatar";
 import { InstructionsLimit, instructionsTooLong } from "@/features/agents/components/instructions-limit";
+import { DeleteChatHistorySection } from "@/features/chat/components/delete-chat-history-section";
 import { SettingsRow, SettingsSection } from "@/features/settings/components/settings-content";
 import {
   type MobileAgent,
@@ -394,6 +395,10 @@ function AgentForm({
       {page === "runtime" ? (
         <AgentRuntimeFields
           serverId={agent.serverId}
+          modelPickerRoute={{
+            pathname: "/agent-info/[agentId]/model-picker",
+            params: { agentId: agent.id, serverId: agent.serverId },
+          }}
           available={available}
           saving={saving}
           provider={provider}
@@ -413,8 +418,8 @@ function AgentForm({
           }}
           // The switch saves at once, for the saved model. An unsaved model change hides it.
           fastMode={
-            provider === agent.provider && (edits.model ?? agent.model) === agent.model
-              ? { agent, server: host, available }
+            provider === agent.provider && (edits.model ?? agent.model) === agent.model && !accountChanged
+              ? { agent, server: host, available, accountScope: savedAccount }
               : undefined
           }
         />
@@ -449,6 +454,7 @@ function AgentForm({
           <AgentNewChatAllowedField agent={agent} server={host} available={available} />
           {/* After the new-chat switch, as in the desktop Advanced group. */}
           <AgentPlanCardField agent={agent} server={host} available={available} />
+          <DeleteChatHistorySection serverId={agent.serverId} agentId={agent.id} />
         </>
       ) : null}
       {page === "folders" ? <AgentFolders agent={agent} host={host} available={available} /> : null}

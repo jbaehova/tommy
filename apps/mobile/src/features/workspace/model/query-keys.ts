@@ -19,6 +19,7 @@ type AgentRecordPart =
   | "new-chat"
   | "plan-card"
   | "fast-mode"
+  | "speed"
   | "instructions"
   | "publish"
   | "browser-profile"
@@ -36,6 +37,7 @@ export const AGENT_SETTINGS_PARTS: readonly string[] = [
   "new-chat",
   "plan-card",
   "fast-mode",
+  "speed",
   "session-settings",
   "provider-accounts",
   "browser-profile",
@@ -171,6 +173,7 @@ export const queryKeys = {
   ],
   /** The plan limits of a server's providers. The host's `usage-changed` event writes the providers' own sign-ins. */
   planLimits: (scope: QueryScope, serverId: string) => ["plan-limits", ...scope, serverId],
+  machineResources: (scope: QueryScope, serverId: string) => ["machine-resources", ...scope, serverId],
   serverUsage: (scope: QueryScope, serverId: string, range: unknown) => ["server-usage", ...scope, serverId, range],
   /** The routine calendar of a server. Its routine and turn events invalidate the prefix. */
   serverRoutines: (scope: QueryScope, serverId: string, ...range: [] | [from: string, to: string]) => [
@@ -197,6 +200,7 @@ export const queryKeys = {
     "reads",
     agentId,
   ],
+  agentTaskConversations: (scope: QueryScope, serverId: string) => [...queryKeys.serverTasks(scope, serverId), "task"],
   agentTaskConversation: (scope: QueryScope, serverId: string, taskId: string) => [
     ...queryKeys.serverTasks(scope, serverId),
     "task",
@@ -236,8 +240,18 @@ export const queryKeys = {
     repository.toLowerCase(),
   ],
   /** The query is the last part: a search that continues the typed query keeps its results on screen. */
-  messageSearch: (scope: QueryScope, serverId: string, query: string) => ["message-search", ...scope, serverId, query],
-  fileSearch: (scope: QueryScope, serverId: string, query: string) => ["file-search", ...scope, serverId, query],
+  messageSearch: (scope: QueryScope, serverId: string, ...query: [] | [string]) => [
+    "message-search",
+    ...scope,
+    serverId,
+    ...query,
+  ],
+  fileSearch: (scope: QueryScope, serverId: string, ...query: [] | [string]) => [
+    "file-search",
+    ...scope,
+    serverId,
+    ...query,
+  ],
 
   /** The ignored webhook requests. A routine change also invalidates them. */
   routineWebhooks: (serverId: string) => ["routine-webhooks", serverId],

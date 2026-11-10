@@ -1,6 +1,9 @@
+import type { VoiceLiveEvent } from "@tommy/contracts/ipc-voice";
 import type { HostRestartEvent } from "@tommy/contracts/team-protocol/host-update-v1";
 import type { MachineAlertEvent } from "@tommy/contracts/team-protocol/machine-resources-v1";
 import { optionalTeamEvent, optionalTeamEventToCurrent } from "@tommy/contracts/team-protocol/optional-events";
+import { addRoutineTaskReferences } from "@tommy/contracts/team-protocol/routine-run-place-v1";
+import { addSkillSuggestionNames } from "@tommy/contracts/team-protocol/skill-learning-v1";
 import { decodeTeamProtocolV8BaseCurrentEvent } from "@tommy/contracts/team-protocol/v8-base-adapter";
 import { Effect, Exit, Result, Scope } from "effect";
 import { RemoteWorkflowError, remoteDecode } from "./remote-service-effects";
@@ -103,6 +106,7 @@ export interface RemoteEventStreamOptions {
   onPresence: (serverId: string, snapshot: TeamPresenceSnapshot) => void;
   onHostRestart: (serverId: string, event: HostRestartEvent) => void;
   onMachineAlert: (serverId: string, event: MachineAlertEvent) => void;
+  onLiveVoice?: (serverId: string, event: VoiceLiveEvent) => void;
   onOffline: (serverId: string) => void;
   onChanged: () => void;
 }
@@ -120,6 +124,7 @@ export class RemoteEventStream {
   readonly #onPresence: RemoteEventStreamOptions["onPresence"];
   readonly #onHostRestart: RemoteEventStreamOptions["onHostRestart"];
   readonly #onMachineAlert: RemoteEventStreamOptions["onMachineAlert"];
+  readonly #onLiveVoice: RemoteEventStreamOptions["onLiveVoice"];
   readonly #onOffline: RemoteEventStreamOptions["onOffline"];
   readonly #onChanged: RemoteEventStreamOptions["onChanged"];
   readonly #controllers = new Map<string, AbortController>();
@@ -146,6 +151,7 @@ export class RemoteEventStream {
     this.#onPresence = options.onPresence;
     this.#onHostRestart = options.onHostRestart;
     this.#onMachineAlert = options.onMachineAlert;
+    this.#onLiveVoice = options.onLiveVoice;
     this.#onOffline = options.onOffline;
     this.#onChanged = options.onChanged;
   }
@@ -539,7 +545,22 @@ export class RemoteEventStream {
               return;
             }
             const event = decoded.event;
-            if (event.type === "team-identity") {
+            addSkillSuggestionNames(event, value);
+            addRoutineTaskReferences(event, value);
+            if (event.type === "live-voice") {
+              this.#onLiveVoice?.(
+                serverId,
+                event.kind === "transcript"
+                  ? {
+                      type: "transcript",
+                      sessionId: event.sessionId,
+                      role: event.role,
+                      text: event.text,
+                      final: event.final,
+                    }
+                  : { type: "ended", sessionId: event.sessionId, error: event.error },
+              );
+            } else if (event.type === "team-identity") {
               this.#onServerIdentity(serverId, { serverName: event.serverName, logoVersion: event.logoVersion });
             } else if (event.type === "team-presence") {
               this.#onPresence(serverId, event.snapshot);

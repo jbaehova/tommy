@@ -259,9 +259,10 @@ export class PushNotificationService {
    */
   #deliver = Effect.fn("PushNotifications.deliver")(function* (
     this: PushNotificationService,
-    event: AgentEvent,
+    received: AgentEvent,
     only?: Registration,
   ) {
+    const event = received.type === "routine-thread-turn-completed" ? received.turn : received;
     const subject = eventSubject(event);
     if (!subject) return;
     const now = this.#now();

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import {
+  type AgentModelOption,
   type AgentProviderId,
   type AgentReasoningEffort,
   agentProviderName,
@@ -10,9 +11,15 @@ import {
 } from "@tommy/contracts/ipc";
 import { CLAUDE_API_KEY_ACCOUNT_ID } from "@tommy/contracts/team-protocol/claude-api-key-v1";
 import type { MobileTextKey } from "@tommy/i18n/mobile";
+import { type Href, router } from "expo-router";
 import { Button, Typography } from "heroui-native";
 import { useUniwind } from "uniwind";
-import { AgentFastModeField, type AgentHostFieldsProps } from "@/features/agents/components/agent-host-fields";
+import {
+  AgentFastModeField,
+  type AgentHostFieldsProps,
+  AgentSpeedField,
+} from "@/features/agents/components/agent-host-fields";
+import { useAgentModelPicker } from "@/features/agents/model/agent-model-picker";
 import { useQueryScope } from "@/features/auth/context/mobile-session-context";
 import { SettingsRow, SettingsSection } from "@/features/settings/components/settings-content";
 import { SettingsPicker } from "@/features/settings/components/settings-controls";
@@ -46,8 +53,9 @@ export function useProviderAccounts(agent: MobileAgent, enabled: boolean) {
   const workspace = useMobileWorkspaceActions();
   const queryScope = useQueryScope();
   const canManage = useMobileWorkspaceSelector((current) => current.canManageProviderAccounts(agent.serverId));
+  const accountModels = useMobileWorkspaceSelector((current) => current.canReadProviderAccountModels(agent.serverId));
   // Under "agent-info", so the host's agent events refresh it with the other agent records.
-  const queryKey = queryKeys.agentProviderAccounts(queryScope, agent.serverId, agent.id);
+  const queryKey = [...queryKeys.agentProviderAccounts(queryScope, agent.serverId, agent.id), accountModels];
   const accounts = useQuery({
     queryKey,
     queryFn: () => workspace.loadProviderAccounts(agent.serverId),
@@ -72,6 +80,7 @@ export function useProviderAccountName() {
 
 export function AgentRuntimeFields({
   serverId,
+  modelPickerRoute,
   available,
   saving,
   provider,
@@ -87,6 +96,7 @@ export function AgentRuntimeFields({
   fastMode,
 }: {
   serverId: string;
+  modelPickerRoute: Href;
   available: boolean;
   saving: boolean;
   provider?: AgentProviderId;
@@ -119,10 +129,22 @@ export function AgentRuntimeFields({
     enabled: available,
     retry: false,
   });
-  const options = models.data?.filter((option) => option.provider === provider) ?? [];
+  const accountModels = accounts.find((account) => account.id === (accountId || "default"))?.models;
+  const options = accountModels ?? models.data?.filter((option) => option.provider === provider) ?? [];
   const selected = options.find((option) => option.id === model);
+  const speedSupported = useMobileWorkspaceSelector((current) => current.canChooseAgentSpeed(serverId));
   const enabled = available && !saving && options.length > 0;
   const showsModel = foreignProvider === undefined && (!hostDefault || provider !== undefined);
+  const openModelPicker = useAgentModelPicker((state) => state.open);
+  const chooseModel = (next: AgentModelOption) => {
+    onChange({
+      model: next.id,
+      reasoningEffort:
+        reasoningEffort && next.supportedReasoningEfforts.includes(reasoningEffort)
+          ? reasoningEffort
+          : next.defaultReasoningEffort,
+    });
+  };
   return (
     <>
       <SettingsSection title={title}>
@@ -197,39 +219,19 @@ export function AgentRuntimeFields({
         ) : null}
         {showsModel ? (
           <SettingsRow
-            trailing={
-              <SettingsPicker<string>
-                value={model ?? ""}
-                options={[
-                  ...(!selected
-                    ? [
-                        {
-                          value: model ?? "",
-                          label: model ? pickerLabel(model, true) : t("mobile.agent.runtime.unavailable"),
-                        },
-                      ]
-                    : []),
-                  ...options.map((option) => ({
-                    value: option.id,
-                    label: pickerLabel(option.name, option.id === model),
-                  })),
-                ]}
-                enabled={enabled}
-                dark={theme === "dark"}
-                label={t("mobile.agent.runtime.model")}
-                onChange={(id) => {
-                  const next = options.find((option) => option.id === id);
-                  if (!next) return;
-                  onChange({
-                    model: next.id,
-                    reasoningEffort:
-                      reasoningEffort && next.supportedReasoningEfforts.includes(reasoningEffort)
-                        ? reasoningEffort
-                        : next.defaultReasoningEffort,
-                  });
-                }}
-              />
-            }
+            disabled={!enabled}
+            supportingText={selected?.name ?? model ?? t("mobile.agent.runtime.unavailable")}
+            onPress={() => {
+              if (!provider) return;
+              openModelPicker({
+                serverId,
+                provider,
+                model,
+                choose: chooseModel,
+                ...(accountModels === undefined ? {} : { models: accountModels }),
+              });
+              router.push(modelPickerRoute);
+            }}
           >
             <Typography.Paragraph>{t("mobile.agent.runtime.model")}</Typography.Paragraph>
           </SettingsRow>
@@ -267,7 +269,13 @@ export function AgentRuntimeFields({
           </SettingsRow>
         ) : null}
       </SettingsSection>
-      {fastMode && showsModel && selected?.fastServiceTier ? <AgentFastModeField {...fastMode} /> : null}
+      {fastMode && showsModel && selected?.fastServiceTier ? (
+        speedSupported ? (
+          <AgentSpeedField {...fastMode} ultrafast={Boolean(selected.ultrafastServiceTier)} />
+        ) : (
+          <AgentFastModeField {...fastMode} />
+        )
+      ) : null}
       {models.isError ? (
         <Button variant="ghost" onPress={() => void models.refetch()}>
           <Button.Label>{t("mobile.agent.runtime.retryModels")}</Button.Label>

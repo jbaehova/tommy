@@ -29,6 +29,7 @@ import { Deferred, Effect, Exit, Fiber, Result, Schema, Scope, Semaphore } from 
 import { startAcpAuthentication } from "./../acp-sign-in";
 import { type AgentClient, AgentProcessExitError, type AgentProvider } from "./../agent-client";
 import { CodexAppServerClient } from "./../app-server-client";
+import { childProcessEnvironment } from "../child-process-environment";
 import {
   type AgentCliInfo,
   type BundledProviderExecutables,
@@ -55,7 +56,12 @@ import {
   getString,
 } from "./../protocol";
 import { ProviderSignInError } from "../provider-client-effects";
-import { BUILT_IN_PROVIDER_DRIVERS, type ProviderClientContext, requireProviderDriver } from "./../provider-drivers";
+import {
+  BUILT_IN_PROVIDER_DRIVERS,
+  type ProviderClientContext,
+  providerDriver,
+  requireProviderDriver,
+} from "./../provider-drivers";
 import { ProviderTempDiskSpaceError } from "../provider-temp";
 import { startProviderTerminalLogin } from "../provider-terminal-login";
 import { recordRestartActivity } from "../restart-activity";
@@ -110,7 +116,8 @@ const USAGE_RESET_PROVIDERS: ReadonlySet<AgentProvider> = new Set(["codex"]);
  * each start that does not answer in time waits twice as long as the one before. A start in the
  * request timeout stopped it while it unpacked, and the next start unpacked again. A launch keeps
  * the request timeout: it waits for every provider, and one CLI that hangs would hold chat back for
- * all of them.
+ * all of them. Codex is the exception: a stop during its state database step breaks it for 15
+ * minutes, which costs more than a slow launch (#4995).
  */
 const LONG_START_TIMEOUT_MS = 180_000;
 /** How long a provider CLI stays running with nothing to do before its process is stopped. */
@@ -152,6 +159,13 @@ const STABLE_RUN_MS = 2 * 60_000;
 const PROVIDER_RESTART_POLL_MS = 1_000;
 /** The start failure of OpenCode 1 on a database that OpenCode 2 made. */
 const OPENCODE_NEWER_DATABASE = /\bDatabase is not empty and has no session table\b/u;
+/**
+ * The start failure of Codex while another Codex process holds the lease of its state database
+ * backfill. Codex waits 30 s for the backfill, and a process that stops during it keeps the lease for
+ * 15 minutes (`BACKFILL_LEASE_SECONDS` in codex-rs/rollout). Each start in that time fails the same
+ * way, with any version of the CLI (#4995).
+ */
+const CODEX_STATE_BUSY = /\btimed out waiting for state db backfill\b/u;
 /**
  * The providers whose shared process reads the agent environment only when it starts. Claude reads
  * it at each session start, and Codex with each thread's config.
@@ -287,7 +301,7 @@ export interface ProviderPort {
   isReady(): boolean;
   clientFor(provider: AgentProvider): AgentClient | null;
   clientForAgent(agent: AgentSummary): AgentClient | null;
-  listModels(): AgentModelOption[];
+  listModels(choice?: Pick<AgentSummary, "provider" | "providerAccountId">): AgentModelOption[];
 }
 
 const INITIAL_STATUS: AgentStatus = {
@@ -396,6 +410,8 @@ export class ProviderRuntime implements ProviderPort {
    */
   readonly #lastErrors = new Map<AgentProvider, { message: string; at: number; serial: number }>();
   #errorSerial = 0;
+  /** The providers whose initial model list timed out and is read once more. */
+  readonly #relisting = new Set<AgentProvider>();
   /** The last usage each provider reported, shown for a released provider instead of starting it. */
   readonly #lastUsage = new Map<AgentProvider, AccountUsage["limits"][number]>();
   /**
@@ -520,7 +536,15 @@ export class ProviderRuntime implements ProviderPort {
           scope: () => this.#scope,
           cli: (provider) =>
             this.#clients.has(provider) || this.#released.has(provider) ? this.#cli.get(provider) : undefined,
-          defaultEmail: (provider) => this.#accounts.get(provider)?.email ?? null,
+          defaultLogin: (provider) => {
+            const account = this.#accounts.get(provider);
+            return account ? { email: account.email ?? null, organization: account.organization ?? null } : null;
+          },
+          readModels: (client) =>
+            this.#modelCatalog.read(client, providerDriver(client.provider)?.catalog, false).pipe(
+              Effect.map(({ models }) => models),
+              Effect.mapError((error) => new ProviderAccountFailed({ cause: error.cause })),
+            ),
           apiKey: (provider) => this.#credentials.apiKey(provider),
           defaultUsesApiKey: (provider) => this.ownSignInUsesKey(provider),
           signInTemp: () => undefined,
@@ -829,7 +853,11 @@ export class ProviderRuntime implements ProviderPort {
     for (const { client } of this.#confined.values()) if (client.releaseIdleThreads) yield* client.releaseIdleThreads();
   }).bind(this);
 
-  listModels(): AgentModelOption[] {
+  listModels(choice?: Pick<AgentSummary, "provider" | "providerAccountId">): AgentModelOption[] {
+    if (choice?.providerAccountId && choice.providerAccountId !== DEFAULT_PROVIDER_ACCOUNT_ID) {
+      const models = this.#providerAccounts?.models(choice.provider, choice.providerAccountId);
+      if (models) return structuredClone(models);
+    }
     return this.#modelCatalog.list().filter((model) => !this.#off.has(model.provider));
   }
 
@@ -1348,7 +1376,7 @@ export class ProviderRuntime implements ProviderPort {
                   try: () =>
                     spawn(target.command, target.args, {
                       cwd: process.cwd(),
-                      env: { ...process.env, ...signIn.command.env(cli), ...browser },
+                      env: childProcessEnvironment({ ...process.env, ...signIn.command.env(cli), ...browser }),
                       stdio: "ignore",
                       shell: false,
                     }),
@@ -2090,7 +2118,7 @@ export class ProviderRuntime implements ProviderPort {
       });
     const disposals = this.#disposals;
     const accountEnvironment = own.account ? this.#providerAccounts?.environment(own.account) : undefined;
-    const slowStartTimeoutMs = this.#slowStarts.get(provider);
+    const slowStartTimeoutMs = this.#slowStarts.get(provider) ?? this.#defaultStartTimeoutMs(provider);
     const { client } = yield* this.#authenticateClient(provider, cli, {
       ...(slowStartTimeoutMs === undefined ? {} : { startTimeoutMs: slowStartTimeoutMs }),
       ...(own.confinement ? { confinement: own.confinement } : {}),
@@ -2503,9 +2531,12 @@ export class ProviderRuntime implements ProviderPort {
     const detailed = error.withDetail(this.#redactMcp);
     // OpenCode 2 makes a database with only `session_v2`, and OpenCode 1 refuses it (OpenCode issue #53221).
     // The catalog text tells the user what fixes it; onboarding shows only catalog text.
-    return OPENCODE_NEWER_DATABASE.test(detailed.message)
-      ? new AgentProcessExitError(sourceText("error.provider.opencodeDatabaseNewer"), null, { cause: detailed })
-      : detailed;
+    if (OPENCODE_NEWER_DATABASE.test(detailed.message))
+      return new AgentProcessExitError(sourceText("error.provider.opencodeDatabaseNewer"), null, { cause: detailed });
+    // The CLI's words name a database step, not a cause the user can act on.
+    if (CODEX_STATE_BUSY.test(detailed.message))
+      return new AgentProcessExitError(sourceText("error.provider.codexStateBusy"), null, { cause: detailed });
+    return detailed;
   }
 
   readonly #initializeProviderClient = Effect.fn("ProviderRuntime.initializeProviderClient")(function* (
@@ -2566,7 +2597,10 @@ export class ProviderRuntime implements ProviderPort {
             });
             const startedAt = performance.now();
             const durationMs = () => Math.round(performance.now() - startedAt);
-            const initialize = this.#initializeProviderClient(client, startTimeoutMs);
+            const initialize = this.#initializeProviderClient(
+              client,
+              startTimeoutMs ?? this.#slowStarts.get(provider) ?? this.#defaultStartTimeoutMs(provider),
+            );
             // The client's start is uninterruptible, so it runs on its own fiber. An interrupt stops the
             // wait, and the release stops the client, which ends that start.
             const start = interruptibleStart
@@ -2644,6 +2678,7 @@ export class ProviderRuntime implements ProviderPort {
           previousAccount &&
           (previousAccount.type !== account.type ||
             previousAccount.email !== account.email ||
+            previousAccount.organization !== account.organization ||
             previousAccount.planType !== account.planType)
         )
           this.#forgetUsage(provider);
@@ -2847,6 +2882,9 @@ export class ProviderRuntime implements ProviderPort {
       if (!timedOut && learnedWaitMs !== undefined) this.#slowStarts.set(provider, learnedWaitMs);
       if (firstInstall && timedOut) return;
       const status = this.status().providers?.find((row) => row.id === provider);
+      // The new copy is not at fault: the old one fails the same way until the lease ends. Removing the
+      // copy showed "could not update", and the next start downloaded it again (#4995).
+      if (status?.message === sourceText("error.provider.codexStateBusy")) return;
       if (status?.version !== cli.version || !["available", "sign-in-required"].includes(status.state)) {
         // The update reason keeps catalog text only, so other text would leave only "Try again.".
         // The log keeps the start failure as the cause.
@@ -3052,10 +3090,12 @@ export class ProviderRuntime implements ProviderPort {
             this.#bindClient(candidate);
             candidate.start();
           });
-          // A connect of several providers waits for all of them, as a launch does.
+          // A connect of several providers waits for all of them, as a launch does, so it does not use
+          // the wait learned from one slow start. `startTimeoutMs` stays the wait that a timeout doubles:
+          // the default of `#defaultStartTimeoutMs` is not one that the computer showed it needs.
           startTimeoutMs =
             options.startTimeoutMs ?? (requestedProviders.length === 1 ? this.#slowStarts.get(provider) : undefined);
-          yield* this.#initializeProviderClient(candidate, startTimeoutMs);
+          yield* this.#initializeProviderClient(candidate, startTimeoutMs ?? this.#defaultStartTimeoutMs(provider));
           logger.info("A provider answered initialize.", { provider, durationMs: stageMs() });
           stage = "account";
           stageStartedAt = performance.now();
@@ -3438,6 +3478,16 @@ export class ProviderRuntime implements ProviderPort {
   }
 
   /**
+   * The `initialize` wait of a start that has no wait of its own. Codex gets the long wait on each
+   * start path: its first start after a restore can read its state database for longer than the
+   * request timeout, and a stop in that step holds the database for 15 minutes, so each start in that
+   * time fails (#4995).
+   */
+  #defaultStartTimeoutMs(provider: AgentProvider): number | undefined {
+    return provider === "codex" ? this.#longStartTimeoutMs : undefined;
+  }
+
+  /**
    * Gives the next start of a provider that did not answer `initialize` in `timedOutAfterMs` twice
    * that time: at least `#longStartTimeoutMs` and the wait it has, at most four times
    * `#longStartTimeoutMs`. A start of several providers (undefined) does not shorten the wait.
@@ -3532,7 +3582,7 @@ export class ProviderRuntime implements ProviderPort {
    */
   readonly #refreshModelCatalog = Effect.fn("ProviderRuntime.refreshModelCatalog")(function* (this: ProviderRuntime) {
     const errorSerialAtStart = this.#errorSerial;
-    const fresh = yield* this.#modelCatalog.refresh();
+    const { fresh, timedOut } = yield* this.#modelCatalog.refresh();
     let cleared = false;
     for (const provider of fresh) {
       const lastError = this.#lastErrors.get(provider);
@@ -3541,7 +3591,33 @@ export class ProviderRuntime implements ProviderPort {
       cleared = true;
     }
     if (cleared) this.#setStatus({});
+    // A CLI can need more than the 5 s of a pass while many agents start. Without one more read,
+    // the picker kept the built-in models until a provider started again (#6212).
+    for (const provider of timedOut) {
+      if (this.#relisting.has(provider)) continue;
+      this.#relisting.add(provider);
+      yield* this.#relistModels(provider).pipe(
+        Effect.ensuring(Effect.sync(() => this.#relisting.delete(provider))),
+        Effect.forkIn(this.#scope),
+      );
+    }
     return fresh;
+  });
+
+  /**
+   * Reads the model list of a provider again, once, with the full request timeout. A fresh list
+   * clears the provider's last error, when the error is older than this read, and publishes the
+   * status, so the renderer reads the catalogue again.
+   */
+  readonly #relistModels = Effect.fn("ProviderRuntime.relistModels")(function* (
+    this: ProviderRuntime,
+    provider: AgentProvider,
+  ) {
+    const errorSerialAtStart = this.#errorSerial;
+    if (!(yield* this.#modelCatalog.relist(provider))) return;
+    const lastError = this.#lastErrors.get(provider);
+    if (lastError && lastError.serial <= errorSerialAtStart) this.#lastErrors.delete(provider);
+    this.#setStatus({});
   });
 
   /** Shows a provider failure to the user and keeps it on the provider row. */

@@ -111,6 +111,11 @@ const valid: [string, (value: unknown) => unknown, unknown][] = [
     } satisfies AppInfo,
   ],
   [
+    "app info with the system clock",
+    decodeAppInfo,
+    { name: "Tommy", version: "1.0.0", platform: "darwin", variant: "production", hourCycle: "h23" } satisfies AppInfo,
+  ],
+  [
     "setup state",
     decodeAppSetupState,
     { completed: true, preferredProvider: "codex", preferredModel: null } satisfies AppSetupState,
@@ -218,6 +223,11 @@ const malformed: [string, (value: unknown) => unknown, unknown][] = [
     { ok: true, models: { transcription: [""], speech: [], voices: [] } },
   ],
   ["app info on an unknown platform", decodeAppInfo, { name: "Tommy", version: "1", platform: "aix", variant: "dev" }],
+  [
+    "app info with an invalid clock",
+    decodeAppInfo,
+    { name: "Tommy", version: "1", platform: "darwin", variant: "dev", hourCycle: "h24" },
+  ],
   [
     "setup state with an unknown provider",
     decodeAppSetupState,

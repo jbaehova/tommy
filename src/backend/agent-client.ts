@@ -13,6 +13,8 @@ export interface DiagnosticOrigin {
 }
 
 export interface AgentClient {
+  /** Context blocks are sent with turns instead of the stable system instructions. */
+  readonly turnContext?: boolean;
   readonly provider: AgentProvider;
   /**
    * Explicit completion contract; missing capability means unsupported. `handoff`: the provider
@@ -22,6 +24,8 @@ export interface AgentClient {
   readonly contextCompaction?: "events" | "request" | "native" | "handoff" | "unsupported";
   readonly running: boolean;
   readonly readHistory?: ReadProviderHistory;
+  /** Publishes pending memory/context blocks before Codex starts voice turns itself. */
+  prepareLiveVoiceThread?(threadId: string): Effect.Effect<void, ProviderClientOperationError>;
   /** False when stopping this client would lose a live provider session with no recovery path. */
   readonly canReleaseProcess?: () => boolean;
   start(): void;

@@ -96,3 +96,23 @@
 .browser-profile-select-form .ui-text {
   padding-inline: var(--tommy-space-2);
 }
+
+.browser-profile-proxy-editor {
+  padding: var(--tommy-space-6);
+}
+.browser-profile-proxy-editor form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tommy-space-4);
+  margin-top: var(--tommy-space-4);
+}
+.browser-profile-proxy-keep,
+.browser-profile-proxy-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tommy-space-3);
+}
+.browser-profile-proxy-actions {
+  justify-content: flex-end;
+}

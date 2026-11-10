@@ -25,7 +25,7 @@ export const readCodexMcpConfig = Effect.fn("Agent.readCodexMcpConfig")(function
   servers: (own: CodexOwnTransports) => Readonly<Record<string, CodexMcpServer>>,
 ) {
   const register = Object.keys(servers({})).length > 0;
-  const response = yield* client.request("config/read", { includeLayers: register }, decodeRecordResponse);
+  const response = yield* client.request("config/read", { includeLayers: true }, decodeRecordResponse);
   if (!register) return response;
   const entries = Object.entries(servers(codexOwnTransports(getRecord(getRecord(response, "config"), "mcp_servers"))));
 
@@ -79,5 +79,5 @@ export const readCodexMcpConfig = Effect.fn("Agent.readCodexMcpConfig")(function
     decodeRecordResponse,
   );
   // Read again so the thread and its fingerprint use the saved configuration.
-  return yield* client.request("config/read", { includeLayers: false }, decodeRecordResponse);
+  return yield* client.request("config/read", { includeLayers: true }, decodeRecordResponse);
 }, registrationLock.withPermit);

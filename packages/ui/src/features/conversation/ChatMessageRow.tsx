@@ -19,6 +19,7 @@ import { AgentAvatar } from "../agents/AgentAvatar";
 import type { AttachmentDownloads, AttachmentMediaSource } from "./AttachmentCards";
 import type { MessageImageFile } from "./MarkdownMessageText";
 import { conversationBubbleVariant, MessageBody } from "./MessageRendering";
+import { SkillSuggestionCard, type SkillSuggestionCardProps } from "./SkillSuggestionCard";
 
 /**
  * Who wrote a message, as much as a row needs to draw it.
@@ -37,7 +38,10 @@ export interface ChatMessageAuthor {
   avatarSeed?: string | undefined;
 }
 
+export type MessageSkillLearning = Omit<SkillSuggestionCardProps, "suggestion">;
+
 export interface ChatMessageRowProps {
+  skillLearning?: MessageSkillLearning | undefined;
   message: AgentMessage;
   author: ChatMessageAuthor;
   /**
@@ -75,6 +79,7 @@ export interface ChatMessageRowProps {
   onOpenSharedFile?: (path: string) => void;
   onOpenWorkspaceFile?: ((path: string) => void) | undefined;
   onOpenQuote?: ((messageId: string, text: string) => void) | undefined;
+  onOpenTag?: ((kind: "tab" | "thread", id: string) => void) | undefined;
   onDownload?: ((attachment: AttachmentSummary) => void) | undefined;
   /** Loads the images and media of a client that gets no `previewUrl`. */
   mediaSource?: AttachmentMediaSource | undefined;
@@ -123,7 +128,7 @@ export function ChatMessageRow(props: ChatMessageRowProps): JSX.Element {
     },
     props.class,
   ];
-  // The native menu copies selected text and links, and Shift opens Inspect Element. These cases
+  // The native menu copies selected text, links and images, and Shift opens Inspect Element. These cases
   // stop the event before the trigger's delegated handler, which would prevent its default, so the
   // native menu still opens. The keyboard opens the menu with a synthetic event, which always opens it.
   const onSelection = (event: MouseEvent) => {
@@ -158,8 +163,15 @@ export function ChatMessageRow(props: ChatMessageRowProps): JSX.Element {
         const selected = pressOnSelection ?? onSelection(event);
         pressOnSelection = undefined;
         if (!event.isTrusted) return;
-        const link = event.target instanceof Element && event.target.closest("a[href]") !== null;
-        if (event.shiftKey || link || selected) event.stopPropagation();
+        const target = event.target instanceof Element ? event.target : null;
+        const link = Boolean(target?.closest("a[href]"));
+        // The native menu copies only a loaded image, and icons and avatars keep the message menu.
+        const image =
+          target instanceof HTMLImageElement &&
+          target.complete &&
+          target.naturalWidth > 0 &&
+          target.closest(".message-author-avatar, [aria-hidden='true']") === null;
+        if (event.shiftKey || link || image || selected) event.stopPropagation();
       },
       { capture: true },
     );
@@ -167,30 +179,42 @@ export function ChatMessageRow(props: ChatMessageRowProps): JSX.Element {
   // Read once: a person's row shows its bubble only when the bubble holds something, such as a voice player.
   const extra = children(() => props.children);
   const messageBody = (frame?: (content: JSX.Element, imagesOnly: () => boolean) => JSX.Element) => (
-    <MessageBody
-      frame={frame}
-      animate={props.animate}
-      message={props.message}
-      referencedMessage={props.referencedMessage}
-      referencedAuthorName={props.referencedAuthorName}
-      onOpenReference={props.onOpenReference}
-      referenceState={props.referenceState}
-      agents={props.agents}
-      skills={props.skills}
-      onSelectAgent={props.onSelectAgent}
-      onOpenLink={props.onOpenLink}
-      onPreview={props.onPreview}
-      onAttachmentAction={props.onAttachmentAction}
-      onOpenSharedFile={props.onOpenSharedFile}
-      onOpenWorkspaceFile={props.onOpenWorkspaceFile}
-      onOpenQuote={props.onOpenQuote}
-      onDownload={props.onDownload}
-      mediaSource={props.mediaSource}
-      downloads={props.downloads}
-      loadImageFile={props.loadImageFile}
-      onDownloadImageFile={props.onDownloadImageFile}
-      macWindowControls={props.macWindowControls}
-    />
+    <Show
+      when={
+        props.message.skillSuggestion && props.skillLearning
+          ? { suggestion: props.message.skillSuggestion, ...props.skillLearning }
+          : undefined
+      }
+      fallback={
+        <MessageBody
+          frame={frame}
+          animate={props.animate}
+          message={props.message}
+          referencedMessage={props.referencedMessage}
+          referencedAuthorName={props.referencedAuthorName}
+          onOpenReference={props.onOpenReference}
+          referenceState={props.referenceState}
+          agents={props.agents}
+          skills={props.skills}
+          onSelectAgent={props.onSelectAgent}
+          onOpenLink={props.onOpenLink}
+          onPreview={props.onPreview}
+          onAttachmentAction={props.onAttachmentAction}
+          onOpenSharedFile={props.onOpenSharedFile}
+          onOpenWorkspaceFile={props.onOpenWorkspaceFile}
+          onOpenQuote={props.onOpenQuote}
+          onOpenTag={props.onOpenTag}
+          onDownload={props.onDownload}
+          mediaSource={props.mediaSource}
+          downloads={props.downloads}
+          loadImageFile={props.loadImageFile}
+          onDownloadImageFile={props.onDownloadImageFile}
+          macWindowControls={props.macWindowControls}
+        />
+      }
+    >
+      {(learning) => <SkillSuggestionCard {...learning()} />}
+    </Show>
   );
   const bubble = (content: JSX.Element): JSX.Element => (
     <Bubble
