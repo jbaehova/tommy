@@ -39,6 +39,8 @@ import { sourceText } from "@tommy/i18n/source";
 import { Effect } from "effect";
 import type { AgentBrowserHost } from "../src/backend/agent/turn-lifecycle";
 import type { boundedHistoryPage, historyMessagePart } from "../src/backend/channel-history";
+import { DirectWebhookRoutes } from "../src/main/direct-webhook-ingress";
+import { HostEventsService } from "../src/main/host-events-service";
 
 type HistoryPage = ReturnType<typeof boundedHistoryPage>;
 type HistoryPart = ReturnType<typeof historyMessagePart>;
@@ -1139,6 +1141,38 @@ try {
       });
     const mainRoutine = createRoutine("Main routine");
     const sideRoutine = createRoutine("Side routine", "thread");
+    const eventRoutines = new HostEventsService({
+      routines: agents.routineRecords,
+      cipher: {
+        encrypt: () => {
+          throw new Error("This routine check does not store a webhook secret.");
+        },
+        decrypt: () => {
+          throw new Error("This routine check does not read a webhook secret.");
+        },
+      },
+      relay: new DirectWebhookRoutes(null),
+      accountPrincipal: () => null,
+    });
+    for (const runIn of ["chat", "thread"] as const) {
+      const saved = await runCauseEffect(
+        eventRoutines.saveRoutine({
+          owner: { kind: "agent", id: tester.id },
+          id: sideRoutine.id,
+          name: sideRoutine.name,
+          instruction: sideRoutine.instruction,
+          active: false,
+          timezone: sideRoutine.timezone,
+          trigger: { kind: "schedule", schedule: sideRoutine.trigger.schedule },
+          runIn,
+        }),
+      );
+      pass(
+        `The events service saves the ${runIn} routine run place`,
+        saved.routine.runIn === runIn &&
+          agents.listRoutines(tester.id).find(({ id }) => id === sideRoutine.id)?.runIn === runIn,
+      );
+    }
     for (const routine of [mainRoutine, sideRoutine, sideRoutine]) {
       const run = await runCauseEffect(agents.testRoutine({ agentId: tester.id, routineId: routine.id }));
       await waitFor(
