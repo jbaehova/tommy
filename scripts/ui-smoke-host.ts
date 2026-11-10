@@ -55,6 +55,8 @@ plugin({
 
 const { DirectDeviceStore } = await import("../src/main/direct-device-store");
 const { DirectHostGateway } = await import("../src/main/direct-host-gateway");
+const { DirectWebhookRoutes } = await import("../src/main/direct-webhook-ingress");
+const { HostEventsService } = await import("../src/main/host-events-service");
 const { LocalSkillLibrary } = await import("../src/main/local-skill-library");
 const { SkillLearningService } = await import("../src/main/skill-learning-service");
 const { SkillMarketplaceService } = await import("../src/main/skill-marketplace-service");
@@ -137,6 +139,19 @@ async function main(): Promise<void> {
     skillLearning: () => learning.get().mode,
     skillLearner: learning.learner(),
   });
+  const events = new HostEventsService({
+    routines: agents.routineRecords,
+    cipher: {
+      encrypt: () => {
+        throw new Error("The scratch host does not store webhook secrets.");
+      },
+      decrypt: () => {
+        throw new Error("The scratch host does not read webhook secrets.");
+      },
+    },
+    relay: new DirectWebhookRoutes(null),
+    accountPrincipal: () => null,
+  });
   const sources: StorageUsageSources = {
     roots: {
       database: database.path,
@@ -172,7 +187,7 @@ async function main(): Promise<void> {
     await runCauseEffect(learning.load());
     await runCauseEffect(agents.initialize());
     await runCauseEffect(devices.load());
-    const identity = await runCauseEffect(team.configure("Example workspace", "Example owner", "example-password-123"));
+    const identity = await runCauseEffect(team.configure("Example workspace", "example-owner", "example-password-123"));
     const ownerMemberId = team.getOwnerMemberId();
     assert.ok(ownerMemberId, "The scratch host needs an owner.");
     const created = await runCauseEffect(
@@ -244,7 +259,7 @@ async function main(): Promise<void> {
       schedule: { kind: "daily", time: "09:00" },
       runIn: "thread",
     });
-    await runCauseEffect(
+    const firstSkill = await runCauseEffect(
       learning.learner().save(
         agent.id,
         {
@@ -256,12 +271,27 @@ async function main(): Promise<void> {
         "suggestion:ui-smoke:review-checklist",
       ),
     );
+    await runCauseEffect(
+      learning.learner().save(
+        agent.id,
+        {
+          action: "update",
+          skillId: firstSkill.skillId,
+          expectedRevision: firstSkill.revision,
+          description: "Check repeatable work before delivery.",
+          instructions: "1. Read the requested outcome.\n2. Check the result.\n3. Report checks and remaining limits.",
+        },
+        "suggestion:ui-smoke:review-checklist-update",
+      ),
+    );
     server = new TeamApiServer({
       store: team,
       agents,
       mailbox,
       browser: teamBrowser,
       channels: agents.channels,
+      agentTasks: agents,
+      events,
       sidebarLayout: sidebar,
       storage,
       messageDeletion: agents,
@@ -275,7 +305,6 @@ async function main(): Promise<void> {
       },
       admin: {
         skills,
-        sessionSettings: agents,
         devices: {
           list: () => devices.list(),
           createPairingCode: () => ({ ...devices.createPairingCode(), publicUrl: null }),
@@ -339,7 +368,8 @@ async function main(): Promise<void> {
   }
 }
 
-void main().catch(() => {
-  process.stderr.write("The scratch UI host failed. No user profile was used.\n");
+void main().catch((error) => {
+  const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
+  process.stderr.write(`The scratch UI host failed. No user profile was used.\n${redactText(detail)}\n`);
   process.exitCode = 1;
 });

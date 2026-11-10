@@ -63,7 +63,7 @@ export function skillLearningIpcHandlers({
   ): Promise<T> {
     if (!remoteServers.supportsCapability(serverId, SKILL_LEARNING_CAPABILITY))
       throw new Error(sourceText("error.team.agentSettingsUnsupported"));
-    return runCauseEffect(remoteServers.request(serverId, path, decoder, { method: "POST", body }));
+    return runCauseEffect(remoteServers.request(serverId, path, decoder, { method: "POST", body: body ?? {} }));
   }
   return {
     skillLearning: {
