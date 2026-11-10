@@ -9,7 +9,7 @@ import Plus from "lucide-react-native/icons/plus";
 import Reply from "lucide-react-native/icons/reply";
 import Square from "lucide-react-native/icons/square";
 import TextSelect from "lucide-react-native/icons/square-dashed-text";
-import Trash2 from "lucide-react-native/icons/trash-2";
+import Trash2 from "lucide-react-native/icons/trash";
 import Volume2 from "lucide-react-native/icons/volume-2";
 import { type PropsWithChildren, useMemo, useState } from "react";
 import { type AccessibilityState, Pressable, View } from "react-native";
