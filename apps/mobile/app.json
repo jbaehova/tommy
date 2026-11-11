@@ -103,7 +103,8 @@
           "android": {
             "usesCleartextTraffic": true,
             "enableMinifyInReleaseBuilds": true,
-            "enableShrinkResourcesInReleaseBuilds": true
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "extraProguardRules": "# org.jitsi:webrtc 155 omits this unused AV1 decoder JNI interface. Tommy live voice uses audio only.\n-dontwarn org.webrtc.Dav1dDecoder$Natives"
           }
         }
       ],
