@@ -946,6 +946,10 @@ export class ProviderRuntime implements ProviderPort {
           }
           const limit = usage.limits[0];
           if (!limit || (!limit.primary && !limit.secondary)) {
+            // A provider that sent a reading reports usage. An empty read, such as a Claude CLI that may not
+            // ask for the plan usage, keeps that reading on the rail. A new login clears it (`#forgetUsage`).
+            const kept = this.#lastUsage.get(provider);
+            if (kept) return kept;
             this.#usageUnreported.add(provider);
             return null;
           }
