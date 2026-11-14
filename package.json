@@ -118,7 +118,7 @@
     "dist:linux": "bun run build && electron-builder --linux AppImage --x64 --publish never"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "1.9.0",
+    "@agentclientprotocol/sdk": "2.6.0",
     "@anthropic-ai/claude-agent-sdk": "0.3.309",
     "@anthropic-ai/sdk": "0.137.0",
     "@fontsource-variable/inter": "catalog:",
