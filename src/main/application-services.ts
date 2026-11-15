@@ -1787,9 +1787,11 @@ export async function createApplicationServices({
   teardown.push(TEARDOWN_ORDER.browserView, "the live browser view", () => runCauseEffect(browserView.stop()));
   const agentInitialization = new AgentInitializationGate((rosterLoaded) =>
     Effect.gen(function* () {
-      yield* service.initialize({ heldRoutines: takeRoutineHold(routineHoldFile, (message) => logger.warn(message)) });
-      // A client's agent list waits only until here. The steps below do not change the roster.
-      yield* rosterLoaded;
+      // A client's agent list waits only until the agents are restored, not for the provider starts.
+      yield* service.initialize({
+        heldRoutines: takeRoutineHold(routineHoldFile, (message) => logger.warn(message)),
+        rosterLoaded,
+      });
       yield* eventsRuntime.start();
       yield* automation.sync();
       // Picks up the flows a restart stopped between one agent's answer and the next agent's message.

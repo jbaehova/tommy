@@ -3784,11 +3784,13 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       );
   }
 
-  /** `heldRoutines`: routines due while a restart waited run once. */
-
+  /**
+   * `heldRoutines`: routines due while a restart waited run once.
+   * `rosterLoaded` runs when the agents are restored. The steps after it do not change the roster.
+   */
   readonly initialize = Effect.fn("AgentService.initialize")(function* (
     this: AgentService,
-    options: { heldRoutines?: RoutineHoldWindow | undefined } = {},
+    options: { heldRoutines?: RoutineHoldWindow | undefined; rosterLoaded?: Effect.Effect<void> | undefined } = {},
   ) {
     this.#stopping = false;
     yield* this.#store
@@ -3824,6 +3826,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       this.#initialized = true;
       this.#memoryHold.start();
     });
+    if (options.rosterLoaded) yield* options.rosterLoaded;
     yield* this.#providers
       .start()
       .pipe(Effect.mapError((error) => new AgentLifecycleFailed({ operation: "start providers", cause: error.cause })));
