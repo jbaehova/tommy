@@ -4914,7 +4914,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       });
     }
     if (timezone !== undefined) this.#routines.noteDeliveryTimezone(delivery.delivery.id, timezone);
-    const snapshot = this.#conversation.ensureSnapshot(agent.id, task?.threadId ?? agent.threadId);
+    const targetThreadId = task?.threadId ?? agent.threadId;
+    const snapshot = this.#conversation.ensureSnapshot(agent.id, targetThreadId);
     // A task message shows in the task's row until its turn starts, not in the agent's own chat.
     if (!task) this.#mailboxSync.syncMailboxMessages(snapshot);
     if (!task)
@@ -4936,6 +4937,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           ),
         );
     yield* this.#steerWhenBusy(agent, task, snapshot, delivery.delivery.id, true);
+    // A turn that waits on a question in this chat reads no message until that question is answered,
+    // so the person who wrote instead would wait for it. A stopped turn clears its own questions.
+    const waitingTurnId = snapshot.activeTurnId;
+    if (targetThreadId && waitingTurnId && waitingTurnId !== this.#stoppedTurn(agent.id, task?.taskId ?? null))
+      this.#attention.releaseForUserMessage(agent.id, targetThreadId, waitingTurnId);
     if (!task) {
       this.#emit({ type: "agents-changed", agents: this.listAgents() });
       this.#conversation.emitConversation(snapshot);
