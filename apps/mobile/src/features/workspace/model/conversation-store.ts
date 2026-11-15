@@ -1,5 +1,10 @@
 import { replaceEqualDeep } from "@tanstack/react-query";
-import type { AgentEvent, ConversationMessage, ConversationPage } from "@tommy/contracts/ipc";
+import {
+  type AgentEvent,
+  type ConversationMessage,
+  type ConversationPage,
+  openExchangesOutside,
+} from "@tommy/contracts/ipc";
 
 type Delta = Extract<AgentEvent, { type: "conversation-delta" }>;
 export interface MobileConversation extends ConversationPage {
@@ -254,6 +259,30 @@ export class MobileConversationStore {
     const firstId = page.messages[0]?.id;
     if (!cursor && firstId) this.#latestPages.set(page.agentId, { firstId, pageInfo: page.pageInfo });
     this.#publish(page.agentId, next);
+  }
+
+  /**
+   * The loaded requests to teammates before the last latest page that a teammate still had open. That
+   * page kept them as they were, so the chat reads each one again (#9381).
+   */
+  openExchangesBeforeLatest(agentId: string): string[] {
+    const current = this.get(agentId);
+    const firstId = this.#latestPages.get(agentId)?.firstId;
+    const first = current && firstId ? current.messages.findIndex((message) => message.id === firstId) : -1;
+    return current && first > 0 ? openExchangesOutside(current.messages.slice(0, first), []) : [];
+  }
+
+  /** Puts the host's copy of one loaded message in place, from a page around it. The window stays as it is. */
+  replaceMessage(page: ConversationPage, messageId: string) {
+    this.flush();
+    const current = this.get(page.agentId);
+    const message = page.messages.find((candidate) => candidate.id === messageId);
+    if (!current || !message || current.threadId !== page.threadId || page.revision < current.revision) return;
+    const index = current.messages.findIndex((candidate) => candidate.id === messageId);
+    if (index < 0) return;
+    const messages = [...current.messages];
+    messages[index] = replaceEqualDeep(current.messages[index], message);
+    if (messages[index] !== current.messages[index]) this.#publish(page.agentId, { ...current, messages });
   }
 
   /**
