@@ -166,12 +166,17 @@ try {
     layers: [{ config: { features: { tool_suggest: true } } }],
   };
   const settings = codexPromptSettings(userConfig);
-  assert.equal(settings["features.tool_suggest"], undefined);
+  // Tommy cannot install a Codex plugin, so the plugin install features stay off even when the user turns them on.
+  assert.equal(settings["features.tool_suggest"], false);
+  assert.equal(settings["features.recommended_plugins"], false);
   assert.deepEqual(settings["skills.config"]?.[0], ownSkill);
   assert.ok(!settings["skills.config"]?.some((skill) => skill.name === "openai-docs"));
   assert.equal(codexPromptSettings({ config: {}, layers: [] })["features.tool_suggest"], false);
-  assert.deepEqual(codexPromptSettings(null), {});
-  checked("Prompt defaults keep explicit user feature settings and path-based skill choices.");
+  assert.deepEqual(codexPromptSettings(null), {
+    "features.tool_suggest": false,
+    "features.recommended_plugins": false,
+  });
+  checked("Prompt defaults turn off plugin install features and keep path-based skill choices.");
 
   const answer = await runCauseEffect(search.search(agent.id, "Find EXAMPLE_PRIVATE_TOKEN_123 examples."));
   assert.ok(answer.includes("https://example.com/source"));
