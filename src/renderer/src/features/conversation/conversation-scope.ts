@@ -1692,6 +1692,18 @@ export function createConversationViewScope(props: ConversationProps) {
       if (latestScrollFrame !== undefined) cancelAnimationFrame(latestScrollFrame);
       if (latestScrollSettleFrame !== undefined) cancelAnimationFrame(latestScrollSettleFrame);
       const followLatest = stickToLatest;
+      // A follow that would jump goes before the paint. Otherwise a chat whose rows arrive paints a
+      // frame at the top of its first rows, and the follow in the next frame comes after that paint. A
+      // chat with unread messages opens at the divider.
+      if (
+        followLatest &&
+        unreadCount === 0 &&
+        scrollElement &&
+        scrollElement.scrollHeight - scrollElement.clientHeight - scrollElement.scrollTop > scrollElement.clientHeight
+      ) {
+        updateVirtualScrollMargin();
+        followConversationBottom(scrollElement);
+      }
       latestScrollFrame = requestAnimationFrame(() => {
         latestScrollFrame = undefined;
         if (!scrollElement) return;
