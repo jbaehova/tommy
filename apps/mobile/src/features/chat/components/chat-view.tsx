@@ -1089,6 +1089,7 @@ export function ChatView({
                         ? "error"
                         : "loading"
               }
+              catchingUp={catchingUp}
               appActive={appActive}
               activeTurnId={activeTurnId}
               turnSummaries={turnSummaries}
