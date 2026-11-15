@@ -302,6 +302,8 @@ const remoteAccountGate = Semaphore.makeUnsafe(1);
 const macHapticFeedback = new MacHapticFeedback();
 let isQuitting = false;
 let shutdownStarted = false;
+/** The teardown ended, also by an error. Until then `before-quit` holds every quit request. */
+let shutdownDone = false;
 const systemSessionEnding = false;
 let relaunchRequested = false;
 /**
@@ -1233,8 +1235,13 @@ app.on("before-quit", (event) => {
       );
     return;
   }
-  if (shutdownStarted) return;
+  // The quit that follows the teardown.
+  if (shutdownDone) return;
   event.preventDefault();
+  // A second request while the teardown runs. Outside macOS, the close of the last window sends one
+  // through `window-all-closed` right after the first. Electron would end the process on it at
+  // once, in the middle of the teardown, and the next start would count an unclean exit.
+  if (shutdownStarted) return;
   void prepareForShutdown().finally(() => app.quit());
 });
 
@@ -1289,12 +1296,16 @@ async function prepareForShutdown(deadlineMs = SHUTDOWN_DEADLINE_MS): Promise<vo
   isQuitting = true;
   hideExceptionErrorBox();
   forceExitAfterShutdownDeadline(deadlineMs);
-  await runCauseEffect(windows.flushMainWindowBounds()).catch((error) =>
-    logger.error("Unable to save the main window position:", toLogValue(error)),
-  );
-  // After the bounds are saved.
-  hideWindowsForQuit();
-  services?.dynamicIsland.destroy();
-  macHapticFeedback.destroy();
-  await teardown.runAll();
+  try {
+    await runCauseEffect(windows.flushMainWindowBounds()).catch((error) =>
+      logger.error("Unable to save the main window position:", toLogValue(error)),
+    );
+    // After the bounds are saved.
+    hideWindowsForQuit();
+    services?.dynamicIsland.destroy();
+    macHapticFeedback.destroy();
+    await teardown.runAll();
+  } finally {
+    shutdownDone = true;
+  }
 }
