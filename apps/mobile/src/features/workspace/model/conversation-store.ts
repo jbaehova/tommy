@@ -263,7 +263,7 @@ export class MobileConversationStore {
 
   /**
    * The loaded requests to teammates before the last latest page that a teammate still had open. That
-   * page kept them as they were, so the chat reads each one again (#9381).
+   * page kept them as they were, so the chat reads each one again.
    */
   openExchangesBeforeLatest(agentId: string): string[] {
     const current = this.get(agentId);

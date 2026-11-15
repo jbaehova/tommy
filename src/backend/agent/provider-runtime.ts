@@ -553,7 +553,7 @@ export class ProviderRuntime implements ProviderPort {
           apiKey: (provider) => this.#credentials.apiKey(provider),
           defaultUsesApiKey: (provider) => this.ownSignInUsesKey(provider),
           signInTemp: () => undefined,
-          // An account check waits for a slow start as the sign-in process does (#3546): the checks of
+          // An account check waits for a slow start as the sign-in process does: the checks of
           // all accounts start together, and on a busy computer each took longer than the request
           // timeout. A cancel or a removal must not wait for that start: the accounts start it
           // uninterruptibly.

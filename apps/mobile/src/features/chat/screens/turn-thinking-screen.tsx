@@ -269,8 +269,8 @@ export function TurnThinkingScreen() {
   // The start of a long turn can be in an older page, which the sheet reads when the reader gets to the top.
   const needsEarlier = hasOlder && !turnStartLoaded(messages, turnId);
 
-  // A long run has thousands of steps. Each one is Markdown, and all of them at once stop the app
-  // (#5554), so the sheet shows a window of them that grows as the reader scrolls.
+  // A long run has thousands of steps. Each one is Markdown, and all of them at once stop the app,
+  // so the sheet shows a window of them that grows as the reader scrolls.
   const openWindow = (): StepWindow =>
     running
       ? { topId: steps.length > STEP_PAGE ? (steps.at(-STEP_PAGE)?.id ?? null) : null, bottomId: null }
