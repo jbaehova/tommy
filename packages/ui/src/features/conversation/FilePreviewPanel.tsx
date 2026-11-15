@@ -22,6 +22,7 @@ import { type CodeToken, fileCodeLanguage, highlightedCodeLines } from "@tommy/u
 import { MarkdownFilePreview } from "@tommy/ui/features/conversation/MarkdownFilePreview";
 import { SpreadsheetFilePreview } from "@tommy/ui/features/conversation/SpreadsheetFilePreview";
 import { useText } from "@tommy/ui/text";
+import { holdFlag } from "@tommy/ui/utils";
 import { createEffect, createMemo, createSignal, For, onCleanup, onSettled, Show, untrack } from "solid-js";
 
 import { MediaFilePreview } from "./MediaFilePreview";
@@ -174,7 +175,15 @@ export default function FilePreviewPanel(props: FilePreviewPanelProps) {
     if (revealFrame !== undefined) cancelAnimationFrame(revealFrame);
   });
 
-  const revealPanel = () => {
+  let panel!: HTMLElement;
+  // The chat beside the panel makes room for it (`panel-layout.css`).
+  onSettled(() => {
+    const conversation = panel.closest(".conversation-panel");
+    return conversation ? holdFlag(conversation, "file-preview-panel") : undefined;
+  });
+
+  const revealPanel = (element: HTMLElement) => {
+    panel = element;
     revealFrame = requestAnimationFrame(() => {
       revealFrame = requestAnimationFrame(() => {
         setRevealed(true);
