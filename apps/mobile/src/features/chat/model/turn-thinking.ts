@@ -1,5 +1,6 @@
 import { type ConversationMessage, isAgentAnswer } from "@tommy/contracts/ipc";
 import { isTurnThought, type TurnStepLine, type TurnStepLines } from "@/features/workspace/model/turn-step-lines";
+import { messageTime } from "./message-time";
 
 export type TurnThinkingStep =
   | { id: string; kind: "thought"; text: string; createdAt: string; streaming: boolean }
@@ -57,7 +58,7 @@ export function turnTimes(
   let endedAt = Number.NEGATIVE_INFINITY;
   for (const message of messages) {
     if (message.turnId !== turnId) continue;
-    const at = Date.parse(message.createdAt);
+    const at = messageTime(message.createdAt);
     if (!Number.isFinite(at)) continue;
     startedAt = Math.min(startedAt, at);
     if (isAgentAnswer(message) || isTurnThought(message)) endedAt = Math.max(endedAt, at);
@@ -96,7 +97,7 @@ export function finishedTurnSummaries(
     const answer = !thought && isAgentAnswer(message);
     if (thought) thoughts.set(turnId, (thoughts.get(turnId) ?? 0) + 1);
     else if (answer && !answers.has(turnId)) answers.set(turnId, message.id);
-    const at = Date.parse(message.createdAt);
+    const at = messageTime(message.createdAt);
     if (!Number.isFinite(at)) continue;
     startedAt.set(turnId, Math.min(startedAt.get(turnId) ?? at, at));
     if (thought || answer) endedAt.set(turnId, Math.max(endedAt.get(turnId) ?? at, at));
