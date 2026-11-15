@@ -1243,11 +1243,14 @@ export function createConversationViewScope(props: ConversationProps) {
     boundaryId: string | null | undefined;
     /** The chat opened at the divider and keeps it in view until the reader or a jump moves the chat. */
     holding: boolean;
+    /** The opening frames are done, so a later growth is new content, not the opening layout. */
+    settled: boolean;
   } = {
     identity: undefined,
     pending: false,
     boundaryId: undefined,
     holding: false,
+    settled: false,
   };
   let conversationPanel: HTMLElement | undefined;
   const [browserSurface, setBrowserSurface] = createSignal<HTMLDivElement>();
@@ -1498,12 +1501,23 @@ export function createConversationViewScope(props: ConversationProps) {
     keyboardTarget.addEventListener("keydown", readerKeyDown);
     keyboardWindow.addEventListener("pointerup", endReaderDrag);
     keyboardWindow.addEventListener("pointercancel", endReaderDrag);
+    let observedMaxScrollTop = 0;
     scrollResizeObserver = new ResizeObserver(() => {
       updateVirtualScrollMargin();
+      const maxScrollTop = scrollElement ? scrollElement.scrollHeight - scrollElement.clientHeight : 0;
+      const contentGrew = maxScrollTop > observedMaxScrollTop;
+      observedMaxScrollTop = maxScrollTop;
       if (scrollElement && stickToLatest) followConversationBottom(scrollElement);
       // An image or a preview that lays out after the opening grows a row above the divider. The chat
       // has no browser scroll anchoring, so without this the divider moves down out of view.
-      else if (scrollElement && unreadOpening.holding) scrollToUnreadDivider(scrollElement);
+      else if (scrollElement && unreadOpening.holding) {
+        // A reply that the agent still writes grows below the view. The reader did not move the chat
+        // since it opened, so the chat follows the reply, and the divider can go above the view.
+        if (unreadOpening.settled && contentGrew && props.activeTurnId) {
+          setStickToLatest(true);
+          followConversationBottom(scrollElement);
+        } else scrollToUnreadDivider(scrollElement);
+      }
       updateScrollFade();
       updateUnreadDividerVisibility();
     });
@@ -1729,7 +1743,7 @@ export function createConversationViewScope(props: ConversationProps) {
     },
     ({ identity, loaded, boundaryId, boundaryIndex }) => {
       if (identity !== unreadOpening.identity) {
-        unreadOpening = { identity, pending: true, boundaryId: undefined, holding: false };
+        unreadOpening = { identity, pending: true, boundaryId: undefined, holding: false, settled: false };
       }
       // A later boundary, such as a message that arrived while the reader was away, is not where they opened.
       if (boundaryId !== unreadOpening.boundaryId) unreadOpening.holding = false;
@@ -1759,7 +1773,8 @@ export function createConversationViewScope(props: ConversationProps) {
           scrollToUnreadDivider(scrollElement);
           updateScrollFade(scrollElement);
           updateUnreadDividerVisibility();
-          if (!settle) openAtDivider(true);
+          if (settle) opening.settled = true;
+          else openAtDivider(true);
         });
       openAtDivider(false);
     },
