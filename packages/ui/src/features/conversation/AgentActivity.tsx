@@ -6,6 +6,7 @@ import type { AgentProfile } from "../../data";
 import { ChevronDown } from "../../icons";
 import { useText } from "../../text";
 import { AgentAvatar } from "../agents/AgentAvatar";
+import { ActivityShine } from "./ActivityShine";
 import { type AgentStep, AgentStepList } from "./AgentSteps";
 
 /**
@@ -125,7 +126,10 @@ export function AgentActivityIndicator(props: {
         live={props.phase !== "exiting"}
       >
         <AgentAvatar agent={props.agent} mood={mood()} class="agent-activity-avatar" />
-        <span class="agent-activity-label">{label()}</span>
+        <span class="agent-activity-label">
+          {label()}
+          <ActivityShine text={label()} />
+        </span>
         <Show when={elapsed()}>{(time) => <span class="agent-activity-elapsed">{time()}</span>}</Show>
       </AgentActivityBody>
     </div>

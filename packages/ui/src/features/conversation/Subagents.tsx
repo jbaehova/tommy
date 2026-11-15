@@ -26,6 +26,7 @@ import {
 } from "@tommy/ui";
 import { useText } from "@tommy/ui/text";
 import { createEffect, createMemo, createSignal, createUniqueId, For, Match, Show, Switch } from "solid-js";
+import { ActivityShine } from "./ActivityShine";
 
 const STATE_LABEL = {
   running: "chat.subagents.state.running",
@@ -142,6 +143,9 @@ function LiveLine(props: { subagent: ConversationSubagent }) {
       <Show when={shown()}>{(step) => <StepGlyph kind={step().kind} class="subagents-live-glyph" />}</Show>
       <span class={["subagents-live-text", { "agent-activity-label": props.subagent.status === "running" }]}>
         {text()}
+        <Show when={props.subagent.status === "running"}>
+          <ActivityShine text={text()} />
+        </Show>
       </span>
     </span>
   );
@@ -316,7 +320,12 @@ export function SubagentPanel(props: SubagentPanelProps) {
                     return (
                       <li class="subagents-step" data-kind={step().kind}>
                         <StepGlyph kind={step().kind} class="subagents-step-glyph" />
-                        <span class={["subagents-step-text", { "agent-activity-label": live() }]}>{step().text}</span>
+                        <span class={["subagents-step-text", { "agent-activity-label": live() }]}>
+                          {step().text}
+                          <Show when={live()}>
+                            <ActivityShine text={step().text} />
+                          </Show>
+                        </span>
                       </li>
                     );
                   }}
