@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Settings } from "@anthropic-ai/claude-agent-sdk";
 import { isDynamicRecord, isNumber, isOneOf, isString } from "@tommy/contracts/runtime-values";
 import { Effect, Semaphore } from "effect";
+import { skillFolderNames } from "./home-skills";
 import type { ClaudeMcpServer } from "./mcp-provider-shapes";
 import { type ProviderClientOperationError, providerCall } from "./provider-client-effects";
 
@@ -118,6 +119,88 @@ export const clearClaudeNeedsAuthMarks = Effect.fn("ClaudeQuerySettings.clearNee
   },
   (effect) => effect.pipe(Effect.ignore),
 );
+
+/**
+ * Bundled skills that cannot work in a Tommy agent: their tools are blocked or off there
+ * (`Workflow`, the cron tools, Artifact, Remote Control), or they edit the Claude Code setup that
+ * Tommy owns. A deny rule refuses a skill's call but keeps its listing, so they go off.
+ */
+const CLAUDE_UNFIT_SKILLS = [
+  "deep-research",
+  "design",
+  "design-sync",
+  "doctor",
+  "fewer-permission-prompts",
+  "keybindings-help",
+  "loop",
+  "plugin-authoring",
+  "schedule",
+  "send-to-project",
+  "update-config",
+  "workflow-authoring",
+];
+/** Bundled coding skills. The model sees their names without their descriptions and can still use them. */
+const CLAUDE_NAME_ONLY_SKILLS = [
+  "batch",
+  "claude-api",
+  "code-review",
+  "dataviz",
+  "debug",
+  "init",
+  "run",
+  "run-skill-generator",
+  "security-review",
+  "simplify",
+  "verify",
+];
+
+/** One Claude settings file. A missing or unreadable file, or one that is not a JSON object, gives an empty record. */
+const readClaudeSettingsFile = Effect.fn("ClaudeQuerySettings.readSettingsFile")(function* (path: string) {
+  const parsed = yield* providerCall(async (): Promise<unknown> => JSON.parse(await readFile(path, "utf8"))).pipe(
+    Effect.orElseSucceed(() => null),
+  );
+  return isDynamicRecord(parsed) ? parsed : {};
+});
+
+/**
+ * The settings that Tommy adds to each agent query. `disableRemoteControl` takes away
+ * `SendToProject` and `SendToProjectContext`, which send work to other Claude Code sessions, outside
+ * Tommy. The empty `attribution` keeps Claude's co-author line out of the user's commits and pull
+ * requests, and its instructions out of each request. Together with the skill overrides, each
+ * request is about 2k tokens smaller.
+ *
+ * Flag settings come before the user, project and local settings, so a value of Tommy would replace
+ * a value that the user set. The query leaves out each skill override whose name is a skill of the
+ * user or the project that the query loads, and the attribution when a settings file it loads sets it.
+ */
+export const claudeAgentFlagSettings = Effect.fn("ClaudeQuerySettings.agentFlagSettings")(function* (
+  configDirectory: string,
+  cwd: string,
+  sources: ReadonlyArray<"user" | "project" | "local">,
+): Effect.fn.Return<Settings> {
+  const files = [
+    ...(sources.includes("user") ? [join(configDirectory, "settings.json")] : []),
+    ...(sources.includes("project") ? [join(cwd, ".claude", "settings.json")] : []),
+    ...(sources.includes("local") ? [join(cwd, ".claude", "settings.local.json")] : []),
+  ];
+  const ownSettings = yield* Effect.forEach(files, readClaudeSettingsFile);
+  const ownSkills = new Set([
+    ...(sources.includes("user") ? yield* skillFolderNames(join(configDirectory, "skills")) : []),
+    ...(sources.includes("project") ? yield* skillFolderNames(join(cwd, ".claude", "skills")) : []),
+  ]);
+  const ownOverride = (skill: string) =>
+    ownSettings.some((file) => isDynamicRecord(file.skillOverrides) && Object.hasOwn(file.skillOverrides, skill));
+  const overrides: Array<[string, "off" | "name-only"]> = [
+    ...CLAUDE_UNFIT_SKILLS.map((skill): [string, "off"] => [skill, "off"]),
+    ...CLAUDE_NAME_ONLY_SKILLS.map((skill): [string, "name-only"] => [skill, "name-only"]),
+  ];
+  const ownAttribution = ownSettings.some((file) => "attribution" in file || "includeCoAuthoredBy" in file);
+  return {
+    ...(ownAttribution ? {} : { attribution: { commit: "", pr: "" } }),
+    disableRemoteControl: true,
+    skillOverrides: Object.fromEntries(overrides.filter(([skill]) => !ownSkills.has(skill) && !ownOverride(skill))),
+  };
+});
 
 /**
  * Tool-free calls load no user hooks, plugins, tools or skills. They still need the user's sign-in

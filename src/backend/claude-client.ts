@@ -68,6 +68,7 @@ import { claudeContextCategories } from "./claude-context-categories";
 import { type ClaudeHistoryOptions, claudeHistoryFromMessages, claudeHistoryReader } from "./claude-history";
 import {
   type ClaudeQueryFile,
+  claudeAgentFlagSettings,
   claudeSignInSettings,
   clearClaudeNeedsAuthMarks,
   removeClaudeQuerySettings,
@@ -164,6 +165,23 @@ const CLAUDE_NATIVE_SCHEDULING = [
  * background agent fleet. Their schemas cost about 1.9k tokens in each request.
  */
 const CLAUDE_DUPLICATE_TOOLS = ["ListAgents", "Workflow"];
+/**
+ * Claude tools and agent types for a Claude Code host, which Tommy is not. `ReportFindings` puts
+ * code review findings in the Claude Code review panel, which Tommy does not have, and tells the
+ * model not to also write them as text. `DesignSync` and `PushNotification` send to claude.ai Design
+ * and the Claude mobile app. The `statusline-setup` agent edits the Claude Code status line,
+ * `claude-code-guide` answers questions about the Claude Code CLI, and `claude` is a second
+ * `general-purpose`. Together about 1.3k tokens in each request; `general-purpose`, `Explore`, `Plan`
+ * and `web-fetch` stay.
+ */
+const CLAUDE_HOST_TOOLS = [
+  "ReportFindings",
+  "DesignSync",
+  "PushNotification",
+  "Agent(statusline-setup)",
+  "Agent(claude-code-guide)",
+  "Agent(claude)",
+];
 /**
  * agent-desktop tools that an agent cannot use or does not need, which Tommy hides from Claude. Claude
  * loads each MCP schema in each request, and the driver has 67 tools (about 41 KB). The press and
@@ -1026,6 +1044,15 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
     );
     // Normal turns load the user settings. Tool-free calls load only their sign-in settings.
     const signInSettings: Settings = config.profileGeneration ? yield* claudeSignInSettings(configDirectory) : {};
+    const settingSources: Array<"user" | "project" | "local"> = config.profileGeneration
+      ? []
+      : config.workspaceOnly
+        ? ["user"]
+        : ["user", "project", "local"];
+    // A profile generation has no tools and no skills, so it needs none of the agent settings.
+    const agentSettings: Settings = config.profileGeneration
+      ? {}
+      : yield* claudeAgentFlagSettings(configDirectory, config.cwd, settingSources);
     const skillPlugin =
       config.workspaceOnly && stateDirectory ? yield* claudeWorkspaceSkillPlugin(stateDirectory, config.cwd) : null;
     const homeSkillPlugin =
@@ -1047,6 +1074,7 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
     const nodeOptions = this.#agentEnvironment?.().NODE_OPTIONS;
     const flagSettings = {
       ...signInSettings,
+      ...agentSettings,
       ...(config.workspaceOnly
         ? { sandbox: claudeWorkspaceSandbox(config.additionalDirectories, config.excludedFolders) }
         : {}),
@@ -1101,14 +1129,11 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
                   disallowedTools: [
                     ...CLAUDE_NATIVE_SCHEDULING,
                     ...CLAUDE_DUPLICATE_TOOLS,
+                    ...CLAUDE_HOST_TOOLS,
                     ...CLAUDE_HIDDEN_DESKTOP_TOOLS,
                   ],
                 }),
-            settingSources: config.profileGeneration
-              ? []
-              : config.workspaceOnly
-                ? ["user"]
-                : ["user", "project", "local"],
+            settingSources,
             // The MCP panel is the only door. Without this, Claude merges project `.mcp.json`, user
             // settings, plugin and agent-frontmatter servers into the record above, so two computers
             // with the same Tommy settings give their agents different tools and "which servers does
