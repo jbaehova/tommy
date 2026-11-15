@@ -204,6 +204,8 @@ export const messages = {
   "error.provider.nativeChecksum": "제공자 설치 파일이 무결성 검사를 통과하지 못했어요.",
   "error.provider.codexStateBusy":
     "ChatGPT가 이전 시작 후 아직 로컬 기록을 준비하고 있어요. 몇 분 기다린 후 다시 시도해 주세요.",
+  "error.provider.requestTooLarge":
+    "채팅이 너무 커져서 모델에 보낼 수 없었어요. 채팅 안의 이미지 때문인 경우가 많아요. Tommy가 채팅 기록으로 새 {provider} 세션을 시작했어요. 다시 시도해 주세요.",
   "error.provider.imageTooSmall":
     "이미지가 너무 작아서 모델이 이 채팅의 이미지를 받지 않았어요. Tommy가 채팅 기록으로 새 {provider} 세션을 시작했어요. 다시 시도해 주세요.",
   "error.provider.imageTooLarge":

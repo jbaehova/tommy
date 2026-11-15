@@ -269,6 +269,18 @@ export function isBalanceDiagnostic(message: string): boolean {
 }
 
 /**
+ * Whether the model endpoint refused the request because its body is larger than the endpoint
+ * accepts. The ChatGPT backend that Codex uses writes "request body exceeds 67108864 bytes", or
+ * "decompressed request body exceeds 67108864 bytes" for a compressed request. Codex counts each
+ * image of the session at a small fixed token cost, so a session with many images grows past this
+ * byte limit before its token-based compaction starts, and each later turn fails the same way until
+ * a new session. A response that is too large is not a refused request, so it does not match.
+ */
+export function isRequestBodyLimitDiagnostic(message: string): boolean {
+  return /\brequest body exceeds \d+ bytes\b/iu.test(message);
+}
+
+/**
  * Whether a model endpoint refused an image in the request because a side is too short. The image
  * stays in the provider session, which sends it on each turn, so each turn fails the same way until
  * a new session (#6188). xAI writes "Image dimensions 6x8 are too small. Both width and height must

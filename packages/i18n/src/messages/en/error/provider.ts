@@ -198,6 +198,8 @@ export const messages = defineMessages("error.provider", {
   "error.provider.nativeChecksum": "The provider installation did not pass its integrity check.",
   "error.provider.codexStateBusy":
     "ChatGPT is still preparing its local history after an earlier start. Wait a few minutes, then try again.",
+  "error.provider.requestTooLarge":
+    "This chat became too large to send to the model. Images in the chat often cause this. Tommy started a new {provider} session with the chat history. Try again.",
   "error.provider.imageTooSmall":
     "The model did not accept an image in this chat because the image is too small. Tommy started a new {provider} session with the chat history. Try again.",
   "error.provider.imageTooLarge":
