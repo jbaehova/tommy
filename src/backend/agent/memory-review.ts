@@ -18,7 +18,7 @@ import { Deferred, Effect, Exit, Fiber, Schema, Scope } from "effect";
 import type { AgentClient } from "../agent-client";
 import { extractJsonObject } from "../structured-output";
 import type { AgentMemories } from "./agent-memories";
-import { backgroundModel } from "./background-model";
+import { backgroundModel, withBackgroundEffort } from "./background-model";
 import { memoryChangesMessage } from "./memory-changes-message";
 import {
   acceptedSuggestion,
@@ -520,7 +520,7 @@ export class MemoryReview {
       const answer = yield* options.profileClients.run(client, (cancelled) =>
         generateTextWithoutTools(
           client,
-          reviewModel(agent, model),
+          withBackgroundEffort(model),
           prompt,
           cancelled,
           options.usageObserver(agent, model),
