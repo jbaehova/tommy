@@ -29,6 +29,7 @@ import type { TeamApiAgents } from "./dependencies";
 import { HttpError } from "./http-error";
 import type { RouteOutcome, TeamApiRequestContext } from "./request-context";
 import {
+  messageTextCut,
   readJson,
   requireAgentLevel,
   requireReleasedSchedule,
@@ -97,7 +98,16 @@ export async function routeChannels(
       let page = channels.store.page(input.channelId, input.beforeSequence, limit);
       if (Buffer.byteLength(JSON.stringify(page)) > WEBRTC_FRAME_BODY_BUDGET)
         page = { ...page, tasks: pageTasks(page.tasks, page.messages) };
-      if (limit === 1 || Buffer.byteLength(JSON.stringify(page)) <= WEBRTC_FRAME_BODY_BUDGET) return json(200, page);
+      const bytes = Buffer.byteLength(JSON.stringify(page));
+      if (bytes <= WEBRTC_FRAME_BODY_BUDGET) return json(200, page);
+      if (limit === 1) {
+        // One message alone is too large: cut its text, so the channel opens and the older pages load.
+        const cut = messageTextCut(
+          page.messages.map((item) => item.message),
+          bytes - WEBRTC_FRAME_BODY_BUDGET,
+        );
+        return json(200, { ...page, messages: page.messages.map((item) => ({ ...item, message: cut(item.message) })) });
+      }
     }
   }
   if (remove) {
