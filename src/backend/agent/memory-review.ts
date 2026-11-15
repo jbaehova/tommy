@@ -35,10 +35,12 @@ import { type GenerationObserver, GenerationUsageLimitError, generateTextWithout
 import type { ProviderOperationFailed } from "./provider-runtime";
 import {
   type LearnedSkillDraft,
+  revisionKeepsSkill,
   type SkillLearner,
   SkillLearningFailed,
   SkillWriterResult,
   skillWriterPrompt,
+  writerCanRevise,
 } from "./skill-learning";
 import { reviewedChat, skillSuggestionMessages, skillSuggestionSaved } from "./skill-learning-suggestion";
 
@@ -651,6 +653,10 @@ export class MemoryReview {
         (shown.description !== current.description || shown.instructions !== current.instructions)
       )
         return yield* Effect.fail(new Error("The skill holds redacted text, so the review does not rewrite it."));
+      if (current && !writerCanRevise(current))
+        return yield* Effect.fail(
+          new Error("The skill is too long to write again, so the review does not rewrite it."),
+        );
       const free = userAsked ? !options.profileClients.busy() : options.profileClients.hasSpare();
       if (!free || options.stopping()) return null;
       const prompt = skillWriterPrompt(
@@ -672,6 +678,10 @@ export class MemoryReview {
       const written = yield* Schema.decodeUnknownEffect(SkillWriterResult)(
         yield* Effect.try(() => extractJsonObject(answer)),
       );
+      if (current && !revisionKeepsSkill(current, written.instructions))
+        return yield* Effect.fail(
+          new Error("The revision drops text or letters of the skill, so the review does not save it."),
+        );
       if (stopped()) return null;
       // Reject model output that includes a secret. Do not turn a leaked secret into a saved marker.
       if (
