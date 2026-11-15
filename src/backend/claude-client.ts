@@ -219,6 +219,12 @@ const TOMMY_CLAUDE_CLIENT = {
   CLAUDE_CODE_ARTIFACT: "0",
   CLAUDE_CODE_ENTRYPOINT: "tommy",
 };
+/**
+ * The name of a new Claude session. Without one, the CLI sends an extra model request at the first
+ * prompt to make a title (about 1.2k input tokens) that Tommy never shows. Only a new session gets
+ * it: the CLI does not name a resumed session, and a title on resume would rename an older session.
+ */
+const CLAUDE_SESSION_TITLE = "Tommy";
 
 interface ClientEvents {
   notification: [notification: AppServerNotification];
@@ -1116,7 +1122,7 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
             ...this.#sdkLaunch,
             ...(config.model ? { model: this.#sdkModel(config.model) } : {}),
             ...(appliedEffort ? { effort: appliedEffort } : {}),
-            ...(resume ? { resume: threadId } : { sessionId: threadId }),
+            ...(resume ? { resume: threadId } : { sessionId: threadId, title: CLAUDE_SESSION_TITLE }),
             // A call without tools gets only Tommy's instructions: the `claude_code` preset adds the
             // coding rules of an agent with tools, which such a call never uses.
             systemPrompt: config.profileGeneration
