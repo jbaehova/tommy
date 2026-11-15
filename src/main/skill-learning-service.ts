@@ -19,7 +19,7 @@ import { type LearnedSkillDraft, type SkillLearner, SkillLearningFailed } from "
 import type { LocalSkillPublication } from "./local-skill-library";
 import { PreferenceStore } from "./preference-file";
 import type { SkillMarketplaceService } from "./skill-marketplace-service";
-import { normalizedFiles } from "./skill-package";
+import { readSkillArchive, skillZippable } from "./skill-package";
 
 const FRONTMATTER = /^---\s*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u;
 
@@ -302,12 +302,16 @@ function revisedBundle(
       .pipe(Effect.mapError((cause) => new SkillLearningFailed({ cause })));
     return yield* Effect.try({
       try: () => {
-        const files = normalizedFiles(bytes);
+        // The revision keeps the execute bit of each script in the skill.
+        const { files, executable } = readSkillArchive(bytes);
         const source = new TextDecoder("utf-8", { fatal: true }).decode(files["SKILL.md"]);
         const metadata = parseYaml(source.match(FRONTMATTER)?.[1] ?? "");
         if (!isDynamicRecord(metadata)) throw new Error("The skill has no frontmatter to preserve.");
         return zipSync(
-          { ...files, "SKILL.md": markdown({ ...metadata, description: draft.description }, draft.instructions) },
+          skillZippable(
+            { ...files, "SKILL.md": markdown({ ...metadata, description: draft.description }, draft.instructions) },
+            executable,
+          ),
           { level: 6 },
         );
       },

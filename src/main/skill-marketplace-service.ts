@@ -28,7 +28,7 @@ import { causeHelpers } from "../backend/effect-boundary";
 import type { LocalSkillLibrary } from "./local-skill-library";
 import { listManagedSkillsForChat, MANAGED_SKILL_FOLDERS, MANAGED_SKILL_SLUGS } from "./managed-skill-service";
 import { listFolderSkills, listHomeFolderSkills } from "./skill-folder-discovery";
-import { archiveDirectory, inspectArchive, inspectSkillMarkdown, normalizedFiles } from "./skill-package";
+import { archiveDirectory, inspectArchive, inspectSkillMarkdown, readSkillArchive } from "./skill-package";
 
 const DRAFT_LIFETIME_MS = 30 * 60 * 1000;
 /** How long `listInstalled` keeps the newest catalog version of a skill. */
@@ -320,9 +320,14 @@ export class SkillMarketplaceService {
       const archive = yield* skillSync(() => inspectArchive(bundle));
       if (archive.slug !== detail.slug)
         return yield* new SkillMarketplaceFailure({ cause: new Error(sourceText("error.skill.metadataMismatch")) });
-      const files = yield* skillSync(() => normalizedFiles(bundle));
+      const { files, executable } = yield* skillSync(() => readSkillArchive(bundle));
       const children = packChildren(detail.slug, files);
       const folders = skillFolders(detail.slug, files, children);
+      const executableFolders = skillFolders(
+        detail.slug,
+        Object.fromEntries([...executable].map((name) => [name, true])),
+        children,
+      );
       for (const folder of folders.keys()) yield* assertSkillPaths(agent.workspacePath, folder);
       const lock = yield* readLock(agent.workspacePath);
       const existing = lock.skills[detail.id];
@@ -362,7 +367,11 @@ export class SkillMarketplaceService {
           (stayDisabled
             ? [disabledDirectory(agent.workspacePath, folder)]
             : targetDirectories(agent.workspacePath, folder)
-          ).map((target) => ({ target, files: folderFiles })),
+          ).map((target) => ({
+            target,
+            files: folderFiles,
+            executable: new Set(Object.keys(executableFolders.get(folder) ?? {})),
+          })),
         ),
       );
       // A skill that a new version of the pack no longer has goes with it.
@@ -449,10 +458,11 @@ export class SkillMarketplaceService {
               });
           }
         }
-        const writes: Array<{ target: string; files: Record<string, Uint8Array> }> = [];
+        const writes: SkillFolderWrite[] = [];
         for (const folder of folders) {
-          const files = yield* readSkillFiles(disabledDirectory(agent.workspacePath, folder));
-          for (const target of targetDirectories(agent.workspacePath, folder)) writes.push({ target, files });
+          const { files, executable } = yield* readSkillFiles(disabledDirectory(agent.workspacePath, folder));
+          for (const target of targetDirectories(agent.workspacePath, folder))
+            writes.push({ target, files, executable });
         }
         yield* replaceTargets(writes);
         for (const folder of folders)
@@ -647,6 +657,7 @@ function parseSkillMarkdownDescription(text: string): string | undefined {
 
 const readSkillFiles = Effect.fn("SkillMarketplace.readFiles")(function* (root: string) {
   const files: Record<string, Uint8Array> = {};
+  const executable = new Set<string>();
   const visit = (directory: string): Effect.Effect<void, SkillMarketplaceFailure> =>
     Effect.gen(function* () {
       for (const entry of yield* skillIO(() => readdir(directory, { withFileTypes: true }))) {
@@ -654,26 +665,36 @@ const readSkillFiles = Effect.fn("SkillMarketplace.readFiles")(function* (root: 
         if (entry.isSymbolicLink())
           return yield* new SkillMarketplaceFailure({ cause: new Error(sourceText("error.skill.symlinks")) });
         if (entry.isDirectory()) yield* visit(path);
-        else if (entry.isFile())
-          files[relative(root, path).replaceAll("\\", "/")] = new Uint8Array(yield* skillIO(() => readFile(path)));
+        else if (entry.isFile()) {
+          const name = relative(root, path).replaceAll("\\", "/");
+          files[name] = new Uint8Array(yield* skillIO(() => readFile(path)));
+          if ((yield* skillIO(() => lstat(path))).mode & 0o111) executable.add(name);
+        }
       }
     });
   yield* visit(root);
-  return files;
+  return { files, executable };
 });
+
+/** The files of one skill folder, and the names of the ones that are executable. */
+interface SkillFolderWrite {
+  target: string;
+  files: Record<string, Uint8Array>;
+  executable: ReadonlySet<string>;
+}
 
 /** Writes every target, or on a failure puts back each one it already replaced. */
 const replaceTargets = Effect.fn("SkillMarketplace.replaceTargets")(function* (
-  writes: ReadonlyArray<{ target: string; files: Record<string, Uint8Array> }>,
+  writes: ReadonlyArray<SkillFolderWrite>,
 ) {
   const completed: Array<{ target: string; backup: string | null }> = [];
   const outcome = yield* Effect.result(
     Effect.gen(function* () {
-      for (const { target, files } of writes) {
+      for (const { target, files, executable } of writes) {
         yield* skillIO(() => mkdir(dirname(target), { recursive: true, mode: 0o700 }));
         const stage = `${target}.tommy-stage-${randomUUID()}`;
         const backup = (yield* pathExists(target)) ? `${target}.tommy-backup-${randomUUID()}` : null;
-        yield* writeFiles(stage, files);
+        yield* writeFiles(stage, files, executable);
         if (backup) yield* skillIO(() => rename(target, backup));
         const moved = yield* Effect.result(skillIO(() => rename(stage, target)));
         if (Result.isFailure(moved)) {
@@ -705,13 +726,15 @@ const replaceTargets = Effect.fn("SkillMarketplace.replaceTargets")(function* (
 const writeFiles = Effect.fn("SkillMarketplace.writeFiles")(function* (
   root: string,
   files: Record<string, Uint8Array>,
+  executable: ReadonlySet<string>,
 ) {
   for (const [name, bytes] of Object.entries(files)) {
     const path = resolve(root, name);
     if (!path.startsWith(`${resolve(root)}/`) && !path.startsWith(`${resolve(root)}\\`))
       return yield* new SkillMarketplaceFailure({ cause: new Error("Unsafe skill path.") });
     yield* skillIO(() => mkdir(dirname(path), { recursive: true, mode: 0o700 }));
-    yield* skillIO(() => writeFile(path, bytes, { mode: 0o600 }));
+    // A script keeps its execute bit, so the agent can run it as the skill says.
+    yield* skillIO(() => writeFile(path, bytes, { mode: executable.has(name) ? 0o700 : 0o600 }));
   }
 });
 
