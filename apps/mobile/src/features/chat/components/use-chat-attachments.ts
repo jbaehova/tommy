@@ -16,6 +16,15 @@ import { haptics } from "@/shared/lib/haptics";
 import { readFileBase64 } from "@/shared/lib/read-file-base64";
 import { useText } from "@/shared/lib/text";
 import { type ImageDimensions, imageDimensions } from "../model/image-dimensions";
+import { smallerPhoto } from "../model/smaller-photo";
+
+function deleteCopy(uri: string) {
+  try {
+    new File(uri).delete();
+  } catch {
+    // The system clears the cache folder itself when it needs the space.
+  }
+}
 
 /**
  * Where the plus is drawn, from the screen's left and bottom edges. Measuring
@@ -138,6 +147,12 @@ export function useChatAttachments(
     if (itemsRef.current.length >= INPUT_LIMITS.attachments) throw new Error(limitMessage());
     await add(await readFile(uri, name));
   }
+  /** A photo from the library, the camera or another app. The files picker sends a file as it is. */
+  async function addPhotoFile(uri: string, name: string) {
+    if (itemsRef.current.length >= INPUT_LIMITS.attachments) throw new Error(limitMessage());
+    const photo = await smallerPhoto(uri, name);
+    await addFile(photo.uri, photo.name);
+  }
   function photoName(asset: ImagePicker.ImagePickerAsset) {
     const extension = attachmentFileExtension(asset.uri.split(/[?#]/u)[0] ?? "");
     const video = asset.type === "video";
@@ -159,7 +174,7 @@ export function useChatAttachments(
         preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
       });
       const asset = result.canceled ? undefined : result.assets[0];
-      if (asset) picked = { uri: asset.uri, name: photoName(asset) };
+      if (asset) picked = await smallerPhoto(asset.uri, photoName(asset));
     } else {
       const result = await DocumentPicker.getDocumentAsync({ multiple: false, copyToCacheDirectory: true });
       const asset = result.canceled ? undefined : result.assets[0];
@@ -203,7 +218,9 @@ export function useChatAttachments(
       preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
       selectionLimit: INPUT_LIMITS.attachments - itemsRef.current.length,
     });
-    if (!result.canceled) for (const asset of result.assets) await addFile(asset.uri, photoName(asset));
+    if (!result.canceled)
+      for (const asset of result.assets)
+        await (asset.type === "video" ? addFile : addPhotoFile)(asset.uri, photoName(asset));
   }
   function pasteText(text: string, onText: (text: string) => void) {
     if (text.length > LARGE_TEXT_LENGTH)
@@ -253,7 +270,10 @@ export function useChatAttachments(
         try {
           if (itemsRef.current.length >= INPUT_LIMITS.attachments) throw new Error(limitMessage());
           // The caller deletes the copy after this read, so the item keeps the bytes, not the address.
-          const { name, mimeType, base64 } = await readFile(file.uri, file.name);
+          const photo = await smallerPhoto(file.uri, file.name);
+          const { name, mimeType, base64 } = await readFile(photo.uri, photo.name).finally(() => {
+            if (photo.uri !== file.uri) deleteCopy(photo.uri);
+          });
           await add({ name, mimeType, base64 });
         } catch (error) {
           failures.push(error);
@@ -282,7 +302,7 @@ export function useChatAttachments(
     // Held after the card has left, so the file read, the base64 encode and
     // the composer's re-render do not land on the frames of its exit. It
     // reports its own failure, because by then there is no card to show one in.
-    addPhoto: (uri: string) => report(() => addFile(uri, "photo.jpg")),
+    addPhoto: (uri: string) => report(() => addPhotoFile(uri, "photo.jpg")),
     choosePhotos: () => report(choosePhotos),
     requestCamera,
     chooseFiles: () => report(chooseFiles),

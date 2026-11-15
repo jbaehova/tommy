@@ -118,6 +118,9 @@ export const messages = {
   "mobile.settings.notifications.channel": "에이전트 알림 ({sound})",
   "mobile.settings.notifications.channelSilent": "에이전트 알림 (소리 없음)",
   "mobile.settings.conversations.hiddenChats": "숨긴 채팅",
+  "mobile.settings.conversations.fullQualityPhotos": "사진을 원본 화질로 보내기",
+  "mobile.settings.conversations.fullQualityPhotosFooter":
+    "이 설정이 꺼져 있으면 앱이 사진마다 긴 쪽 기준 최대 2048픽셀의 작은 사본을 보내요. 느린 연결에서도 더 빨리 도착해요. 원본 사진을 보내려면 켜세요.",
   "mobile.settings.assistant.title": "휴대폰 어시스턴트",
   "mobile.settings.assistant.openPhoneSettings": "휴대폰 설정 열기",
   "mobile.settings.assistant.footer":
