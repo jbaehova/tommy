@@ -8,6 +8,7 @@ import { RequestTimeoutError } from "./agent-client";
 import { childProcessEnvironment } from "./child-process-environment";
 import type { SpawnTarget } from "./process-confinement";
 import { type ProviderClientOperationError, providerFailure } from "./provider-client-effects";
+import { endProcessGroupOnExit, PROVIDER_PROCESS_GROUP } from "./provider-process-group";
 import { registerProviderProcess } from "./provider-processes";
 import { createDiagnosticStream } from "./stderr-diagnostics";
 
@@ -32,10 +33,12 @@ export class PiRpc extends EventEmitter<{ record: [DynamicRecord]; diagnostic: [
       env: childProcessEnvironment(env),
       stdio: "pipe",
       windowsHide: true,
-      detached: true,
+      detached: PROVIDER_PROCESS_GROUP,
     });
     this.#child = child;
     registerProviderProcess(child, this.provider);
+    // The stop below ends the group. This also ends it when Pi exits by itself.
+    endProcessGroupOnExit(child);
     const decoder = new StringDecoder("utf8");
     let buffered = "";
     const diagnostics = createDiagnosticStream({ redact: this.redact, emit: (line) => this.emit("diagnostic", line) });

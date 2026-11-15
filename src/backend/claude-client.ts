@@ -1,8 +1,9 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomUUID, type UUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { promisify } from "node:util";
 import {
   type CanUseTool,
@@ -16,6 +17,8 @@ import {
   type SDKUserMessage,
   type SessionMessage,
   type Settings,
+  type SpawnedProcess,
+  type SpawnOptions,
   tool,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -27,7 +30,7 @@ import {
 } from "@tommy/contracts/ipc";
 import { type DynamicRecord, isDynamicRecord, isNumber, isOneOf, isString } from "@tommy/contracts/runtime-values";
 import { sourceText } from "@tommy/i18n/source";
-import { createTommyLogger } from "@tommy/logging";
+import { createTommyLogger, redactText } from "@tommy/logging";
 import { Deferred, Effect, Exit, Fiber, Option, Scope } from "effect";
 import { z } from "zod";
 import { advertisedZodShape } from "./agent/advertised-json-schema";
@@ -139,6 +142,7 @@ import {
   toProviderClientOperationError,
 } from "./provider-client-effects";
 import type { ReadProviderHistory } from "./provider-history";
+import { endProcessGroupOnExit, PROVIDER_PROCESS_GROUP } from "./provider-process-group";
 
 const execFileAsync = promisify(execFile);
 const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -340,6 +344,8 @@ interface ThreadRuntime {
   /** The external MCP configuration until the CLI has read it. */
   mcpConfigFile: ClaudeQueryFile | null;
   flagSettingsFile: ClaudeQueryFile | null;
+  /** The end of the CLI's stderr when Tommy starts the CLI. See `spawnClaudeProcessGroup`. */
+  stderr: ClaudeStderrTail;
 }
 
 /**
@@ -1120,12 +1126,16 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
         ...(claudeTakesPromptSnapshotFlag(this.#cli.version) ? { "system-prompt-snapshot": "off" } : {}),
         ...(mcpConfigFile ? { "mcp-config": mcpConfigFile.path } : {}),
       };
+      const stderr = new ClaudeStderrTail();
       const claudeQuery = yield* providerSync(() =>
         this.#createQuery({
           prompt: input,
           options: {
             cwd: config.cwd,
             ...this.#sdkLaunch,
+            ...(this.#sdkLaunch.spawnClaudeCodeProcess || !PROVIDER_PROCESS_GROUP
+              ? {}
+              : { spawnClaudeCodeProcess: (options: SpawnOptions) => spawnClaudeProcessGroup(options, stderr) }),
             ...(config.model ? { model: this.#sdkModel(config.model) } : {}),
             ...(appliedEffort ? { effort: appliedEffort } : {}),
             ...(resume ? { resume: threadId } : { sessionId: threadId, title: CLAUDE_SESSION_TITLE }),
@@ -1218,6 +1228,7 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
         streamMessage: { id: null, thinkingBlocks: new Map<number, string>() },
         mcpConfigFile,
         flagSettingsFile,
+        stderr,
       };
       this.#threads.add(runtime);
       runtime.consume = yield* Effect.forkIn(this.#consume(runtime), this.#scope, { startImmediately: true });
@@ -1427,8 +1438,9 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
         if (this.#running && this.#threads.get(runtime.id) === runtime) {
           this.#fail(new Error("Claude session stream ended unexpectedly."));
         }
-      } catch (error) {
+      } catch (caught) {
         if (!this.#running || this.#threads.get(runtime.id) !== runtime) return;
+        const error = runtime.stderr.addTo(caught);
         const activeTurn = runtime.activeTurn;
         if (activeTurn) yield* this.#completeTurn(runtime, "failed", error);
         this.#fail(error instanceof Error ? error : new Error(String(error)));
@@ -2435,6 +2447,61 @@ function claudeTurnError(error: unknown): string {
 
 function claudeSdkLaunch(executable: string): ClaudeSdkLaunch {
   return { pathToClaudeCodeExecutable: executable };
+}
+
+/** As many characters of stderr as the SDK adds to an exit error. */
+const CLAUDE_STDERR_TAIL_CHARS = 2_048;
+
+/** The SDK's exit error of a process that it did not start, which therefore has no stderr text. */
+const CLAUDE_PROCESS_EXIT = /^Claude Code process (?:exited with code|terminated by signal) [^.]*$/;
+
+/**
+ * The end of the CLI's stderr, which the SDK adds to its exit error only for a process that it
+ * started. A CLI that cannot start, such as with no sandbox, gives the reason there. Secrets are
+ * redacted before the text is cut, as the SDK does.
+ */
+class ClaudeStderrTail {
+  #text = "";
+  readonly #decoder = new StringDecoder("utf8");
+
+  push(chunk: Buffer): void {
+    this.#text += this.#decoder.write(chunk);
+    if (this.#text.length > 2 * CLAUDE_STDERR_TAIL_CHARS) this.#text = this.#text.slice(-CLAUDE_STDERR_TAIL_CHARS);
+  }
+
+  /** The SDK's error with the text the SDK adds when it starts the process itself. */
+  addTo(error: unknown): unknown {
+    if (!(error instanceof Error) || !CLAUDE_PROCESS_EXIT.test(error.message)) return error;
+    const text = redactText(this.#text).slice(-CLAUDE_STDERR_TAIL_CHARS).trim();
+    return text ? new Error(`${error.message}. stderr: ${text}`, { cause: error }) : error;
+  }
+}
+
+/**
+ * The CLI of a thread starts as the leader of a process group of its own. The SDK starts it in
+ * Tommy's group, where the child of an MCP server outlived the CLI with no owner
+ * (`provider-process-group.ts`). The SDK closes stdin first and sends SIGTERM to the CLI 2 seconds
+ * later, as before; when the CLI exits, what is left of its group ends. Shell commands and
+ * background tasks run in groups of their own, so they are not in it.
+ */
+function spawnClaudeProcessGroup(
+  { command, args, cwd, env, signal }: SpawnOptions,
+  stderr: ClaudeStderrTail,
+): SpawnedProcess {
+  const child = spawn(command, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"], detached: true });
+  endProcessGroupOnExit(child);
+  // Read to its end: a full stderr pipe would block the CLI.
+  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+  child.stderr.on("error", () => {
+    // The CLI exited; the SDK reports the exit.
+  });
+  const abort = () => child.kill();
+  const release = () => signal.removeEventListener("abort", abort);
+  signal.addEventListener("abort", abort, { once: true });
+  child.once("exit", release);
+  child.once("error", release);
+  if (signal.aborted) abort();
+  return child;
 }
 
 function claudeEnvironment(cli: ClaudeCliInfo): NodeJS.ProcessEnv {
