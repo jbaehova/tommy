@@ -143,6 +143,8 @@ export const messages = defineMessages("error.provider", {
     "{provider} did not accept the earlier reasoning in this chat, because a different account or API key received it. Tommy started a new {provider} session with the chat history. Try again.",
   "error.provider.claudeSessionMissing":
     "Claude Code could not find the saved session of this chat. Tommy started a new Claude Code session with the chat history. Try again.",
+  "error.provider.claudeContextFull":
+    "This chat became too long for Claude. Tommy started a new Claude Code session with the chat history. Try again.",
   "error.provider.acpSignInTimedOut": "The sign-in timed out.",
   "error.provider.acpSignInStopped": "The sign-in stopped before it was complete.",
   "error.provider.geminiBrowserUnavailable":
@@ -198,6 +200,8 @@ export const messages = defineMessages("error.provider", {
     "ChatGPT is still preparing its local history after an earlier start. Wait a few minutes, then try again.",
   "error.provider.imageTooSmall":
     "The model did not accept an image in this chat because the image is too small. Tommy started a new {provider} session with the chat history. Try again.",
+  "error.provider.imageTooLarge":
+    "The model did not accept an image in this chat because the image is too large. Tommy started a new {provider} session with the chat history. Try again.",
   "error.provider.claudePrivateSettings":
     "Tommy could not write private Claude settings. Check that Tommy can write to its data directory, then try again.",
 });

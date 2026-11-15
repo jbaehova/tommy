@@ -21,7 +21,7 @@ import {
   reasoningText,
   type ThreadItem,
 } from "../protocol";
-import { isImageTooSmallDiagnostic } from "./provider-diagnostics";
+import { isImageTooLargeDiagnostic, isImageTooSmallDiagnostic } from "./provider-diagnostics";
 import { BUILTIN_TOOL_CATALOG } from "./tool-catalog";
 
 export function isNonActionableCodexWarning(message: string): boolean {
@@ -105,6 +105,14 @@ function isMissingClaudeSession(provider: AgentProvider, message: string): boole
 }
 
 /**
+ * Claude Code compacts a session that is too long for the model before it gives up, and then ends
+ * each later turn of that session with this text, also after a restart.
+ */
+function isClaudeContextOverflow(provider: AgentProvider, message: string): boolean {
+  return provider === "claude" && /^Prompt is too long\b/.test(message);
+}
+
+/**
  * The failure to show when the provider refused the session's own history, or null when it did
  * not. Each turn of a refused session fails the same way, so the caller closes the session.
  */
@@ -113,7 +121,10 @@ export function refusedSessionFailure(provider: AgentProvider, message: string):
     return sourceText("error.provider.foreignReasoning", { provider: providerLabel(provider) });
   if (isImageTooSmallDiagnostic(message))
     return sourceText("error.provider.imageTooSmall", { provider: providerLabel(provider) });
+  if (isImageTooLargeDiagnostic(message))
+    return sourceText("error.provider.imageTooLarge", { provider: providerLabel(provider) });
   if (isMissingClaudeSession(provider, message)) return sourceText("error.provider.claudeSessionMissing");
+  if (isClaudeContextOverflow(provider, message)) return sourceText("error.provider.claudeContextFull");
   return null;
 }
 
