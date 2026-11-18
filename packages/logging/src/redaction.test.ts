@@ -42,6 +42,8 @@ describe("redactText", () => {
       `ASIA${"A1".repeat(8)}`,
       `rk_live_${run(24)}`,
       `whsec_${run(32)}`,
+      // Standard Webhooks secrets are standard base64, with `+`, `/` and `=`.
+      `whsec_${run(20)}+${run(10)}/${run(10)}==`,
     ]) {
       expect(redactText(`key ${key} leaked`)).toBe("key [redacted] leaked");
     }
@@ -144,6 +146,27 @@ describe("redactText", () => {
     expect(redactText("note {not json} and more")).toBe("note {not json} and more");
   });
 
+  // An agent's reply and its instructions go through these rules. Brackets with no quoted key are a
+  // template or a link, not a record.
+  it("keeps template placeholders and links that are not records", () => {
+    expect(redactText("Dear {{name}}, see {{ a.b }} and [[Page]]")).toBe("Dear {{name}}, see {{ a.b }} and [[Page]]");
+    expect(redactText("m = [[a, b], [c, d]]")).toBe("m = [[a, b], [c, d]]");
+    expect(redactText("a chunk that ends {{na")).toBe("a chunk that ends {{na");
+    expect(redactText("if [[ -f x ]]; then echo {{name}}; fi")).toBe("if [[ -f x ]]; then echo {{name}}; fi");
+    const template = Array.from({ length: 40 }, (_, index) => `{{p${index}}}`).join(" ");
+    expect(redactText(template)).toBe(template);
+    expect(redactText('ERROR [{"headers":{"X-Tenant":"tenant-secret"}},]')).toBe("ERROR [redacted-unscanned]");
+  });
+
+  // An instruction file can hold many more links than the scan bound, and none of them is a record.
+  it("keeps a text with more Markdown links than the scan bound", () => {
+    const links = Array.from({ length: 40 }, (_, index) => `[Doc ${index}](https://example.com/${index})`).join("\n");
+    const text = `${links}\nThe last line stays.`;
+    expect(redactText(text)).toBe(text);
+    // A record after the links is still read and redacted.
+    expect(redactText(`${links}\nERROR {"headers":{"X-Tenant":"tenant-secret"}}`)).not.toContain("tenant-secret");
+  });
+
   it("redacts a serialized payload no matter how long it is", () => {
     const padding = "x".repeat(200_000);
     expect(redactText(JSON.stringify({ key: "pk_live_abcdefgh1234", padding }))).toBe(
@@ -239,12 +262,10 @@ describe("redactText", () => {
     expect(redactText('{"apiKey":"abcdef123456')).toBe("[redacted-unscanned]");
   });
 
-  // A payload that parses is written back as JSON, so its spacing is the serializer's. The text
-  // around it is untouched: only the run itself is read as data.
   // A line can hold more payloads than the bound allows, and the regex rules match no header name,
   // so what was not read must not be shown.
   it("drops the rest of a line whose payloads pass the scan bound", () => {
-    const redacted = redactText(`${"{} ".repeat(16)}{"headers":{"X-Tenant":"tenant-secret"}}`);
+    const redacted = redactText(`${'{"a":1} '.repeat(16)}{"headers":{"X-Tenant":"tenant-secret"}}`);
     expect(redacted).not.toContain("tenant-secret");
     expect(redacted).toContain("[redacted-unscanned]");
   });
@@ -253,15 +274,51 @@ describe("redactText", () => {
   // full pass per brace. Every attempt counts against the bound, not only the ones that parse.
   it("bounds the work a line of open braces can cause", () => {
     const braces = "{".repeat(65_536);
-    const started = performance.now();
-    // A brace followed by a brace opens what looks like a record, and the run never closes, so the
-    // whole line is dropped on the first read instead of once per brace.
-    expect(redactText(braces)).toBe("[redacted-unscanned]");
+    let started = performance.now();
+    // No brace opens a record, because no quoted key follows, so the whole run is passed in one read
+    // instead of once per brace.
+    expect(redactText(braces)).toBe(braces);
     expect(performance.now() - started).toBeLessThan(1_000);
+    // White space between the brackets must not make each bracket read the rest of the line.
+    const spaced = "{ ".repeat(65_536);
+    started = performance.now();
+    expect(redactText(spaced)).toBe(spaced);
+    expect(performance.now() - started).toBeLessThan(1_000);
+    // Each of these opens a record that never closes, so the line is dropped on the first read.
+    expect(redactText('{"'.repeat(65_536))).toBe("[redacted-unscanned]");
   });
 
   it("keeps the text around an embedded payload", () => {
-    expect(redactText("read [1, 2, 3] items")).toBe("read [1,2,3] items");
+    expect(redactText("read [1, 2, 3] items")).toBe("read [1, 2, 3] items");
+  });
+
+  // A skill example reached the agent with other digits, because the payload was parsed and written
+  // again with nothing to redact in it.
+  it("keeps a payload that no rule changes as it was written", () => {
+    const example = 'Use:\n```json\n{"channelId": 1234567890123456789, "ids": [9876543210987654321]}\n```';
+    expect(redactText(example)).toBe(example);
+    expect(redactText('{"channelId": 1234567890123456789}')).toBe('{"channelId": 1234567890123456789}');
+    const result = JSON.stringify({ instructions: example });
+    expect(JSON.parse(redactText(result)).instructions).toBe(example);
+  });
+
+  it("writes a payload again when it has a secret or a key written twice", () => {
+    expect(redactText('note {"apiKey": "pk_live_9f2b3c4d5e", "n": 1}')).toBe('note {"apiKey":"[redacted]","n":1}');
+    // The parse keeps only the last `headers`, so the first one is never read and must not stay.
+    expect(redactText('ERROR {"headers": {"X-Tenant": "tenant-secret"}, "headers": {}}')).toBe('ERROR {"headers":{}}');
+    expect(redactText('{"headers": {"X-Tenant": "tenant-secret"}, "headers": {}}')).toBe('{"headers":{}}');
+  });
+
+  // Past the conversion depth bound the payload is cut, not kept, and a nesting too deep for the
+  // serializer must not turn the line into an unread one.
+  it("cuts a payload nested past the depth bound", () => {
+    const depth = 100_000;
+    const payload = `${'{"a":'.repeat(depth)}{"headers":{"X":"tenant-secret"}}${"}".repeat(depth)}`;
+    for (const line of [payload, `ERR ${payload}`]) {
+      const redacted = redactText(line);
+      expect(redacted).not.toContain("tenant-secret");
+      expect(redacted).toContain("[too deep]");
+    }
   });
 });
 

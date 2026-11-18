@@ -89,6 +89,13 @@ the Electron libraries), creates the `tommy` system user, installs the app in `/
 the data in `/var/lib/tommy`, and starts `tommy.service`. It installs Noto CJK fonts so browser
 pages can show Chinese, Japanese and Korean text. Check it with `sudo tommy status`.
 
+On Ubuntu 26.04, `tommy-install` also adds one rule to `/etc/apparmor.d/local/bwrap-userns-restrict`:
+`priority=1 allow pix /** -> &bwrap,`. The Ubuntu profile of `/usr/bin/bwrap` removes all
+capabilities from the programs that `bwrap` starts, and the Claude sandbox ("Workspace only") needs
+`CAP_SYS_ADMIN` there. With the rule, those programs keep the profile of `bwrap`, for all users of
+the computer. To remove it, delete the `# Tommy:` line and the rule from that file, then run
+`sudo apparmor_parser --replace /etc/apparmor.d/bwrap-userns-restrict`.
+
 ### 1Password (optional)
 
 Put `OP_SERVICE_ACCOUNT_TOKEN` in `/var/lib/tommy/.config/tommy/agent.env` and restart

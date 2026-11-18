@@ -70,6 +70,7 @@ import { markRemoteSync, type RemoteRequestProfile, startRemoteRequest } from ".
 export type { RemoteFileUpload } from "./file-upload";
 export { MOBILE_ATTACHMENT_BYTES } from "./file-upload";
 
+import { startRemoteRequestDeadline } from "./remote-recovery";
 import { createTeamRequestId } from "./request-id";
 
 // A type, not an interface: the command crosses the native/DOM bridge as JSON.
@@ -203,6 +204,8 @@ interface PeerState {
   connectedTimer: ReturnType<typeof setTimeout> | null;
   /** The host answered a request on this peer. */
   answeredRequest: boolean;
+  /** When the host last answered a request on this peer, as `performance.now()`. A request deadline counts from it. */
+  lastAnswerAt: number;
   hostProtocol: number | undefined;
   /** The compatibility read in flight. A request waits for it when the host protocol is not known. */
   hostProtocolRead?: Deferred.Deferred<void>;
@@ -496,6 +499,7 @@ export function createRemoteTeamPeer(actions: ActionsRef, options: { hostProtoco
         abort: new AbortController(),
         connectedTimer: null,
         answeredRequest: false,
+        lastAnswerAt: 0,
         hostProtocol: hostProtocols.get(hostId),
       };
       peer = state;
@@ -671,6 +675,7 @@ export function createRemoteTeamPeer(actions: ActionsRef, options: { hostProtoco
         if (frame.type !== "response")
           return yield* new RemotePeerError({ message: "The host returned an invalid RPC frame." });
         state.answeredRequest = true;
+        state.lastAnswerAt = performance.now();
         const pending = pendingRequests.get(frame.requestId);
         if (!pending) return;
         pending.profile?.responded(data);
@@ -926,12 +931,19 @@ export function createRemoteTeamPeer(actions: ActionsRef, options: { hostProtoco
               resolve,
               reject,
               profile: startRemoteRequest(method, path, payload),
-              timer: setTimeout(
-                expire,
-                checksConnection
-                  ? Math.min(state.answeredRequest ? PROBE_REQUEST_TIMEOUT_MS : FIRST_PROBE_TIMEOUT_MS, timeoutMs)
-                  : timeoutMs,
-              ),
+              timer: checksConnection
+                ? setTimeout(
+                    expire,
+                    Math.min(state.answeredRequest ? PROBE_REQUEST_TIMEOUT_MS : FIRST_PROBE_TIMEOUT_MS, timeoutMs),
+                  )
+                : startRemoteRequestDeadline(
+                    timeoutMs,
+                    () => state.lastAnswerAt,
+                    expire,
+                    (timer) => {
+                      pending.timer = timer;
+                    },
+                  ),
             };
             pendingRequests.set(requestId, pending);
             return pending;

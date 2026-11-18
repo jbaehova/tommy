@@ -3,6 +3,8 @@ import {
   CHANNEL_DELETE_CAPABILITY,
   CHANNEL_TASK_CANCEL_CAPABILITY,
   type ChannelCommand,
+  type ChannelMessage,
+  type ChannelTask,
   canAdministerServer,
   isReleasedRoutineSchedule,
   parseChannelCommand,
@@ -26,7 +28,28 @@ import {
 import type { TeamApiAgents } from "./dependencies";
 import { HttpError } from "./http-error";
 import type { RouteOutcome, TeamApiRequestContext } from "./request-context";
-import { readJson, requireAgentLevel, requireReleasedSchedule, stringField } from "./request-helpers";
+import {
+  messageTextCut,
+  readJson,
+  requireAgentLevel,
+  requireReleasedSchedule,
+  stringField,
+  WEBRTC_FRAME_BODY_BUDGET,
+} from "./request-helpers";
+
+/**
+ * The tasks that a page shows: every task of a run with open work (Stop, the stopped-task cards and
+ * the awaiting replies read them), and the tasks of the messages on the page. A channel keeps every
+ * task it ever had, one for each member of each request, so in a large channel the tasks alone
+ * passed one frame and the channel did not open on a remote client.
+ */
+function pageTasks(tasks: readonly ChannelTask[], messages: readonly ChannelMessage[]): ChannelTask[] {
+  const openRuns = new Set(
+    tasks.flatMap((task) => (task.state === "completed" || task.state === "cancelled" ? [] : [task.rootTaskId])),
+  );
+  const shown = new Set(messages.map((item) => item.taskId));
+  return tasks.filter((task) => openRuns.has(task.rootTaskId) || shown.has(task.id));
+}
 
 /**
  * The settings half of a channel is served from `AgentService`, the same object the IPC handlers
@@ -68,7 +91,24 @@ export async function routeChannels(
   if (list) return json(200, channels.store.list(member.id));
   if (read) {
     const input = parseChannelRead(channelRequest(url.pathname, await readJson(request)));
-    return json(200, channels.store.page(input.channelId, input.beforeSequence));
+    // Long messages, such as a member's thinking, make a page of fewer messages, so it fits one
+    // frame. The client reads the rest as older pages. A page larger than the frame cannot reach a
+    // remote client.
+    for (let limit = 100; ; limit = Math.floor(limit / 2)) {
+      let page = channels.store.page(input.channelId, input.beforeSequence, limit);
+      if (Buffer.byteLength(JSON.stringify(page)) > WEBRTC_FRAME_BODY_BUDGET)
+        page = { ...page, tasks: pageTasks(page.tasks, page.messages) };
+      const bytes = Buffer.byteLength(JSON.stringify(page));
+      if (bytes <= WEBRTC_FRAME_BODY_BUDGET) return json(200, page);
+      if (limit === 1) {
+        // One message alone is too large: cut its text, so the channel opens and the older pages load.
+        const cut = messageTextCut(
+          page.messages.map((item) => item.message),
+          bytes - WEBRTC_FRAME_BODY_BUDGET,
+        );
+        return json(200, { ...page, messages: page.messages.map((item) => ({ ...item, message: cut(item.message) })) });
+      }
+    }
   }
   if (remove) {
     if (!capabilities.has(CHANNEL_DELETE_CAPABILITY))

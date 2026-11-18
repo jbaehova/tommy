@@ -117,6 +117,9 @@ export const messages = defineMessages("mobile.settings", {
   "mobile.settings.notifications.channel": "Agent notifications ({sound})",
   "mobile.settings.notifications.channelSilent": "Agent notifications (no sound)",
   "mobile.settings.conversations.hiddenChats": "Hidden chats",
+  "mobile.settings.conversations.fullQualityPhotos": "Send photos at full quality",
+  "mobile.settings.conversations.fullQualityPhotosFooter":
+    "When this is off, the app sends a smaller copy of each photo, up to 2048 pixels on the long side. It arrives faster on a slow connection. Turn this on to send the original photo.",
   "mobile.settings.assistant.title": "Phone assistant",
   "mobile.settings.assistant.openPhoneSettings": "Open phone settings",
   "mobile.settings.assistant.footer":

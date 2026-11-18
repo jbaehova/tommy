@@ -730,6 +730,9 @@ export class ThreadLifecycle {
       cwd: agent.workspacePath,
       runtimeWorkspaceRoots: workspaceWritableRoots(agent, this.#store.sharedRoot),
       approvalPolicy: "on-request",
+      // A Codex `approvals_reviewer` in the user's config would send approvals to its own reviewer, which
+      // ignores Tommy cards. A resumed thread keeps its last reviewer, so each request names the user.
+      approvalsReviewer: "user",
       sandbox: codexSandboxMode(agent),
       ...this.#workspaceOnlyParam(agent, client),
       ...this.#computerUseParam(agent, client),
@@ -1377,6 +1380,7 @@ export class ThreadLifecycle {
       cwd: agent.workspacePath,
       runtimeWorkspaceRoots: workspaceWritableRoots(agent, this.#store.sharedRoot),
       approvalPolicy: "on-request",
+      approvalsReviewer: "user",
       sandbox: codexSandboxMode(agent),
       ...this.#workspaceOnlyParam(agent, client),
       ...this.#computerUseParam(agent, client),
@@ -1457,6 +1461,39 @@ export class ThreadLifecycle {
       this.#store.database.activeProviderSession(publicThreadId, agent.provider)?.externalSessionId === externalThreadId
     );
   }
+
+  /**
+   * Loads a Codex session in `client` before a compaction of it. Codex compacts only a thread that its
+   * process holds, and answers `thread not found` for one that an idle release or a process restart
+   * unloaded. A turn resumes it in `ensureThread`; a compaction before the turn did not.
+   * False when the next turn replaces the session, so a compaction of it has no use: its tools
+   * changed, or Codex has no rollout to resume it from.
+   */
+  readonly loadSessionForCompaction = Effect.fn("ThreadLifecycle.loadSessionForCompaction")(function* (
+    this: ThreadLifecycle,
+    agentId: string,
+    client: AgentClient,
+    externalThreadId: string,
+  ) {
+    // Only Codex: the other clients load their sessions themselves. A session marked for reload is
+    // still loaded in Codex, and its next turn resumes it.
+    if (client.provider !== "codex" || this.#conversation.openClientFor(externalThreadId) === client) return true;
+    const agent = this.#store.list().find((candidate) => candidate.id === agentId);
+    if (!agent) return false;
+    const publicThreadId = this.#conversation.publicThreadId(agentId, externalThreadId);
+    if (!(yield* this.hasCurrentToolsEffect(this.#sessionAgent(agent, publicThreadId), client, externalThreadId)))
+      return false;
+    const resumed = yield* Effect.result(
+      Effect.acquireUseRelease(
+        Effect.sync(() => this.holdRuntimeRefresh(agentId, this.#conversation.isSideThread(publicThreadId))),
+        () => this.resumeThread(agent, client, externalThreadId),
+        (release) => Effect.sync(release),
+      ),
+    );
+    if (Result.isSuccess(resumed)) return true;
+    if (isMissingProviderSessionError(resumed.failure.cause, client.provider)) return false;
+    return yield* resumed.failure;
+  }, Effect.uninterruptible).bind(this);
 
   /**
    * Compacts the context of a provider that cannot compact on request: the session ends, and a new

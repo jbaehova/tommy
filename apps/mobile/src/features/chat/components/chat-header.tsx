@@ -7,7 +7,7 @@ import ChevronDown from "lucide-react-native/icons/chevron-down";
 import Ellipsis from "lucide-react-native/icons/ellipsis";
 import Globe from "lucide-react-native/icons/globe";
 import TriangleAlert from "lucide-react-native/icons/triangle-alert";
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { Pressable, View, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUniwind } from "uniwind";
@@ -58,7 +58,8 @@ interface ChatHeaderProps {
   threadMenu?: ChatThreadMenu;
 }
 
-export function ChatHeader({
+/** In `memo`: the chat renders again on each streamed chunk, and the header reads nothing of it. */
+export const ChatHeader = memo(function ChatHeader({
   target,
   fallbackBackground,
   foreground,
@@ -321,4 +322,4 @@ export function ChatHeader({
       />
     </>
   );
-}
+});

@@ -15,8 +15,13 @@ import Smartphone from "lucide-react-native/icons/smartphone";
 import Sparkles from "lucide-react-native/icons/sparkles";
 import Vibrate from "lucide-react-native/icons/vibrate";
 import Workflow from "lucide-react-native/icons/workflow";
+import { useState } from "react";
+import { useUniwind } from "uniwind";
 import { SettingsContent, SettingsRow, SettingsSection } from "@/features/settings/components/settings-content";
+import { SettingsSwitch } from "@/features/settings/components/settings-controls";
+import { savePhotoQualityPreference, usePhotoQualityPreference } from "@/features/settings/model/photo-quality";
 import { useMobileWorkspaceSelector } from "@/features/workspace/context/workspace-store";
+import { haptics } from "@/shared/lib/haptics";
 import { useText } from "@/shared/lib/text";
 
 function NavRow({ icon: Icon, title, hint, href }: { icon: LucideIcon; title: string; hint?: string; href: Href }) {
@@ -35,6 +40,16 @@ function NavRow({ icon: Icon, title, hint, href }: { icon: LucideIcon; title: st
 export function SettingsScreen() {
   const { t } = useText();
   const serverId = useMobileWorkspaceSelector((current) => current.activeServer.id);
+  const { theme } = useUniwind();
+  const photoQuality = usePhotoQualityPreference();
+  const [photoQualityError, setPhotoQualityError] = useState<string | null>(null);
+  function savePhotoQuality(fullQuality: boolean) {
+    setPhotoQualityError(null);
+    void savePhotoQualityPreference(fullQuality).catch(() => {
+      setPhotoQualityError(t("mobile.settings.saveFailed"));
+      void haptics.notification("error");
+    });
+  }
   return (
     <SettingsContent>
       <SettingsSection>
@@ -59,6 +74,17 @@ export function SettingsScreen() {
         <NavRow icon={Bell} title={t("mobile.settings.notifications.title")} href="/settings/notifications" />
         <NavRow icon={Lock} title={t("mobile.appLock.title")} href="/settings/app-lock" />
         <NavRow icon={EyeOff} title={t("mobile.settings.conversations.hiddenChats")} href="/settings/hidden-chats" />
+      </SettingsSection>
+      <SettingsSection footer={photoQualityError ?? t("mobile.settings.conversations.fullQualityPhotosFooter")}>
+        <SettingsRow>
+          <SettingsSwitch
+            value={photoQuality.fullQuality}
+            disabled={!photoQuality.ready || photoQuality.saving}
+            label={t("mobile.settings.conversations.fullQualityPhotos")}
+            dark={theme === "dark"}
+            onValueChange={savePhotoQuality}
+          />
+        </SettingsRow>
       </SettingsSection>
       <SettingsSection>
         <NavRow icon={LifeBuoy} title={t("mobile.settings.home.support")} href="/settings/support" />

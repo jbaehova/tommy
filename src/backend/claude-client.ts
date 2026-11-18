@@ -1,8 +1,9 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomUUID, type UUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { promisify } from "node:util";
 import {
   type CanUseTool,
@@ -16,6 +17,8 @@ import {
   type SDKUserMessage,
   type SessionMessage,
   type Settings,
+  type SpawnedProcess,
+  type SpawnOptions,
   tool,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -27,7 +30,7 @@ import {
 } from "@tommy/contracts/ipc";
 import { type DynamicRecord, isDynamicRecord, isNumber, isOneOf, isString } from "@tommy/contracts/runtime-values";
 import { sourceText } from "@tommy/i18n/source";
-import { createTommyLogger } from "@tommy/logging";
+import { createTommyLogger, redactText } from "@tommy/logging";
 import { Deferred, Effect, Exit, Fiber, Option, Scope } from "effect";
 import { z } from "zod";
 import { advertisedZodShape } from "./agent/advertised-json-schema";
@@ -68,6 +71,7 @@ import { claudeContextCategories } from "./claude-context-categories";
 import { type ClaudeHistoryOptions, claudeHistoryFromMessages, claudeHistoryReader } from "./claude-history";
 import {
   type ClaudeQueryFile,
+  claudeAgentFlagSettings,
   claudeSignInSettings,
   clearClaudeNeedsAuthMarks,
   removeClaudeQuerySettings,
@@ -138,6 +142,7 @@ import {
   toProviderClientOperationError,
 } from "./provider-client-effects";
 import type { ReadProviderHistory } from "./provider-history";
+import { endProcessGroupOnExit, PROVIDER_PROCESS_GROUP } from "./provider-process-group";
 
 const execFileAsync = promisify(execFile);
 const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -164,6 +169,23 @@ const CLAUDE_NATIVE_SCHEDULING = [
  * background agent fleet. Their schemas cost about 1.9k tokens in each request.
  */
 const CLAUDE_DUPLICATE_TOOLS = ["ListAgents", "Workflow"];
+/**
+ * Claude tools and agent types for a Claude Code host, which Tommy is not. `ReportFindings` puts
+ * code review findings in the Claude Code review panel, which Tommy does not have, and tells the
+ * model not to also write them as text. `DesignSync` and `PushNotification` send to claude.ai Design
+ * and the Claude mobile app. The `statusline-setup` agent edits the Claude Code status line,
+ * `claude-code-guide` answers questions about the Claude Code CLI, and `claude` is a second
+ * `general-purpose`. Together about 1.3k tokens in each request; `general-purpose`, `Explore`, `Plan`
+ * and `web-fetch` stay.
+ */
+const CLAUDE_HOST_TOOLS = [
+  "ReportFindings",
+  "DesignSync",
+  "PushNotification",
+  "Agent(statusline-setup)",
+  "Agent(claude-code-guide)",
+  "Agent(claude)",
+];
 /**
  * agent-desktop tools that an agent cannot use or does not need, which Tommy hides from Claude. Claude
  * loads each MCP schema in each request, and the driver has 67 tools (about 41 KB). The press and
@@ -201,6 +223,12 @@ const TOMMY_CLAUDE_CLIENT = {
   CLAUDE_CODE_ARTIFACT: "0",
   CLAUDE_CODE_ENTRYPOINT: "tommy",
 };
+/**
+ * The name of a new Claude session. Without one, the CLI sends an extra model request at the first
+ * prompt to make a title (about 1.2k input tokens) that Tommy never shows. Only a new session gets
+ * it: the CLI does not name a resumed session, and a title on resume would rename an older session.
+ */
+const CLAUDE_SESSION_TITLE = "Tommy";
 
 interface ClientEvents {
   notification: [notification: AppServerNotification];
@@ -316,6 +344,8 @@ interface ThreadRuntime {
   /** The external MCP configuration until the CLI has read it. */
   mcpConfigFile: ClaudeQueryFile | null;
   flagSettingsFile: ClaudeQueryFile | null;
+  /** The end of the CLI's stderr when Tommy starts the CLI. See `spawnClaudeProcessGroup`. */
+  stderr: ClaudeStderrTail;
 }
 
 /**
@@ -356,6 +386,10 @@ interface ClaudeStreamMessage {
   is_error?: boolean;
   /** Why an assistant message is a refusal, such as `rate_limit`. */
   error?: string;
+  /** Why an API error refused the request, such as `usage_limit_reached`. The SDK types do not declare it. */
+  api_error?: string;
+  /** The details of `api_error`, such as the `rate_limit_info` of a usage limit. */
+  api_error_params?: unknown;
   rate_limit_info?: unknown;
   /** `background_tasks_changed`: every live background task. */
   tasks?: unknown;
@@ -774,7 +808,9 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
             ? null
             : { supported: supportedReasoningEfforts, defaultEffort: defaultReasoningEffort },
         );
-        sdkValues.set(id, model.value.trim() || id);
+        // `default` follows Claude Code's own default, which can change, such as at a usage limit,
+        // while the agent keeps its model. Its resolved id names the model that the agent chose.
+        sdkValues.set(id, model.value.trim() === "default" ? id : model.value.trim() || id);
         return {
           model: id,
           displayName: model.displayName,
@@ -1026,6 +1062,15 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
     );
     // Normal turns load the user settings. Tool-free calls load only their sign-in settings.
     const signInSettings: Settings = config.profileGeneration ? yield* claudeSignInSettings(configDirectory) : {};
+    const settingSources: Array<"user" | "project" | "local"> = config.profileGeneration
+      ? []
+      : config.workspaceOnly
+        ? ["user"]
+        : ["user", "project", "local"];
+    // A profile generation has no tools and no skills, so it needs none of the agent settings.
+    const agentSettings: Settings = config.profileGeneration
+      ? {}
+      : yield* claudeAgentFlagSettings(configDirectory, config.cwd, settingSources);
     const skillPlugin =
       config.workspaceOnly && stateDirectory ? yield* claudeWorkspaceSkillPlugin(stateDirectory, config.cwd) : null;
     const homeSkillPlugin =
@@ -1047,6 +1092,7 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
     const nodeOptions = this.#agentEnvironment?.().NODE_OPTIONS;
     const flagSettings = {
       ...signInSettings,
+      ...agentSettings,
       ...(config.workspaceOnly
         ? { sandbox: claudeWorkspaceSandbox(config.additionalDirectories, config.excludedFolders) }
         : {}),
@@ -1080,20 +1126,24 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
         ...(claudeTakesPromptSnapshotFlag(this.#cli.version) ? { "system-prompt-snapshot": "off" } : {}),
         ...(mcpConfigFile ? { "mcp-config": mcpConfigFile.path } : {}),
       };
+      const stderr = new ClaudeStderrTail();
       const claudeQuery = yield* providerSync(() =>
         this.#createQuery({
           prompt: input,
           options: {
             cwd: config.cwd,
             ...this.#sdkLaunch,
+            ...(this.#sdkLaunch.spawnClaudeCodeProcess || !PROVIDER_PROCESS_GROUP
+              ? {}
+              : { spawnClaudeCodeProcess: (options: SpawnOptions) => spawnClaudeProcessGroup(options, stderr) }),
             ...(config.model ? { model: this.#sdkModel(config.model) } : {}),
             ...(appliedEffort ? { effort: appliedEffort } : {}),
-            ...(resume ? { resume: threadId } : { sessionId: threadId }),
-            systemPrompt: {
-              type: "preset",
-              preset: "claude_code",
-              append: config.developerInstructions,
-            },
+            ...(resume ? { resume: threadId } : { sessionId: threadId, title: CLAUDE_SESSION_TITLE }),
+            // A call without tools gets only Tommy's instructions: the `claude_code` preset adds the
+            // coding rules of an agent with tools, which such a call never uses.
+            systemPrompt: config.profileGeneration
+              ? config.developerInstructions
+              : { type: "preset", preset: "claude_code", append: config.developerInstructions },
             ...(Object.keys(extraArgs).length ? { extraArgs } : {}),
             ...(config.profileGeneration
               ? { tools: [] }
@@ -1101,14 +1151,11 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
                   disallowedTools: [
                     ...CLAUDE_NATIVE_SCHEDULING,
                     ...CLAUDE_DUPLICATE_TOOLS,
+                    ...CLAUDE_HOST_TOOLS,
                     ...CLAUDE_HIDDEN_DESKTOP_TOOLS,
                   ],
                 }),
-            settingSources: config.profileGeneration
-              ? []
-              : config.workspaceOnly
-                ? ["user"]
-                : ["user", "project", "local"],
+            settingSources,
             // The MCP panel is the only door. Without this, Claude merges project `.mcp.json`, user
             // settings, plugin and agent-frontmatter servers into the record above, so two computers
             // with the same Tommy settings give their agents different tools and "which servers does
@@ -1181,6 +1228,7 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
         streamMessage: { id: null, thinkingBlocks: new Map<number, string>() },
         mcpConfigFile,
         flagSettingsFile,
+        stderr,
       };
       this.#threads.add(runtime);
       runtime.consume = yield* Effect.forkIn(this.#consume(runtime), this.#scope, { startImmediately: true });
@@ -1390,8 +1438,9 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
         if (this.#running && this.#threads.get(runtime.id) === runtime) {
           this.#fail(new Error("Claude session stream ended unexpectedly."));
         }
-      } catch (error) {
+      } catch (caught) {
         if (!this.#running || this.#threads.get(runtime.id) !== runtime) return;
+        const error = runtime.stderr.addTo(caught);
         const activeTurn = runtime.activeTurn;
         if (activeTurn) yield* this.#completeTurn(runtime, "failed", error);
         this.#fail(error instanceof Error ? error : new Error(String(error)));
@@ -1579,10 +1628,11 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
       const turn = this.#outputTurn(runtime);
       const text = messageText(message.message);
       if (message.error === "rate_limit") {
+        const refusal = claudeUsageLimitRefusal(message);
         // A spent balance does not reset, so it is not held: the turn fails with its own text.
         if (isBalanceDiagnostic(text)) turn.usageLimit = null;
-        else if (turn.usageLimit || isPlanLimitDiagnostic(text)) {
-          turn.usageLimit = { resetsAt: turn.usageLimit?.resetsAt ?? null, text: text || null };
+        else if (turn.usageLimit || refusal || isPlanLimitDiagnostic(text)) {
+          turn.usageLimit = { resetsAt: refusal?.resetsAt ?? turn.usageLimit?.resetsAt ?? null, text: text || null };
           return;
         }
       }
@@ -2399,6 +2449,61 @@ function claudeSdkLaunch(executable: string): ClaudeSdkLaunch {
   return { pathToClaudeCodeExecutable: executable };
 }
 
+/** As many characters of stderr as the SDK adds to an exit error. */
+const CLAUDE_STDERR_TAIL_CHARS = 2_048;
+
+/** The SDK's exit error of a process that it did not start, which therefore has no stderr text. */
+const CLAUDE_PROCESS_EXIT = /^Claude Code process (?:exited with code|terminated by signal) [^.]*$/;
+
+/**
+ * The end of the CLI's stderr, which the SDK adds to its exit error only for a process that it
+ * started. A CLI that cannot start, such as with no sandbox, gives the reason there. Secrets are
+ * redacted before the text is cut, as the SDK does.
+ */
+class ClaudeStderrTail {
+  #text = "";
+  readonly #decoder = new StringDecoder("utf8");
+
+  push(chunk: Buffer): void {
+    this.#text += this.#decoder.write(chunk);
+    if (this.#text.length > 2 * CLAUDE_STDERR_TAIL_CHARS) this.#text = this.#text.slice(-CLAUDE_STDERR_TAIL_CHARS);
+  }
+
+  /** The SDK's error with the text the SDK adds when it starts the process itself. */
+  addTo(error: unknown): unknown {
+    if (!(error instanceof Error) || !CLAUDE_PROCESS_EXIT.test(error.message)) return error;
+    const text = redactText(this.#text).slice(-CLAUDE_STDERR_TAIL_CHARS).trim();
+    return text ? new Error(`${error.message}. stderr: ${text}`, { cause: error }) : error;
+  }
+}
+
+/**
+ * The CLI of a thread starts as the leader of a process group of its own. The SDK starts it in
+ * Tommy's group, where the child of an MCP server outlived the CLI with no owner
+ * (`provider-process-group.ts`). The SDK closes stdin first and sends SIGTERM to the CLI 2 seconds
+ * later, as before; when the CLI exits, what is left of its group ends. Shell commands and
+ * background tasks run in groups of their own, so they are not in it.
+ */
+function spawnClaudeProcessGroup(
+  { command, args, cwd, env, signal }: SpawnOptions,
+  stderr: ClaudeStderrTail,
+): SpawnedProcess {
+  const child = spawn(command, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"], detached: true });
+  endProcessGroupOnExit(child);
+  // Read to its end: a full stderr pipe would block the CLI.
+  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+  child.stderr.on("error", () => {
+    // The CLI exited; the SDK reports the exit.
+  });
+  const abort = () => child.kill();
+  const release = () => signal.removeEventListener("abort", abort);
+  signal.addEventListener("abort", abort, { once: true });
+  child.once("exit", release);
+  child.once("error", release);
+  if (signal.aborted) abort();
+  return child;
+}
+
 function claudeEnvironment(cli: ClaudeCliInfo): NodeJS.ProcessEnv {
   return {
     ...process.env,
@@ -2471,6 +2576,20 @@ function claudeUsageWindow(value: unknown, windowDurationMins: number): AccountR
     windowDurationMins,
     resetsAt: Number.isFinite(resetMilliseconds) ? resetMilliseconds / 1_000 : null,
   };
+}
+
+/**
+ * The usage limit that refused a request, as the CLI's assistant error frame names it, or null.
+ * Claude Code marks a spent plan window or spend cap with `api_error: "usage_limit_reached"` and
+ * `api_error_params.rate_limit_info`. A turn can get no rejected `rate_limit_event`, and the text,
+ * such as "You've hit your monthly spend limit · your 5-hour limit resets 3:20pm", can name a limit
+ * that no text rule knows. An older CLI sends neither field.
+ */
+function claudeUsageLimitRefusal(message: ClaudeStreamMessage): { resetsAt: number | null } | null {
+  const params = isDynamicRecord(message.api_error_params) ? message.api_error_params : null;
+  const info = params && isDynamicRecord(params.rate_limit_info) ? params.rate_limit_info : null;
+  if (message.api_error !== "usage_limit_reached" && info?.status !== "rejected") return null;
+  return { resetsAt: claudeResetSeconds(info?.resetsAt) };
 }
 
 /** Claude reports a reset in epoch seconds. A value in milliseconds is converted, so both read the same. */

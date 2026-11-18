@@ -80,11 +80,29 @@ export function dictationVoice(voice: VoiceMode, t: MobileTranslate): ComposerVo
   };
 }
 
+/** What the call bar reads of a live conversation. */
+export type LiveVoiceSource = Pick<
+  LiveConversation,
+  | "available"
+  | "open"
+  | "exit"
+  | "phase"
+  | "muted"
+  | "level"
+  | "presence"
+  | "start"
+  | "toggleMute"
+  | "interrupt"
+  | "end"
+  | "error"
+  | "caption"
+>;
+
 /**
  * A live conversation, as the voice pane on desktop, drawn as the call bar: Mute mutes and unmutes the
  * microphone, End closes the conversation, and Interrupt stops the agent's reply or the wait for it.
  */
-export function liveVoice(live: LiveConversation, name: string, t: MobileTranslate): ComposerVoice {
+export function liveVoice(live: LiveVoiceSource, name: string, t: MobileTranslate): ComposerVoice {
   const hearing = live.phase === "listening" && !live.muted && !live.exit;
   const replying = live.phase === "thinking" || live.phase === "speaking";
   return {

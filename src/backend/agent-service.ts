@@ -153,7 +153,7 @@ import {
   type LocalAttentionResponse,
   type PromptResponder,
 } from "./agent/attention-registry";
-import { backgroundModel } from "./agent/background-model";
+import { backgroundModel, withBackgroundEffort } from "./agent/background-model";
 import { BootRecovery } from "./agent/boot-recovery";
 import { BrowserUploads } from "./agent/browser-uploads";
 import { agentTagReferences, type TagReferenceSource } from "./agent/chat-tag-context";
@@ -220,6 +220,7 @@ import {
 import { ThreadLifecycle } from "./agent/thread-lifecycle";
 import { TommyToolRouter } from "./agent/tommy-tool-router";
 import { toToolOperationFailed } from "./agent/tool-operation";
+import { TurnContext } from "./agent/turn-context";
 import { type AgentBrowserHost, TurnLifecycle } from "./agent/turn-lifecycle";
 import { memoryReviewUsageObserver, sideSessionUsageObserver, workflowUsageObserver } from "./agent/usage-collection";
 import { toUsageReadFailed, UsageLimitGate, type UsageLimitKey } from "./agent/usage-limit-gate";
@@ -890,6 +891,9 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
               }
             : history;
         },
+        // One for the service, not for each client: the idle release replaces the Codex client, and
+        // its threads hold the blocks that they were sent.
+        codexTurnContext: new TurnContext(),
         // Every MCP set that leaves for a provider is remembered, so its secrets stay redactable
         // after the user edits them. This is the second of the two ways one leaves; the other is
         // `enabledMcpServers`, which the Codex thread configuration reads.
@@ -914,6 +918,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       emitError: (code, error, agentId) => this.#emitError(code, error, agentId),
       scheduleDrain: (agentId) => this.#drain.scheduleDrain(agentId),
       rotateSession: (agentId, client, threadId) => this.#threads.rotateProviderSession(agentId, client, threadId),
+      loadSession: (agentId, client, threadId) => this.#threads.loadSessionForCompaction(agentId, client, threadId),
       rotatesSession: (agentId, threadId) => this.#threads.rotatesSession(agentId, threadId),
       isStopping: () => this.#stopping,
       compacted: (threadId) => {
@@ -1127,19 +1132,18 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
               model: model.id,
               memberModel: selected.model,
             });
+          // A summary runs at the least effort. A routing turn keeps the member's effort, which fits
+          // only the member's model, not the provider's smaller one.
+          const turnModel = background
+            ? withBackgroundEffort(model)
+            : model.id === selected.model
+              ? { ...model, defaultReasoningEffort: selected.reasoningEffort }
+              : model;
           const client = this.#providers.createProfileClient(selected.provider, selected.providerAccountId);
           // Routing consumes the lead's try before it starts. Summaries do not consume that try.
           if (!background) this.#usageLimits.tryStarted(selected.id);
           return yield* this.#profileClients
-            .run(client, (cancelled) =>
-              generateTextWithoutTools(
-                client,
-                // A member's effort fits only the member's model, not the provider's smaller one.
-                model.id === selected.model ? { ...model, defaultReasoningEffort: selected.reasoningEffort } : model,
-                prompt,
-                cancelled,
-              ),
-            )
+            .run(client, (cancelled) => generateTextWithoutTools(client, turnModel, prompt, cancelled))
             .pipe(
               // A routing turn can be the first one a spent plan refuses: in its completion, or as the
               // error of the `turn/start` request. It holds the model that ran it the way a refused member turn
@@ -2459,7 +2463,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         });
       const client = this.#providers.createProfileClient(provider, agent?.providerAccountId);
       return yield* this.#profileClients.run(client, (cancelled) =>
-        generateProfile(client, model, input, sections, cancelled),
+        generateProfile(client, withBackgroundEffort(model), input, sections, cancelled),
       );
     },
     Effect.mapError((failure) => new AgentLifecycleFailed({ operation: "generate profile", cause: failure.cause })),
@@ -3780,11 +3784,13 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       );
   }
 
-  /** `heldRoutines`: routines due while a restart waited run once. */
-
+  /**
+   * `heldRoutines`: routines due while a restart waited run once.
+   * `rosterLoaded` runs when the agents are restored. The steps after it do not change the roster.
+   */
   readonly initialize = Effect.fn("AgentService.initialize")(function* (
     this: AgentService,
-    options: { heldRoutines?: RoutineHoldWindow | undefined } = {},
+    options: { heldRoutines?: RoutineHoldWindow | undefined; rosterLoaded?: Effect.Effect<void> | undefined } = {},
   ) {
     this.#stopping = false;
     yield* this.#store
@@ -3820,6 +3826,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       this.#initialized = true;
       this.#memoryHold.start();
     });
+    if (options.rosterLoaded) yield* options.rosterLoaded;
     yield* this.#providers
       .start()
       .pipe(Effect.mapError((error) => new AgentLifecycleFailed({ operation: "start providers", cause: error.cause })));
@@ -4914,7 +4921,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       });
     }
     if (timezone !== undefined) this.#routines.noteDeliveryTimezone(delivery.delivery.id, timezone);
-    const snapshot = this.#conversation.ensureSnapshot(agent.id, task?.threadId ?? agent.threadId);
+    const targetThreadId = task?.threadId ?? agent.threadId;
+    const snapshot = this.#conversation.ensureSnapshot(agent.id, targetThreadId);
     // A task message shows in the task's row until its turn starts, not in the agent's own chat.
     if (!task) this.#mailboxSync.syncMailboxMessages(snapshot);
     if (!task)
@@ -4936,6 +4944,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
           ),
         );
     yield* this.#steerWhenBusy(agent, task, snapshot, delivery.delivery.id, true);
+    // A turn that waits on a question in this chat reads no message until that question is answered,
+    // so the person who wrote instead would wait for it. A stopped turn clears its own questions.
+    const waitingTurnId = snapshot.activeTurnId;
+    if (targetThreadId && waitingTurnId && waitingTurnId !== this.#stoppedTurn(agent.id, task?.taskId ?? null))
+      this.#attention.releaseForUserMessage(agent.id, targetThreadId, waitingTurnId);
     if (!task) {
       this.#emit({ type: "agents-changed", agents: this.listAgents() });
       this.#conversation.emitConversation(snapshot);

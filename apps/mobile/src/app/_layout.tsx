@@ -29,6 +29,7 @@ import { loadHapticsPreference } from "@/features/settings/model/haptics";
 import { loadAgentColorMessages } from "@/features/settings/model/message-color";
 import { useMotionPreferences } from "@/features/settings/model/motion";
 import { loadMotionPreferences } from "@/features/settings/model/motion-storage";
+import { loadPhotoQualityPreference } from "@/features/settings/model/photo-quality";
 import { loadPushNotificationPreference } from "@/features/settings/model/push-notifications";
 import { installSupportLog } from "@/features/support/model/support-log-capture";
 import { parakeetModel } from "@/features/voice/model/parakeet-model";
@@ -163,6 +164,7 @@ export default function RootLayout() {
     void untilForeground().then(() => {
       void loadAppearance().catch(() => undefined);
       void loadHapticsPreference().catch(() => undefined);
+      void loadPhotoQualityPreference().catch(() => undefined);
       void loadAgentColorMessages().catch(() => undefined);
       void loadPushNotificationPreference().catch(() => undefined);
       void loadMotionPreferences().catch(() => undefined);

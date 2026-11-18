@@ -1,3 +1,4 @@
+import { agentProviderName } from "@tommy/contracts/agent-providers";
 import { type CauseCode, classifyFailure } from "@tommy/contracts/failure-cause";
 import {
   type AgentEvent,
@@ -318,9 +319,10 @@ export class TurnLifecycle {
   /**
    * Running turns whose own compaction lost the connection, with the error in plain words. `stalled`:
    * the compaction deadline stopped the turn, so its `interrupted` end is a failure. The end of the
-   * turn continues it once, or shows the error.
+   * turn continues it once, or shows the error. `loop`: Tommy stopped a turn whose provider
+   * compacted again and again with no use; it does not continue.
    */
-  readonly #compactionFailures = new Map<string, HeldProviderError & { stalled?: true }>();
+  readonly #compactionFailures = new Map<string, HeldProviderError & { stalled?: true; loop?: true }>();
   /** The deadline of the compaction that runs inside a turn, by provider thread. */
   readonly #compactionDeadlines = new Map<string, NodeJS.Timeout>();
   /**
@@ -580,6 +582,32 @@ export class TurnLifecycle {
     this.#compactionDeadlines.set(threadId, timer);
   }
 
+  /**
+   * Stops a turn whose provider compacts again and again with no use: each compaction leaves the
+   * session above the provider's own limit, so the turn makes no progress. The turn does not
+   * continue, as a turn that lost its connection does: it would compact again.
+   */
+  #stopCompactionLoop(agentId: string, threadId: string, turnId: string, client: AgentClient): void {
+    this.#clearCompactionDeadline(threadId);
+    // Codex can start one more compaction before it handles the first stop.
+    if (this.#compactionFailures.get(turnId)?.loop) return;
+    logger.warn("A provider compacted again and again; Tommy stops its turn.", { provider: client.provider });
+    this.#holdCompactionFailure(
+      turnId,
+      {
+        // Tommy has no cause code for a full context: Codex contextWindowExceeded is "unknown" too.
+        causeCode: "unknown",
+        provider: client.provider,
+        model: this.#hooks.turnModel(agentId, turnId),
+        turnId,
+        severity: "error",
+      },
+      false,
+      sourceText("error.agent.compactionLoopStopped", { provider: agentProviderName(client.provider) }),
+    );
+    Effect.runFork(client.request("turn/interrupt", { threadId, turnId }, decodeRecordResponse).pipe(Effect.ignore));
+  }
+
   #clearCompactionDeadline(threadId: string): void {
     const timer = this.#compactionDeadlines.get(threadId);
     if (timer) clearTimeout(timer);
@@ -587,11 +615,26 @@ export class TurnLifecycle {
   }
 
   /** Keeps the error of a turn whose compaction lost the connection until the turn ends. */
-  #holdCompactionFailure(turnId: string, context: FailureContext & { causeCode: CauseCode }, stalled: boolean): void {
-    const message = sourceText("error.agent.compactionConnectionLost");
-    // An error that Codex sends after the deadline stopped the turn keeps the turn stopped by it.
-    const stopped = stalled || this.#compactionFailures.get(turnId)?.stalled === true;
-    this.#compactionFailures.set(turnId, { message, context, ...(stopped ? { stalled: true as const } : {}) });
+  #holdCompactionFailure(
+    turnId: string,
+    context: FailureContext & { causeCode: CauseCode },
+    stalled: boolean,
+    loopMessage?: string,
+  ): void {
+    const held = this.#compactionFailures.get(turnId);
+    // An error that Codex sends for the compaction that the loop stop ended keeps the loop's reason.
+    if (held?.loop) return;
+    const loop = loopMessage !== undefined;
+    const message = loopMessage ?? sourceText("error.agent.compactionConnectionLost");
+    // An error that Codex sends after the deadline stopped the turn keeps the turn stopped by it. A
+    // loop stop is always Tommy's, so its `interrupted` end is a failure too.
+    const stopped = stalled || loop || held?.stalled === true;
+    this.#compactionFailures.set(turnId, {
+      message,
+      context,
+      ...(stopped ? { stalled: true as const } : {}),
+      ...(loop ? { loop: true as const } : {}),
+    });
     // The failed delivery keeps this reason, not the provider's text.
     this.#turnErrors.set(turnId, message);
   }
@@ -656,7 +699,15 @@ export class TurnLifecycle {
         const unprompted = isRecord(params) && params.unprompted === true;
         // Each lane of the agent starts its own turns: a task turn takes only that task's delivery.
         const laneId = this.#laneForThread(agentId, threadId);
-        const starting = unprompted ? undefined : this.#mailbox.startingDeliveryForAgent(agentId, laneId)?.delivery;
+        // Codex can answer `turn/start` before it sends `turn/started`. The drain then already marked
+        // the delivery running with this turn, and no delivery is starting. Without this, the channel
+        // took the turn as one that the provider started, and refused its result.
+        const starting = unprompted
+          ? undefined
+          : (
+              this.#mailbox.findDeliveriesByTurn(agentId, turnId)[0] ??
+              this.#mailbox.startingDeliveryForAgent(agentId, laneId)
+            )?.delivery;
         const sentAt = starting ? Date.parse(starting.createdAt) : Number.NaN;
         this.#runningTurns.set(turnId, {
           client: source,
@@ -713,9 +764,11 @@ export class TurnLifecycle {
             source.contextCompaction === "events" &&
             this.#runningTurns.has(turnId) &&
             !this.#compaction.isCompactionTurn(threadId, turnId)
-          )
-            this.#armCompactionDeadline(agentId, threadId, turnId, source);
-          else this.#clearCompactionDeadline(threadId);
+          ) {
+            if (this.#compaction.repeatsCompaction(threadId))
+              this.#stopCompactionLoop(agentId, threadId, turnId, source);
+            else this.#armCompactionDeadline(agentId, threadId, turnId, source);
+          } else this.#clearCompactionDeadline(threadId);
           if (!this.#compaction.isCompactionTurn(threadId, turnId))
             this.#compaction.observeCompaction(
               threadId,
@@ -1184,7 +1237,10 @@ export class TurnLifecycle {
         !mayRunAgain &&
         !routineSession &&
         this.#compaction.reserve(agentId, threadId, false, turnId);
-      this.#browser.endControl(this.#conversation.publicThreadId(agentId, threadId), turnId);
+      // Read before a refused session is dropped below: the drop unbinds the provider thread, and a
+      // channel turn would then end on the agent's own chat, so its task kept running.
+      const publicThreadId = this.#conversation.publicThreadId(agentId, threadId);
+      this.#browser.endControl(publicThreadId, turnId);
       const snapshot = this.#conversation.ensureSnapshot(agentId, threadId);
       // A routine run in its own session ends in the chat's snapshot, where a later turn can still
       // run, such as one the provider started itself. That turn stays active. Cleared, the queue saw an
@@ -1212,6 +1268,7 @@ export class TurnLifecycle {
       // continues, and shows no error. A second such stop shows the error (#5822).
       const compactionContinuation =
         compactionFailure !== undefined &&
+        !compactionFailure.loop &&
         failover === undefined &&
         status === "failed" &&
         running !== undefined &&
@@ -1231,13 +1288,16 @@ export class TurnLifecycle {
                 )?.plan ?? null,
             })
           : null;
-      // After work started, only a ready backup in the agent's order continues it. A turn refused before
-      // work still waits for the reset when no backup is ready. A continuation that a backup refused
-      // before work keeps the earlier provider's work.
+      // After work started, a ready backup in the agent's order continues it. With none, the work of the
+      // agent's chat or a task waits in the queue, and the model continues it when its limit ends. A
+      // channel task goes back to its channel only for a backup. A turn refused before work waits for
+      // the reset too. A continuation that a backup refused before work keeps the earlier provider's work.
       const carriesWork =
         running !== undefined &&
         (running.acted || deliveries.some((context) => context.resumeAfterUsageLimit !== undefined));
-      let continuing = limited && carriesWork && deliveries.length > 0 && this.#hooks.mayContinueOnBackup(agentId);
+      const waitsHere = !channelTurn && deliveries.every(({ channelId }) => channelId === undefined);
+      let continuing =
+        limited && carriesWork && deliveries.length > 0 && (waitsHere || this.#hooks.mayContinueOnBackup(agentId));
       if (continuing) {
         for (const { delivery, channelId } of deliveries) {
           if (channelId && !(yield* this.#hooks.requeueChannelDelivery(delivery.id, true))) {
@@ -1507,7 +1567,7 @@ export class TurnLifecycle {
       this.#hooks.emit({
         type: "turn-completed",
         agentId,
-        threadId: this.#conversation.publicThreadId(agentId, threadId),
+        threadId: publicThreadId,
         turnId,
         status: outcome,
         origin: deliveries[0]?.delivery.sender.kind ?? "unknown",

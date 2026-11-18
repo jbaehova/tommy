@@ -9,7 +9,6 @@ export const messages = defineMessages("app", {
   "app.agent.noMessages": "No messages yet",
   "app.action.unavailable": "Action unavailable",
   "app.error.actionFailed": "The action could not be completed. Try again.",
-  "app.errorStatus.waitsLoad": "Could not load open waits",
   "app.errorStatus.answer": "Could not send your answer",
   "app.errorStatus.approval": "Could not send your decision",
   "app.errorStatus.browserTakeover": "Could not end the browser takeover",

@@ -17,7 +17,7 @@ import { haptics } from "@/shared/lib/haptics";
 import { currentText, useText } from "@/shared/lib/text";
 import { createImageDimensionCache } from "../model/image-dimension-cache";
 import { type ImageDimensions, imageDimensions } from "../model/image-dimensions";
-import { mediaFile } from "./use-media-file";
+import { mediaFile, writeMediaFile } from "./use-media-file";
 
 // Sizes outlive the downloaded file and the launch. A chat that scrolls an image back into view,
 // or opens again, then reserves its real shape at once instead of a guess.
@@ -80,12 +80,16 @@ export function localAttachmentPreview(file: { mimeType: string; base64: string;
  * a data URL of many megabytes: Android Glide copies its source text, and a large data URL ran
  * the app out of memory. A file that cannot be written leaves the data URL.
  */
-function keepImageFile(serverId: string, attachment: AttachmentSummary, data: RemoteFileUpload): string | undefined {
+async function keepImageFile(
+  serverId: string,
+  attachment: AttachmentSummary,
+  data: RemoteFileUpload,
+): Promise<string | undefined> {
   try {
     const file = mediaFile(serverId, attachment);
     if (!file.exists || file.size !== attachment.size) {
       file.parentDirectory.create({ intermediates: true, idempotent: true });
-      file.writeSync(data.base64, { encoding: "base64" });
+      await writeMediaFile(file, data.base64);
     }
     return file.uri;
   } catch {
@@ -139,7 +143,7 @@ export function useAttachmentFile(serverId: string, attachment: AttachmentSummar
       const data = await downloadAttachment(serverId, attachment.id);
       return {
         ...data,
-        fileUri: data.mimeType.startsWith("image/") ? keepImageFile(serverId, attachment, data) : undefined,
+        fileUri: data.mimeType.startsWith("image/") ? await keepImageFile(serverId, attachment, data) : undefined,
       };
     },
     enabled: preview && !local && !pending,

@@ -1,8 +1,9 @@
 import type { AttachmentSummary, ImageGenerationAspectRatio } from "@tommy/contracts/ipc";
 import { Button, X } from "@tommy/ui";
-import { createEffect, createSignal, Show } from "solid-js";
+import { createEffect, createSignal, Show, untrack } from "solid-js";
 import { useText } from "../../text";
 import { DownloadIcon } from "./ConversationIcons";
+import { rememberedMediaSize, rememberMediaSize } from "./media-size-memory";
 
 export type ImageGenerationStatus = "generating" | "completed" | "failed" | "interrupted";
 
@@ -22,12 +23,17 @@ export interface ImageGenerationProps {
 export function ImageGeneration(props: ImageGenerationProps) {
   const { t, errorMessage } = useText();
   const [previewError, setPreviewError] = createSignal(false);
-  const [imageRatio, setImageRatio] = createSignal<string | null>(null);
+  // An image that loaded before in this window has its shape before it loads again.
+  const rememberedRatio = (id: string | undefined): string | null => {
+    const size = rememberedMediaSize(id);
+    return size ? `${size.width} / ${size.height}` : null;
+  };
+  const [imageRatio, setImageRatio] = createSignal<string | null>(untrack(() => rememberedRatio(props.attachment?.id)));
   createEffect(
-    () => `${props.attachment?.id ?? ""}:${props.attachment?.previewUrl ?? ""}`,
-    () => {
+    () => ({ id: props.attachment?.id, url: props.attachment?.previewUrl }),
+    ({ id }) => {
       setPreviewError(false);
-      setImageRatio(null);
+      setImageRatio(rememberedRatio(id));
     },
   );
 
@@ -121,7 +127,10 @@ export function ImageGeneration(props: ImageGenerationProps) {
               decoding="async"
               onLoad={(event) => {
                 const { naturalHeight, naturalWidth } = event.currentTarget;
-                if (naturalWidth > 0 && naturalHeight > 0) setImageRatio(`${naturalWidth} / ${naturalHeight}`);
+                if (naturalWidth <= 0 || naturalHeight <= 0) return;
+                setImageRatio(`${naturalWidth} / ${naturalHeight}`);
+                const id = props.attachment?.id;
+                if (id) rememberMediaSize(id, { width: naturalWidth, height: naturalHeight });
               }}
               onError={() => setPreviewError(true)}
             />

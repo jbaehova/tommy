@@ -140,6 +140,8 @@ export const messages = {
   "error.agent.reasoningEffortNotConfigurable": '모델 "{model}"에는 추론 강도 설정이 없어서 강도를 바꿀 수 없어요.',
   "error.agent.compactionConnectionLost":
     "에이전트가 컨텍스트를 압축하는 동안 연결이 끊겨 작업이 멈췄어요. 인터넷 연결을 확인한 다음 메시지를 보내 계속해 주세요.",
+  "error.agent.compactionLoopStopped":
+    "{provider}이(가) 컨텍스트를 계속 압축했지만 매번 너무 가득 차서 계속할 수 없어, Tommy가 이 턴을 중지했어요. 이 에이전트에 필요 없는 MCP 서버나 컴퓨터 사용을 끈 다음 메시지를 보내 주세요. 사용자나 에이전트가 {provider}의 압축 시점을 바꿨다면 그 변경을 되돌려 주세요.",
   "error.agent.toolCallArgumentsNotObject":
     "도구가 실행되지 않았어요. tool_call의 arguments는 텍스트가 아니라 JSON 객체여야 해요. arguments를 객체로 바꿔 다시 호출하세요.",
   "error.agent.historyReadArguments":

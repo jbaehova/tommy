@@ -1,5 +1,6 @@
 import { type ConversationMessage, isAgentAnswer } from "@tommy/contracts/ipc";
 import { isTurnThought, type TurnStepLine, type TurnStepLines } from "@/features/workspace/model/turn-step-lines";
+import { messageTime } from "./message-time";
 
 export type TurnThinkingStep =
   | { id: string; kind: "thought"; text: string; createdAt: string; streaming: boolean }
@@ -13,12 +14,17 @@ export function turnThinkingSteps(
 ): TurnThinkingStep[] {
   const thoughts = messages.filter((message) => message.turnId === turnId && isTurnThought(message));
   const known = new Set(thoughts.map((message) => message.id));
-  const linesAfter = (id: string | null) =>
-    lines
-      // A line after a thought that the phone no longer holds goes before the first thought.
-      .filter((line) => (id === null ? line.after === null || !known.has(line.after) : line.after === id))
-      .map((line): TurnThinkingStep => ({ id: line.id, kind: "progress", text: line.text }));
-  const steps = linesAfter(null);
+  // One pass over the lines: a long turn has many thoughts, and this runs on each streamed frame.
+  const byThought = new Map<string | null, TurnThinkingStep[]>();
+  for (const line of lines) {
+    // A line after a thought that the phone no longer holds goes before the first thought.
+    const after = line.after !== null && known.has(line.after) ? line.after : null;
+    const group = byThought.get(after) ?? [];
+    group.push({ id: line.id, kind: "progress", text: line.text });
+    byThought.set(after, group);
+  }
+  const linesAfter = (id: string | null) => byThought.get(id) ?? [];
+  const steps = [...linesAfter(null)];
   for (const message of thoughts) {
     steps.push({
       id: message.id,
@@ -33,6 +39,14 @@ export function turnThinkingSteps(
 }
 
 /**
+ * True when `messages` hold the start of the turn: a message of another turn comes before its first
+ * message. A long turn has more thoughts than one page, so its start can be in an older page.
+ */
+export function turnStartLoaded(messages: readonly ConversationMessage[], turnId: string): boolean {
+  return messages.findIndex((message) => message.turnId === turnId) > 0;
+}
+
+/**
  * When the turn started and, for a finished turn, when it ended, in host time. The first message of
  * the turn, the user's, starts it; its first answer, or its last thought, ends it.
  */
@@ -44,7 +58,7 @@ export function turnTimes(
   let endedAt = Number.NEGATIVE_INFINITY;
   for (const message of messages) {
     if (message.turnId !== turnId) continue;
-    const at = Date.parse(message.createdAt);
+    const at = messageTime(message.createdAt);
     if (!Number.isFinite(at)) continue;
     startedAt = Math.min(startedAt, at);
     if (isAgentAnswer(message) || isTurnThought(message)) endedAt = Math.max(endedAt, at);
@@ -83,7 +97,7 @@ export function finishedTurnSummaries(
     const answer = !thought && isAgentAnswer(message);
     if (thought) thoughts.set(turnId, (thoughts.get(turnId) ?? 0) + 1);
     else if (answer && !answers.has(turnId)) answers.set(turnId, message.id);
-    const at = Date.parse(message.createdAt);
+    const at = messageTime(message.createdAt);
     if (!Number.isFinite(at)) continue;
     startedAt.set(turnId, Math.min(startedAt.get(turnId) ?? at, at));
     if (thought || answer) endedAt.set(turnId, Math.max(endedAt.get(turnId) ?? at, at));

@@ -1,4 +1,5 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { type DynamicRecord, isNumber, isString } from "@tommy/contracts/runtime-values";
 import { sourceText } from "@tommy/i18n/source";
@@ -29,6 +30,7 @@ import {
   type ProviderHistoryFragment,
   type ProviderHistoryRequest,
 } from "./provider-history";
+import { endProcessGroupOnExit, PROVIDER_PROCESS_GROUP } from "./provider-process-group";
 import { registerProviderProcess } from "./provider-processes";
 import { createDiagnosticStream } from "./stderr-diagnostics";
 
@@ -76,16 +78,27 @@ export class CodexAppServerClient extends EventEmitter<ClientEvents> {
   readonly turnContext = true;
   /**
    * Kept by thread across process restarts: a resumed thread holds the blocks that it was sent.
-   * `releaseThread` ends it, as the Claude client does: a released session that comes back gets
-   * the blocks in full.
+   * Given by the provider context, so it also outlives this client: the idle release replaces the
+   * client, and the new one resumed the thread with all blocks again. `releaseThread` ends
+   * it, as the Claude client does: a released session that comes back gets the blocks in full.
    */
-  readonly #turnContext = new TurnContext();
+  readonly #turnContext: TurnContext;
   readonly #executable: string;
   readonly #requestTimeoutMs: number;
   #decoder = new JsonLineDecoder();
   readonly #pending = new Map<RequestId, PendingRequest>();
   readonly #toolRequests = new Map<RequestId, { threadId: string; turnId: string; controller: AbortController }>();
+  /**
+   * The Codex id of each server request, by the id Tommy gives it. Each process numbers its requests
+   * from 0, so its ids are not unique among the processes of other accounts or after a restart.
+   */
+  readonly #serverRequestIds = new Map<string, RequestId>();
   readonly #interruptedTurns = new Set<string>();
+  /**
+   * The threads with an answered turn that did not complete. A process that ends during the turn may
+   * not have saved the blocks of that turn, so the next turn sends them again.
+   */
+  readonly #openTurns = new Set<string>();
   #process: ChildProcessWithoutNullStreams | null = null;
   /** The end of a process that failed. `stop` waits for it, because `#process` no longer holds it. */
   #ending: Fiber.Fiber<void> | null = null;
@@ -96,8 +109,14 @@ export class CodexAppServerClient extends EventEmitter<ClientEvents> {
   /** Added to the inherited environment, such as the `CODEX_HOME` of an account after the first. */
   readonly #extraEnv: Readonly<Record<string, string>> | undefined;
 
-  constructor(executable: string, requestTimeoutMs = 30_000, extraEnv?: Readonly<Record<string, string>>) {
+  constructor(
+    executable: string,
+    requestTimeoutMs = 30_000,
+    extraEnv?: Readonly<Record<string, string>>,
+    turnContext = new TurnContext(),
+  ) {
     super();
+    this.#turnContext = turnContext;
     this.#executable = executable;
     this.#requestTimeoutMs = requestTimeoutMs;
     this.#extraEnv = extraEnv;
@@ -112,14 +131,18 @@ export class CodexAppServerClient extends EventEmitter<ClientEvents> {
 
     this.#stopping = false;
     this.#decoder = new JsonLineDecoder();
+    // An answer to a request of the previous process must not reach a request of this one.
+    this.#serverRequestIds.clear();
     const target = cliSpawnTarget(this.#executable, ["app-server", "--listen", "stdio://"]);
     const child = spawn(target.command, target.args, {
       stdio: ["pipe", "pipe", "pipe"],
       env: childProcessEnvironment({ ...process.env, ...this.#extraEnv }),
       windowsHide: true,
+      detached: PROVIDER_PROCESS_GROUP,
     });
     this.#process = child;
     registerProviderProcess(child, "codex");
+    endProcessGroupOnExit(child);
 
     child.stdin.on("error", (error) => this.#fail(error, child));
     child.stdout.on("data", (chunk: Buffer) => {
@@ -181,6 +204,7 @@ export class CodexAppServerClient extends EventEmitter<ClientEvents> {
     this.#stopping = true;
     this.#cancelToolRequests();
     this.#process = null;
+    this.#resendOpenTurns();
     for (const pending of this.#pending.values()) pending.reject(new Error("Codex App Server stopped."));
     this.#pending.clear();
     child.stdin.end();
@@ -390,13 +414,21 @@ export class CodexAppServerClient extends EventEmitter<ClientEvents> {
   }
 
   respond(id: RequestId, result: unknown): void {
-    this.#toolRequests.delete(id);
-    this.#write({ id, result });
+    const codexId = this.#takeServerRequestId(id);
+    if (codexId !== undefined) this.#write({ id: codexId, result });
   }
 
   respondError(id: RequestId, error: RpcError): void {
+    const codexId = this.#takeServerRequestId(id);
+    if (codexId !== undefined) this.#write({ id: codexId, error });
+  }
+
+  #takeServerRequestId(id: RequestId): RequestId | undefined {
     this.#toolRequests.delete(id);
-    this.#write({ id, error });
+    if (!isString(id)) return undefined;
+    const codexId = this.#serverRequestIds.get(id);
+    this.#serverRequestIds.delete(id);
+    return codexId;
   }
 
   /**
@@ -423,7 +455,8 @@ export class CodexAppServerClient extends EventEmitter<ClientEvents> {
       return;
     }
     if (!isRecord(params) || !isString(params.threadId)) return;
-    if (method === "thread/resume") this.#turnContext.set(params.threadId, params, true);
+    if (method === "turn/start") this.#openTurns.add(params.threadId);
+    else if (method === "thread/resume") this.#turnContext.set(params.threadId, params, true);
     else if (method === "thread/archive" || method === "thread/delete") this.#turnContext.forget(params.threadId);
   }
 
@@ -433,11 +466,18 @@ export class CodexAppServerClient extends EventEmitter<ClientEvents> {
    */
   #observeTurnContext(method: string, params: unknown): void {
     if (!isRecord(params) || !isString(params.threadId)) return;
+    if (method === "turn/completed") this.#openTurns.delete(params.threadId);
     const failed = method === "turn/completed" && isRecord(params.turn) && params.turn.status === "failed";
     const compacted =
       method === "thread/compacted" ||
       (method === "item/completed" && isRecord(params.item) && params.item.type === "contextCompaction");
     if (failed || compacted) this.#turnContext.resend(params.threadId);
+  }
+
+  /** The process ended: a turn that did not complete may not be saved, so its thread sends its blocks again. */
+  #resendOpenTurns(): void {
+    for (const threadId of this.#openTurns) this.#turnContext.resend(threadId);
+    this.#openTurns.clear();
   }
 
   #write(message: unknown): void {
@@ -450,6 +490,8 @@ export class CodexAppServerClient extends EventEmitter<ClientEvents> {
   #handleMessage(message: RpcMessage): void {
     if ("method" in message) {
       if ("id" in message) {
+        const id = randomUUID();
+        this.#serverRequestIds.set(id, message.id);
         let signal: AbortSignal | undefined;
         if (
           message.method === "item/tool/call" &&
@@ -458,21 +500,21 @@ export class CodexAppServerClient extends EventEmitter<ClientEvents> {
           isString(message.params.turnId)
         ) {
           const controller = new AbortController();
-          this.#toolRequests.set(message.id, {
+          this.#toolRequests.set(id, {
             threadId: message.params.threadId,
             turnId: message.params.turnId,
             controller,
           });
           signal = controller.signal;
           if (this.#interruptedTurns.has(JSON.stringify([message.params.threadId, message.params.turnId]))) {
-            this.#toolRequests.delete(message.id);
+            this.#toolRequests.delete(id);
             controller.abort();
           }
         }
         this.emit("request", {
           ...(signal ? { signal } : {}),
           method: message.method,
-          id: message.id,
+          id,
           params: message.params,
         });
       } else {
@@ -551,6 +593,7 @@ export class CodexAppServerClient extends EventEmitter<ClientEvents> {
     if (this.#process !== child) return;
     this.#cancelToolRequests();
     this.#process = null;
+    this.#resendOpenTurns();
 
     for (const pending of this.#pending.values()) {
       pending.reject(error);

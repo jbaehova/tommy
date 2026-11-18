@@ -127,6 +127,7 @@ import {
   BrowserDialogTurn,
   type BrowserFillFieldsResult,
   BrowserToolHold,
+  BrowserToolQueueWait,
   BrowserUserControlHeld,
   boundEngineOperation,
   type DialogTabResult,
@@ -234,6 +235,12 @@ const VIEW_CONTEXT_MENU_MS = 1_500;
  * in the tab queue for the action, under the action's own deadline.
  */
 const DIALOG_ACTION_WAIT_MS = 10_000;
+/**
+ * How long an agent tool waits for the earlier operations of its tab. One operation takes at most about
+ * a minute: a 30 s action, its read, and the bot check waits. A longer wait means that an operation
+ * cannot finish, such as a command that a page dialog holds.
+ */
+const TOOL_QUEUE_WAIT_MS = 120_000;
 /** The `keyCode` of `sendInputEvent` for a key whose `Input.key` name is different. */
 const FORWARDED_KEY_CODES: Partial<Record<string, string>> = { ArrowLeft: "Left", ArrowRight: "Right" };
 /**
@@ -592,11 +599,13 @@ export class BrowserHost {
     if (!pending) return;
     tab.pendingRestore = undefined;
     tab.sleeping = undefined;
-    // An agent tool can wake a tab that a person holds. The restore is the host's work, so the hold does not stop it.
+    // An agent tool can wake a tab that a person holds. The restore is the host's work, so the hold does
+    // not stop it, and it waits for its turn with no tool limit.
     yield* Effect.forkIn(
       enqueueTabOperation(tab, pending, true).pipe(
         Effect.ignore,
         Effect.provideService(BrowserToolHold, () => false),
+        Effect.provideService(BrowserToolQueueWait, undefined),
       ),
       tab.scope,
       { startImmediately: true },
@@ -671,7 +680,7 @@ export class BrowserHost {
             yield* this.#closeRenderer(tab);
           }),
         true,
-      ).pipe(Effect.ignore),
+      ).pipe(Effect.ignore, Effect.provideService(BrowserToolQueueWait, undefined)),
       tab.scope,
       { startImmediately: true },
     );
@@ -1922,7 +1931,7 @@ export class BrowserHost {
               if (showsCurrentPage(tab, page)) tab.preview = { ...page, frame };
               return frame;
             }),
-          ),
+          ).pipe(Effect.provideService(BrowserToolQueueWait, undefined)),
         );
         if (tab.previewCapture === capture) tab.previewCapture = undefined;
         yield* Deferred.done(frame, result);
@@ -2360,6 +2369,7 @@ export class BrowserHost {
     })
       .pipe(
         Effect.provideService(BrowserToolHold, (tabId: string) => this.#heldByUser(tabId)),
+        Effect.provideService(BrowserToolQueueWait, TOOL_QUEUE_WAIT_MS),
         Effect.provideService(BrowserDialogTurn, { threadId: params.threadId, turnId: params.turnId }),
         Effect.catch((operationFailure) =>
           Effect.sync((): { result: DynamicToolResult } | { heldTabId: string } => {
@@ -2728,7 +2738,10 @@ export class BrowserHost {
         "Browser upload target resolution timed out.",
         keepQueueBlocked,
       ),
-    ).pipe(Effect.provideService(BrowserToolHold, (heldTabId: string) => this.#heldByUser(heldTabId)));
+    ).pipe(
+      Effect.provideService(BrowserToolHold, (heldTabId: string) => this.#heldByUser(heldTabId)),
+      Effect.provideService(BrowserToolQueueWait, TOOL_QUEUE_WAIT_MS),
+    );
   }).bind(this);
 
   readonly destroy = Effect.fn("BrowserHost.destroy")(function* (this: BrowserHost) {

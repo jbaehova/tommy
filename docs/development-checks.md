@@ -71,6 +71,11 @@ Electron and checks that `window.tommy` has exactly one function for each endpoi
 `IPC_ENDPOINTS` names, and that each function uses the channel of its endpoint. It also rejects
 `import()` and a `require` of a module that a sandboxed preload cannot load.
 
+The root `dependencies` are what electron-builder copies into `app.asar`, and what the main and
+preload builds load from `node_modules` at run time. A package that only the renderer uses, or that
+the main build bundles (the `@tommy/*` workspaces), goes in `devDependencies`: Vite puts its code in
+`out/`, and a copy in `app.asar` only makes each download and server install larger.
+
 `scripts/install-electron.ts` runs `install-electron` in the root `postinstall`. It tries again,
 two times at most, only when the download fails with HTTP 429 or 5xx or a lost connection, because
 `@electron/get` has no retry. Each attempt checks the archive against the package checksums.

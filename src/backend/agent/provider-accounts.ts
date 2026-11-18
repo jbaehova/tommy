@@ -77,13 +77,13 @@ export interface ProviderAccountsHost {
   signInTemp(provider: AgentProviderId): ProviderTempOptions | undefined;
   /**
    * Starts and checks a client that signs in to the account's folder. The caller stops it.
-   * `afterSignIn`: the check that ends a sign-in, which gets the long start wait.
+   * `longStart`: an account check, which gets the long start wait.
    */
   authenticate(
     provider: AgentProviderId,
     cli: AgentCliInfo,
     accountEnvironment: Readonly<Record<string, string>>,
-    afterSignIn?: boolean,
+    longStart?: boolean,
   ): Effect.Effect<{ client: AgentClient; account: NonNullable<AccountReadResult["account"]> }, ProviderAccountFailed>;
   stopClient(client: AgentClient): Effect.Effect<void>;
   /** The running process of an agent on this account, if there is one. */
@@ -506,7 +506,10 @@ export class ProviderAccounts {
     return limits;
   }).bind(this);
 
-  /** The reading of one account for the usage limit check: its agent's process, or the kept one. */
+  /**
+   * The reading of one account for the usage limit check: its agent's process, or the kept one. While
+   * the account's gate waits after a failed read, the process is not asked, and there is no reading.
+   */
   readonly usageFor = Effect.fn("ProviderAccounts.usageFor")(function* (
     this: ProviderAccounts,
     provider: AgentProviderId,
@@ -514,7 +517,11 @@ export class ProviderAccounts {
     model: string,
   ) {
     const client = this.#host.agentClient(provider, accountId);
-    if (client) return yield* this.#host.readUsage(client, model);
+    if (client)
+      return yield* this.#usageGate(accountId).unlessWaiting({
+        read: this.#host.readUsage(client, model),
+        waiting: (): AccountUsage => ({ limits: [] }),
+      });
     // The kept reading has no model: take the windows of the model's quota group from it.
     const kept = this.#usage.get(accountId)?.limit;
     const quota = kept && usageQuotaForModel(kept, model);
@@ -589,7 +596,7 @@ export class ProviderAccounts {
     if (this.#states.get(account.id)?.state !== "connecting")
       this.#setState(account.id, { state: "checking", message: null });
     yield* Effect.acquireUseRelease(
-      this.#host.authenticate(provider, cli, this.environment(account), afterSignIn),
+      this.#host.authenticate(provider, cli, this.environment(account), true),
       ({ client, account: signedIn }) =>
         Effect.gen({ self: this }, function* () {
           const email = signedIn.email ?? null;

@@ -483,38 +483,100 @@
 }
 
 .agent-activity-label {
+  position: relative;
   display: -webkit-box;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
-  background: linear-gradient(
-    90deg,
-    var(--tommy-text-primary) 0%,
-    var(--tommy-text-primary) 30%,
-    var(--tommy-text-muted) 45%,
-    var(--tommy-text-muted) 55%,
-    var(--tommy-text-primary) 70%,
-    var(--tommy-text-primary) 100%
-  );
-  background-size: 300% 100%;
-  background-clip: text;
-  color: transparent;
   font-size: var(--tommy-text-sm);
   line-height: 20px;
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: image-generation-shine 2.25s cubic-bezier(0.25, 0.1, 0.25, 1) infinite;
+  -webkit-text-fill-color: var(--tommy-text-primary);
+}
+
+/* The light over a working label (`ActivityShine`): a copy of the text in the colour of the light,
+   seen through a window that is the old moving gradient. The window moves right and the copy moves
+   left by the same amount, so the copy stays on the label. Both are transforms on the compositor;
+   the old `background-position` shine repainted the label on the main thread each frame.
+   The window is three labels wide and starts two labels to the left, as the gradient did at 300%. */
+.agent-activity-shine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -200%;
+  width: 300%;
+  pointer-events: none;
+  user-select: none;
+  -webkit-line-clamp: inherit;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 30%,
+    var(--tommy-text-primary) 45%,
+    var(--tommy-text-primary) 55%,
+    transparent 70%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 30%,
+    var(--tommy-text-primary) 45%,
+    var(--tommy-text-primary) 55%,
+    transparent 70%
+  );
+  animation: agent-activity-shine-window 2.25s cubic-bezier(0.25, 0.1, 0.25, 1) infinite;
+}
+
+/* The copy wraps and clamps as the label does, so each letter is on its letter. */
+.agent-activity-shine-text {
+  display: -webkit-box;
+  width: calc(100% / 3);
+  margin-left: calc(200% / 3);
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: inherit;
+  -webkit-text-fill-color: var(--tommy-text-muted);
+  animation: agent-activity-shine-text 2.25s cubic-bezier(0.25, 0.1, 0.25, 1) infinite;
+}
+
+/* The same pauses as `image-generation-shine`, which the label used before. */
+@keyframes agent-activity-shine-window {
+  0%,
+  18% {
+    transform: translateX(0);
+  }
+  82%,
+  100% {
+    transform: translateX(calc(200% / 3));
+  }
+}
+
+@keyframes agent-activity-shine-text {
+  0%,
+  18% {
+    transform: translateX(0);
+  }
+  82%,
+  100% {
+    transform: translateX(-200%);
+  }
 }
 
 /* A wait for the provider is not work, so its label does not shine. */
 .agent-activity-entry[data-waiting="true"] .agent-activity-label {
-  animation: none;
-  background: none;
   color: var(--tommy-text-secondary);
   -webkit-text-fill-color: currentColor;
+}
+
+.agent-activity-entry[data-waiting="true"] .agent-activity-shine {
+  display: none;
+}
+
+/* Reduced motion has no light. */
+@media (prefers-reduced-motion: reduce) {
+  .agent-activity-shine {
+    display: none;
+  }
 }
 
 .agent-activity-elapsed {

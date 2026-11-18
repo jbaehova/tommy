@@ -468,7 +468,8 @@ export function ChatView({
   const messages = useMemo(
     () =>
       presentChatMessages(
-        projectedMessages.filter((item) => !queuedMessageIds.has(item.id)),
+        // Most chats have no queued message: the rows then need no copy on each streamed chunk.
+        queuedMessageIds.size ? projectedMessages.filter((item) => !queuedMessageIds.has(item.id)) : projectedMessages,
         pendingMessages,
         messageAliases,
       ),
@@ -487,6 +488,8 @@ export function ChatView({
         for (const message of received) if (message.messageId) next.set(message.messageId, outboxRowId(message));
         return next;
       });
+    // This effect runs on each streamed chunk. Only a message with a receipt reads the drawn rows.
+    if (!received.length) return;
     const drawn = [...projectedMessages, ...queueReceiptMessages(queue?.deliveries ?? [])];
     const settled = received.filter(
       (message) =>
@@ -593,12 +596,18 @@ export function ChatView({
   );
   const atLatest = motion.atLatest;
   // The end of a window around a searched message is not the latest message.
-  const showLatest = () => {
+  // `pin` is the button: the chat then also keeps the end in view while a reply grows. A sent
+  // message takes its own place.
+  const showLatest = (pin: boolean) => {
     if (!detached || !showLatestMessages) {
-      motion.scrollToLatest();
+      if (pin) motion.pinToLatest();
+      else motion.scrollToLatest();
       return;
     }
-    void showLatestMessages().then(motion.returnToLatest, () => undefined);
+    void showLatestMessages().then(
+      () => motion.returnToLatest(pin),
+      () => undefined,
+    );
   };
   const liquidGlassAvailable = isLiquidGlassAvailable() && !reducedTransparency;
   // A quiet return to the app counts as online: the chat keeps its look, and its requests wait.
@@ -672,12 +681,80 @@ export function ChatView({
   // Settings > Voice, so dictation never started. Only a phone with no recognizer goes there now, to
   // download Supertonic 3. A GPT live call needs no downloaded reply voice.
   const liveMic = live.open || (live.available && (callMode === "gpt" || replyVoiceDownloaded || !voice.available));
-  const composerVoice: ComposerVoice = liveMic
-    ? {
-        ...liveVoice(live, voiceAgent?.name ?? target.name, t),
-        start: () => (callMode === "gpt" || replyVoiceReady() ? live.start() : router.push("/settings/voice")),
-      }
-    : dictationVoice(voice, t);
+  // One object while the conversation says the same: the composer is in `memo`, and a new object on
+  // each render of the chat, such as on each streamed chunk, rendered the whole composer again.
+  const {
+    available: liveAvailable,
+    open: liveOpen,
+    exit: liveExit,
+    phase: livePhase,
+    muted: liveMuted,
+    level: liveLevel,
+    presence: livePresence,
+    start: liveStart,
+    toggleMute: liveToggleMute,
+    interrupt: liveInterrupt,
+    end: liveEnd,
+    error: liveError,
+    caption: liveCaption,
+  } = live;
+  const voiceName = voiceAgent?.name ?? target.name;
+  const liveComposerVoice = useMemo((): ComposerVoice | undefined => {
+    if (!liveMic) return undefined;
+    const source = {
+      available: liveAvailable,
+      open: liveOpen,
+      exit: liveExit,
+      phase: livePhase,
+      muted: liveMuted,
+      level: liveLevel,
+      presence: livePresence,
+      start: liveStart,
+      toggleMute: liveToggleMute,
+      interrupt: liveInterrupt,
+      end: liveEnd,
+      error: liveError,
+      caption: liveCaption,
+    };
+    return {
+      ...liveVoice(source, voiceName, t),
+      start: () => (callMode === "gpt" || replyVoiceReady() ? liveStart() : router.push("/settings/voice")),
+    };
+  }, [
+    liveMic,
+    liveAvailable,
+    liveOpen,
+    liveExit,
+    livePhase,
+    liveMuted,
+    liveLevel,
+    livePresence,
+    liveStart,
+    liveToggleMute,
+    liveInterrupt,
+    liveEnd,
+    liveError,
+    liveCaption,
+    voiceName,
+    callMode,
+    t,
+  ]);
+  const composerVoice: ComposerVoice = liveComposerVoice ?? dictationVoice(voice, t);
+  const voiceAgentId = voiceAgent?.id;
+  const voiceAvatarSeed = voiceAgent?.avatarSeed;
+  const voiceAvatarHue = voiceAgent?.avatarHue;
+  const voiceAvatar = useMemo(
+    () =>
+      voiceAgentId !== undefined && voiceAvatarSeed !== undefined ? (
+        <VoiceAgentAvatar
+          agentId={voiceAgentId}
+          serverId={target.serverId}
+          seed={voiceAvatarSeed}
+          hue={voiceAvatarHue ?? null}
+        />
+      ) : undefined,
+    [voiceAgentId, target.serverId, voiceAvatarSeed, voiceAvatarHue],
+  );
   const voiceOpen = voice.stage !== "closed" || live.open;
   // Dictation covers the chat with its overlay. A live conversation keeps the chat in view and turns
   // the composer into a call bar.
@@ -844,7 +921,7 @@ export function ChatView({
     setSendError(null);
     setSelection(null);
     // The reply comes at the latest message, which a window around a searched message does not show.
-    if (detached) showLatest();
+    if (detached) showLatest(false);
     // The send animation starts from the loaded history. Without it, as offline, the row shows at once:
     // the animation would hide the first message until a history that does not load.
     if (!sendsToQueue && ready) motion.beginSend();
@@ -1089,6 +1166,7 @@ export function ChatView({
                         ? "error"
                         : "loading"
               }
+              catchingUp={catchingUp}
               appActive={appActive}
               activeTurnId={activeTurnId}
               turnSummaries={turnSummaries}
@@ -1167,7 +1245,7 @@ export function ChatView({
                     accessibilityLabel={t("mobile.chat.scrollToLatest")}
                     fallbackBackground={fieldBackground}
                     liquidGlassAvailable={liquidGlassAvailable}
-                    onPress={showLatest}
+                    onPress={() => showLatest(true)}
                   >
                     <ArrowDown color={String(foreground)} size={22} />
                   </ChatGlassIconButton>
@@ -1315,16 +1393,7 @@ export function ChatView({
                   // An agent's own colour; a channel keeps the default controls.
                   voiceAccent={target.kind === "agent" ? accent : undefined}
                   voicePalette={palette}
-                  voiceAvatar={
-                    voiceAgent ? (
-                      <VoiceAgentAvatar
-                        agentId={voiceAgent.id}
-                        serverId={target.serverId}
-                        seed={voiceAgent.avatarSeed}
-                        hue={voiceAgent.avatarHue}
-                      />
-                    ) : undefined
-                  }
+                  voiceAvatar={voiceAvatar}
                 />
               )}
             </Animated.View>

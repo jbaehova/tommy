@@ -4,6 +4,7 @@ import type { AvatarMood } from "@tommy/brand/bloub-avatar-motion";
 import type { AvatarHue } from "@tommy/contracts/ipc";
 import { prefersReducedMotion } from "@tommy/ui/utils";
 import { createEffect, createMemo, createSignal, onSettled, Show } from "solid-js";
+import { useAmbientMotion } from "../../ambient-motion";
 import {
   AVATAR_EXPRESSIONS,
   type AvatarMotion,
@@ -140,7 +141,8 @@ export function AgentAvatar(props: AgentAvatarProps) {
   // The custom property rides with the attribute rather than being set on every avatar: the
   // keyframe is an infinite animation, and a selector that matched all of them would start one
   // behind every resting row in the sidebar.
-  const breathe = () => (PLUSH_MOODS[mood()].busy ? PHOTO_BREATHE : undefined);
+  const ambientMotion = useAmbientMotion();
+  const breathe = () => (PLUSH_MOODS[mood()].busy && ambientMotion() ? PHOTO_BREATHE : undefined);
   const photoStyle = (): Record<string, string> => {
     const amount = breathe();
     return amount ? { ...props.style, "--agent-avatar-breathe": amount } : { ...props.style };
@@ -200,6 +202,7 @@ function GeneratedAvatar(props: {
   let element: HTMLSpanElement | undefined;
   const [interacting, setInteracting] = createSignal(false);
   const [reducedMotion, setReducedMotion] = createSignal(prefersReducedMotion());
+  const ambientMotion = useAmbientMotion();
   const cyclesFaces = () => props.workingFaces && props.mood === "working";
   const [workingFace, setWorkingFace] = createSignal<ExpressionId>(nextWorkingFace(null));
   const plushMood = createMemo(
@@ -232,16 +235,17 @@ function GeneratedAvatar(props: {
   // A mood that carries its own motion has to be seen without being pointed at, and so do eyes that
   // follow the pointer; the resting moods keep the hover gating that the perf note above is about.
   // An avatar that moves only as decoration rests while another app has the focus: the empty chat
-  // kept the loop running for as long as the window stayed open.
+  // kept the loop running for as long as the window stayed open. A surface above the other apps keeps
+  // a busy mood still until the user looks at it: see `AmbientMotion`.
   const animated = () =>
     props.followPointer ||
-    plushMood().busy ||
+    (plushMood().busy && ambientMotion()) ||
     (!STATIC_MOTIONS.has(props.motion) && documentFocused()) ||
     interacting();
 
   // Reduced motion keeps one face: it is a frozen plush, and a frozen plush cannot morph between faces.
   createEffect(
-    () => cyclesFaces() && !reducedMotion(),
+    () => cyclesFaces() && !reducedMotion() && ambientMotion(),
     (cycling) => {
       if (!cycling) return;
       let timer = 0;

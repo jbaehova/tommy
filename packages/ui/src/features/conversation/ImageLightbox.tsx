@@ -18,6 +18,7 @@ import {
   ZOOM_OUT,
   ZOOM_OUT_DURATION,
 } from "./lightbox-motion";
+import { rememberedMediaSize, rememberMediaSize } from "./media-size-memory";
 import { type Camera, DOUBLE_CLICK_ZOOM, MAX_SCALE, WHEEL_ZOOM_RATE, ZOOM_STEP, ZoomControls } from "./ZoomControls";
 
 /** The images that the viewer steps through, the one it opens on, and the thumbnail it grows from. */
@@ -51,6 +52,16 @@ interface Point {
   y: number;
 }
 
+function galleryRatio(width: number, height: number): number {
+  return Math.min(GALLERY_MAX_RATIO, Math.max(GALLERY_MIN_RATIO, width / height));
+}
+
+/** A tile is square until its image loads, unless the image loaded before in this window. */
+function rememberedGalleryRatio(attachmentId: string): number {
+  const size = rememberedMediaSize(attachmentId);
+  return size ? galleryRatio(size.width, size.height) : 1;
+}
+
 /** Several images of one message, laid out in justified rows. */
 export function ImageGallery(props: {
   images: AttachmentSummary[];
@@ -66,7 +77,7 @@ export function ImageGallery(props: {
   let gallery: HTMLUListElement | undefined;
   const layout = createMemo(() =>
     justifiedGalleryLayout(
-      props.images.map((image) => ratios[image.id] ?? 1),
+      props.images.map((image) => ratios[image.id] ?? rememberedGalleryRatio(image.id)),
       {
         width: width(),
         rowHeight: GALLERY_ROW_HEIGHT,
@@ -146,10 +157,8 @@ export function ImageGallery(props: {
                       });
                       const { naturalHeight, naturalWidth } = event.currentTarget;
                       if (naturalWidth <= 0 || naturalHeight <= 0) return;
-                      const ratio = Math.min(
-                        GALLERY_MAX_RATIO,
-                        Math.max(GALLERY_MIN_RATIO, naturalWidth / naturalHeight),
-                      );
+                      rememberMediaSize(image.id, { width: naturalWidth, height: naturalHeight });
+                      const ratio = galleryRatio(naturalWidth, naturalHeight);
                       setRatios((state) => {
                         state[image.id] = ratio;
                       });

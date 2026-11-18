@@ -51,7 +51,8 @@ export function piMessageItems(message: unknown, id: string): ThreadItem[] {
         id: `${id}:thinking:${index}`,
         type: "reasoning",
         text: block.thinking,
-        summary: [{ type: "summary_text", text: block.thinking }],
+        // `reasoningText` reads a list of strings, as Codex sends it. An object here made the text empty.
+        summary: [block.thinking],
       });
     if (block.type === "toolCall")
       items.push({

@@ -87,6 +87,12 @@ const READER_INPUT_WINDOW_MS = 250;
  */
 const handledSettingsRequests = new WeakSet<AgentSettingsRequest>();
 
+/**
+ * Message focus requests that a chat has already scrolled to. The request also stays set, so a chat that
+ * mounts again, after a channel or another page, must not scroll back to the message that was picked before.
+ */
+const handledMessageFocusRequests = new WeakSet<NonNullable<ConversationProps["messageFocusRequest"]>>();
+
 /** An http or https page that the built-in browser can show. A relayed sign-in page needs this computer's browser. */
 function builtInBrowserPage(url: string): boolean {
   const page = URL.parse(url);
@@ -1237,11 +1243,14 @@ export function createConversationViewScope(props: ConversationProps) {
     boundaryId: string | null | undefined;
     /** The chat opened at the divider and keeps it in view until the reader or a jump moves the chat. */
     holding: boolean;
+    /** The opening frames are done, so a later growth is new content, not the opening layout. */
+    settled: boolean;
   } = {
     identity: undefined,
     pending: false,
     boundaryId: undefined,
     holding: false,
+    settled: false,
   };
   let conversationPanel: HTMLElement | undefined;
   const [browserSurface, setBrowserSurface] = createSignal<HTMLDivElement>();
@@ -1259,7 +1268,6 @@ export function createConversationViewScope(props: ConversationProps) {
   let stickToLatest = true;
   let lastConversationIdentity: string | undefined;
   let lastPanelAgentId: string | undefined;
-  let lastHandledMessageFocusNonce: number | undefined;
   const [quoteRequest, setQuoteRequest] = createSignal<QuoteRequest | undefined>(undefined);
   let lastRuntimeSettingsSignature: string | undefined;
   async function saveAgentPatch(
@@ -1493,12 +1501,23 @@ export function createConversationViewScope(props: ConversationProps) {
     keyboardTarget.addEventListener("keydown", readerKeyDown);
     keyboardWindow.addEventListener("pointerup", endReaderDrag);
     keyboardWindow.addEventListener("pointercancel", endReaderDrag);
+    let observedMaxScrollTop = 0;
     scrollResizeObserver = new ResizeObserver(() => {
       updateVirtualScrollMargin();
+      const maxScrollTop = scrollElement ? scrollElement.scrollHeight - scrollElement.clientHeight : 0;
+      const contentGrew = maxScrollTop > observedMaxScrollTop;
+      observedMaxScrollTop = maxScrollTop;
       if (scrollElement && stickToLatest) followConversationBottom(scrollElement);
       // An image or a preview that lays out after the opening grows a row above the divider. The chat
       // has no browser scroll anchoring, so without this the divider moves down out of view.
-      else if (scrollElement && unreadOpening.holding) scrollToUnreadDivider(scrollElement);
+      else if (scrollElement && unreadOpening.holding) {
+        // A reply that the agent still writes grows below the view. The reader did not move the chat
+        // since it opened, so the chat follows the reply, and the divider can go above the view.
+        if (unreadOpening.settled && contentGrew && props.activeTurnId) {
+          setStickToLatest(true);
+          followConversationBottom(scrollElement);
+        } else scrollToUnreadDivider(scrollElement);
+      }
       updateScrollFade();
       updateUnreadDividerVisibility();
     });
@@ -1542,7 +1561,7 @@ export function createConversationViewScope(props: ConversationProps) {
       messageIds: props.messages.map((message) => message.id).join("\u0000"),
     }),
     ({ request, agentId, loaded }) => {
-      if (!request || request.agentId !== agentId || !loaded || request.nonce === lastHandledMessageFocusNonce) return;
+      if (!request || request.agentId !== agentId || !loaded || handledMessageFocusRequests.has(request)) return;
       requestAnimationFrame(() => {
         // A message in a group of agent messages has no row of its own, so the group row is the target.
         const messageId = CSS.escape(request.messageId);
@@ -1550,7 +1569,7 @@ export function createConversationViewScope(props: ConversationProps) {
           `[data-chat-search-message="${messageId}"], [data-chat-search-group~="${messageId}"]`,
         );
         if (!target) return;
-        lastHandledMessageFocusNonce = request.nonce;
+        handledMessageFocusRequests.add(request);
         // The message the user picked replaces the opening at the unread divider.
         unreadOpening = { ...unreadOpening, pending: false, holding: false };
         stickToLatest = false;
@@ -1575,6 +1594,9 @@ export function createConversationViewScope(props: ConversationProps) {
     setQuoteRequest((current) => ({ id: (current?.id ?? 0) + 1, messageId, text: quoted }));
   }
 
+  /** The message that a quote jump opened. A long message draws only its start, and the passage can be later. */
+  const [quotedMessageId, setQuotedMessageId] = createSignal<string | null>(null);
+
   /** Scrolls to the passage that a quote points to and marks it. A file passage opens in the side panel. */
   function openQuote(messageId: string, text: string) {
     stopRevealingFileQuote();
@@ -1584,7 +1606,10 @@ export function createConversationViewScope(props: ConversationProps) {
       if (shown || openQuotedFile(file)) revealFileQuote(document, file, text);
       return;
     }
-    if (!showQuotedText(messageId, text)) void revealQuote(messageId, text);
+    setQuotedMessageId(messageId);
+    flush();
+    if (showQuotedText(messageId, text)) setQuotedMessageId(null);
+    else void revealQuote(messageId, text);
   }
 
   /* An attachment opens from its record, so it must be in a loaded message. */
@@ -1616,6 +1641,8 @@ export function createConversationViewScope(props: ConversationProps) {
     const agentId = props.agent?.id;
     const row = await replyJump.reveal(messageId, undefined, agentId);
     if (row && props.agent?.id === agentId) showQuotedText(messageId, text);
+    // The message stays open for the reader; a later jump to it must open it again.
+    setQuotedMessageId((current) => (current === messageId ? null : current));
   }
 
   function showQuotedText(messageId: string, text: string): boolean {
@@ -1665,6 +1692,18 @@ export function createConversationViewScope(props: ConversationProps) {
       if (latestScrollFrame !== undefined) cancelAnimationFrame(latestScrollFrame);
       if (latestScrollSettleFrame !== undefined) cancelAnimationFrame(latestScrollSettleFrame);
       const followLatest = stickToLatest;
+      // A follow that would jump goes before the paint. Otherwise a chat whose rows arrive paints a
+      // frame at the top of its first rows, and the follow in the next frame comes after that paint. A
+      // chat with unread messages opens at the divider.
+      if (
+        followLatest &&
+        unreadCount === 0 &&
+        scrollElement &&
+        scrollElement.scrollHeight - scrollElement.clientHeight - scrollElement.scrollTop > scrollElement.clientHeight
+      ) {
+        updateVirtualScrollMargin();
+        followConversationBottom(scrollElement);
+      }
       latestScrollFrame = requestAnimationFrame(() => {
         latestScrollFrame = undefined;
         if (!scrollElement) return;
@@ -1716,7 +1755,7 @@ export function createConversationViewScope(props: ConversationProps) {
     },
     ({ identity, loaded, boundaryId, boundaryIndex }) => {
       if (identity !== unreadOpening.identity) {
-        unreadOpening = { identity, pending: true, boundaryId: undefined, holding: false };
+        unreadOpening = { identity, pending: true, boundaryId: undefined, holding: false, settled: false };
       }
       // A later boundary, such as a message that arrived while the reader was away, is not where they opened.
       if (boundaryId !== unreadOpening.boundaryId) unreadOpening.holding = false;
@@ -1746,7 +1785,8 @@ export function createConversationViewScope(props: ConversationProps) {
           scrollToUnreadDivider(scrollElement);
           updateScrollFade(scrollElement);
           updateUnreadDividerVisibility();
-          if (!settle) openAtDivider(true);
+          if (settle) opening.settled = true;
+          else openAtDivider(true);
         });
       openAtDivider(false);
     },
@@ -2278,6 +2318,7 @@ export function createConversationViewScope(props: ConversationProps) {
     composerFocusRequest,
     composerHasContent,
     copiedMessageId,
+    quotedMessageId,
     copyMessage,
     messageText,
     pasteFiles,

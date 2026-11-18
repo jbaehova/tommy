@@ -2,7 +2,7 @@ import type { RespondToPromptInput } from "@tommy/contracts/ipc";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useMobileSession } from "@/features/auth/context/mobile-session-context";
 import { ChatChannelWorkRow } from "@/features/channels/components/chat-channel-work-row";
-import { useChannels } from "@/features/channels/components/use-channels";
+import { useChannelList } from "@/features/channels/components/use-channels";
 import { useAgentViewOnly } from "@/features/servers/model/use-server-roles";
 import { useAgentActivity } from "@/features/workspace/components/use-agent-activity";
 import { useApprovalRequests } from "@/features/workspace/components/use-live-workspace";
@@ -80,7 +80,7 @@ export function MobileChatView({
   // A turn on another thread, such as channel work, is not this chat's work, as on desktop. A host
   // with channel-attention-v1 names the channel of the thread, and a row below opens it.
   const otherThread = Boolean(liveActivity?.threadId && threadId && liveActivity.threadId !== threadId);
-  const channels = useChannels(agent.serverId).channels;
+  const channels = useChannelList(agent.serverId);
   const workChannel = otherThread
     ? channels.find(
         (channel) => !channel.archived && channel.threads?.some((thread) => thread.threadId === liveActivity?.threadId),

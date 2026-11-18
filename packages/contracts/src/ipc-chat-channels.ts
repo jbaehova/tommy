@@ -278,9 +278,21 @@ export function isChannelMessage(value: unknown): value is ChannelMessage {
 }
 
 export function decodeChannel(value: unknown): Channel {
-  const channel = normalizeChannelDraft(value);
+  const channel = readableLead(normalizeChannelDraft(value));
   if (!isChannel(channel)) throw new Error("Invalid channel response.");
   return channel;
+}
+
+/**
+ * A lead that is not a member reads as the first member, as the startup member cleanup moves it, or
+ * as no lead when no member is left. Such a row made the channel unreadable, and startup reads every
+ * channel, so no provider started. A command with such a lead is still refused.
+ */
+function readableLead(channel: DynamicRecord | undefined): DynamicRecord | undefined {
+  if (!channel || !isIdentifier(channel.leadAgentId) || !Array.isArray(channel.members)) return channel;
+  const members = channel.members.filter(isChannelMember);
+  if (members.some((member) => member.agentId === channel.leadAgentId)) return channel;
+  return { ...channel, leadAgentId: members[0]?.agentId ?? null };
 }
 
 export function decodeChannelPage(value: unknown): ChannelPage {

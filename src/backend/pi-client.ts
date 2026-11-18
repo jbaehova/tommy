@@ -5,7 +5,7 @@ import { isAbsolute } from "node:path";
 import { agentProviderName } from "@tommy/contracts/agent-providers";
 import { type DynamicRecord, isBoolean, isString } from "@tommy/contracts/runtime-values";
 import { sourceText } from "@tommy/i18n/source";
-import { redactText } from "@tommy/logging";
+import { type LogValue, redactText } from "@tommy/logging";
 import { Effect, Exit, Option, Schema, Scope, Semaphore } from "effect";
 import { secretElicitationField } from "./agent/prompts";
 import { type AgentClient, type DiagnosticOrigin, MissingPiSessionError, RequestTimeoutError } from "./agent-client";
@@ -65,6 +65,13 @@ import type {
  * retries it after at most 60 seconds, so the limit is longer: Pi's own timeout and retry go first.
  */
 const PI_TURN_STALL_MS = 10 * 60_000;
+
+/**
+ * How long the first request to a new `pi` process may take. It includes the start of Pi, the load
+ * of its extensions and the read of the session file, which took more than the 30 seconds of a
+ * usual request on a busy computer. A Pi that exits fails the request immediately.
+ */
+const PI_START_TIMEOUT_MS = 120_000;
 
 const PiSessionUsage = Schema.Struct({
   tokens: Schema.Struct({
@@ -488,11 +495,12 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
       const environment = { ...extension?.environment };
       yield* providerSync(() => this.#spawn(rpc, cwd, args, environment));
       if (resume && requestedId) {
-        const loaded = yield* rpc.request({ type: "switch_session", sessionPath: requestedId });
+        const loaded = yield* rpc.request({ type: "switch_session", sessionPath: requestedId }, PI_START_TIMEOUT_MS);
         if (loaded.cancelled === true)
           return yield* providerFailure(new Error(sourceText("error.provider.piResumeCancelled")));
       }
-      const state = yield* rpc.request({ type: "get_state" });
+      // After a resume, Pi has started and answered, so the usual limit applies.
+      const state = yield* rpc.request({ type: "get_state" }, resume && requestedId ? undefined : PI_START_TIMEOUT_MS);
       const id = getString(state, "sessionFile");
       if (!id || (resume && id !== requestedId))
         return yield* providerFailure(new Error(sourceText("error.provider.piSessionIdentity")));
@@ -707,10 +715,15 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
 
   #notify(method: string, thread: PiThread, params: DynamicRecord): void {
     // Usage contains only validated numeric counters. Generic secret-name matching masks `*Tokens`.
+    // A turn notice holds only Tommy's own `{ turn: { id, status } }`. A short saved secret could
+    // mask its `turn` key or its status, and the turn would then not end.
     const safe =
-      method === "tommy/usage" || method === "thread/tokenUsage/updated"
+      method === "tommy/usage" ||
+      method === "thread/tokenUsage/updated" ||
+      method === "turn/started" ||
+      method === "turn/completed"
         ? params
-        : redactMcpRecord(params, this.#secretValues());
+        : withOwnIds(redactMcpRecord(params, this.#secretValues()), params);
     this.emit("notification", {
       method,
       params: {
@@ -1020,10 +1033,25 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
   #safeItems(items: ThreadItem[]): ThreadItem[] {
     const values = this.#secretValues();
     return items.flatMap((item) => {
-      const value = redactMcpRecord(item, values);
+      const value = withOwnIds(redactMcpRecord(item, values), item);
       return isRecord(value) && isString(value.type) ? [{ ...value, type: value.type }] : [];
     });
   }
+}
+
+/**
+ * Puts back the ids of the items of a turn after the secret masking. The masking hides the whole
+ * token around a saved value, and a short saved password can occur in a UUID. Tommy and Pi make
+ * these ids; they hold no text from the model or a tool.
+ */
+function withOwnIds(safe: LogValue, original: DynamicRecord | ThreadItem): LogValue {
+  if (!isRecord(safe)) return safe;
+  const restored = { ...safe };
+  if (isString(original.id)) restored.id = original.id;
+  if (isString(original.itemId)) restored.itemId = original.itemId;
+  const itemId = getString(getRecord(original, "item"), "id");
+  if (itemId !== undefined && isRecord(restored.item)) restored.item = { ...restored.item, id: itemId };
+  return restored;
 }
 
 /** Only a file that is gone retires the session. Another failure, such as no permission, can pass. */

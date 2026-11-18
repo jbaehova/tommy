@@ -147,6 +147,8 @@ export const messages = {
     "다른 계정이나 API 키가 받은 추론이라서 {provider}이(가) 이 채팅의 이전 추론을 수락하지 않았어요. Tommy가 채팅 기록으로 새 {provider} 세션을 시작했어요. 다시 시도해 주세요.",
   "error.provider.claudeSessionMissing":
     "Claude Code가 이 채팅의 저장된 세션을 찾지 못했어요. Tommy가 채팅 기록으로 새 Claude Code 세션을 시작했어요. 다시 시도해 주세요.",
+  "error.provider.claudeContextFull":
+    "이 채팅이 Claude에게 너무 길어졌어요. Tommy가 채팅 기록으로 새 Claude Code 세션을 시작했어요. 다시 시도해 주세요.",
   "error.provider.acpSignInTimedOut": "로그인 시간이 초과되었어요.",
   "error.provider.acpSignInStopped": "로그인이 완료되기 전에 중단되었어요.",
   "error.provider.geminiBrowserUnavailable":
@@ -202,8 +204,12 @@ export const messages = {
   "error.provider.nativeChecksum": "제공자 설치 파일이 무결성 검사를 통과하지 못했어요.",
   "error.provider.codexStateBusy":
     "ChatGPT가 이전 시작 후 아직 로컬 기록을 준비하고 있어요. 몇 분 기다린 후 다시 시도해 주세요.",
+  "error.provider.requestTooLarge":
+    "채팅이 너무 커져서 모델에 보낼 수 없었어요. 채팅 안의 이미지 때문인 경우가 많아요. Tommy가 채팅 기록으로 새 {provider} 세션을 시작했어요. 다시 시도해 주세요.",
   "error.provider.imageTooSmall":
     "이미지가 너무 작아서 모델이 이 채팅의 이미지를 받지 않았어요. Tommy가 채팅 기록으로 새 {provider} 세션을 시작했어요. 다시 시도해 주세요.",
+  "error.provider.imageTooLarge":
+    "이미지가 너무 커서 모델이 이 채팅의 이미지를 받지 않았어요. Tommy가 채팅 기록으로 새 {provider} 세션을 시작했어요. 다시 시도해 주세요.",
   "error.provider.claudePrivateSettings":
     "Claude 비공개 설정을 저장하지 못했어요. Tommy 데이터 폴더에 쓸 수 있는지 확인한 뒤 다시 시도해 주세요.",
 } as const satisfies PartialTranslation<typeof source>;

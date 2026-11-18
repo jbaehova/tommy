@@ -43,6 +43,7 @@ import {
   ChannelHistory,
   type ChannelTextModel,
   type DeliveredChannelContext,
+  type DeliveredChannelText,
   historyMessagePart,
   isMemberThinking,
   sameRequest,
@@ -252,14 +253,14 @@ export class ChannelService {
   readonly #deltas = new Map<string, { sessionId: string; text: string }>();
   /**
    * The cursors that this process accepted, by channel, agent and session, with the channel facts
-   * that the session got. A cursor from an earlier run is not used: an earlier version did not reset
-   * it at a compaction.
+   * and memories that the session got. A cursor from an earlier run is not used: an earlier version
+   * did not reset it at a compaction.
    */
-  readonly #acceptedContexts = new Map<string, string>();
+  readonly #acceptedContexts = new Map<string, DeliveredChannelText>();
   /** By delivery: the count of in-place message changes when its packet was built. */
   readonly #preparedChanges = new Map<string, number>();
-  /** By delivery: the channel facts in its packet. */
-  readonly #preparedFacts = new Map<string, string>();
+  /** By delivery: the channel facts and memories in its packet. */
+  readonly #preparedFacts = new Map<string, DeliveredChannelText>();
 
   constructor(
     database: TommyDatabase,
@@ -2370,7 +2371,10 @@ export class ChannelService {
     if (delivered && history.delta !== null)
       this.#deltas.set(delivery.delivery.id, { sessionId: delivered.sessionId, text: history.delta });
     else this.#deltas.delete(delivery.delivery.id);
-    this.#preparedFacts.set(delivery.delivery.id, history.channelFacts);
+    this.#preparedFacts.set(delivery.delivery.id, {
+      channelFacts: history.channelFacts,
+      channelMemories: history.channelMemories,
+    });
     const current = (yield* channelSync(() => this.store.tasks(channel.id))).find((item) => item.id === task.id);
     if (
       !current ||
@@ -2406,11 +2410,13 @@ export class ChannelService {
     )
       return null;
     const session = this.store.database.activeProviderSession(context.threadId, agent.provider);
+    const delivered = this.#acceptedContexts.get(JSON.stringify([channelId, agent.id, context.sessionId]));
     return session?.externalSessionId === context.sessionId
       ? {
           sessionId: context.sessionId,
           throughSequence: context.throughSequence,
-          channelFacts: this.#acceptedContexts.get(JSON.stringify([channelId, agent.id, context.sessionId])) ?? null,
+          channelFacts: delivered?.channelFacts ?? null,
+          channelMemories: delivered?.channelMemories ?? null,
         }
       : null;
   }
@@ -2421,10 +2427,10 @@ export class ChannelService {
     sessionId: string,
     throughSequence: number,
     summaryVersion: number,
-    channelFacts: string,
+    delivered: DeliveredChannelText,
   ): void {
     this.store.acceptContext(channelId, agentId, sessionId, throughSequence, summaryVersion);
-    this.#acceptedContexts.set(JSON.stringify([channelId, agentId, sessionId]), channelFacts);
+    this.#acceptedContexts.set(JSON.stringify([channelId, agentId, sessionId]), delivered);
   }
 
   /** The packet of a delivery with only the unread messages, and the session that read the others. */
@@ -2484,8 +2490,8 @@ export class ChannelService {
             sessionId,
             cursor.throughSequence,
             cursor.summaryVersion,
-            // Unknown facts never match, so the next delta gives them again.
-            facts ?? "",
+            // Unknown text never matches, so the next delta gives the facts and memories again.
+            facts ?? { channelFacts: null, channelMemories: null },
           ),
         );
       }
@@ -2766,7 +2772,10 @@ export class ChannelService {
         messages.push(value);
     }
     if (messages.length) {
-      this.store.update(this.store.get(channelId), { messages });
+      const channel = this.store.get(channelId);
+      const [only] = messages;
+      if (messages.length === 1 && only) this.store.captureMessage(channel, only);
+      else this.store.update(channel, { messages });
       this.publish(channelId);
     }
     return true;
@@ -2777,7 +2786,10 @@ export class ChannelService {
       const assignment = (yield* channelSync(() => this.store.assignments(channelId))).find(
         (item) => item.turnId === turnId,
       );
-      if (!assignment || !activeAssignment(assignment)) return;
+      // A turn with no active assignment, such as one that the provider started itself after a
+      // background job ended, still made its agent busy. A task that waits for that agent has no
+      // other trigger, so it waited until a restart.
+      if (!assignment || !activeAssignment(assignment)) return yield* this.wake();
       if (assignment.pendingRevision !== null) {
         yield* channelSync(() =>
           this.store.update(this.store.get(channelId), { assignments: [{ ...assignment, pendingOutcome: status }] }),
@@ -3010,16 +3022,23 @@ export class ChannelService {
       if (!isString(args.text) || !args.text.trim() || args.text.length > 100_000)
         return yield* channelFailure(new Error("Provide a task result."));
       // A result before the answer to a reply is the bug that the wait fixes: the caller answered
-      // the person before the other member answered it.
+      // the person before the other member answered it. An assigned task is the same. A subtask from
+      // this turn also runs the task again when the turn ends, also when it settled during the turn,
+      // so a result posted now showed again after each subtask.
       const unanswered = tasks.find(
         (item) =>
-          task.dependencies.includes(item.id) && isReplyTask(item) && !settled(item) && item.state !== "cancelled",
+          task.dependencies.includes(item.id) &&
+          item.state !== "cancelled" &&
+          (!settled(item) || !assignment.awaitedTaskIds.includes(item.id)),
       );
-      if (unanswered)
+      if (unanswered) {
+        const name = this.memberName(unanswered.ownerAgentId ?? "");
+        const answer = isReplyTask(unanswered) ? "answer" : "result";
         return {
           accepted: false,
-          reason: `${this.memberName(unanswered.ownerAgentId ?? "")} has not answered your reply. End your turn now with no text: you continue this task with its answer. Do not mention this refusal.`,
+          reason: `${settled(unanswered) ? `You continue this task in a new turn with the ${answer} of ${name}.` : isReplyTask(unanswered) ? `${name} has not answered your reply.` : `${name} has not returned the result of your task.`} End your turn now with no text: you continue this task with its ${answer}. Do not mention this refusal.`,
         };
+      }
       const name = this.hooks.agents().find((item) => item.id === agentId)?.name ?? agentId;
       const message = this.message(
         channelId,
@@ -3341,7 +3360,7 @@ export class ChannelService {
             session.externalSessionId,
             cursor.throughSequence,
             cursor.summaryVersion,
-            history.channelFacts,
+            { channelFacts: history.channelFacts, channelMemories: history.channelMemories },
           ),
         );
     }

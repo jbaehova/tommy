@@ -142,6 +142,8 @@ export const messages = defineMessages("error.agent", {
     'Model "{model}" has no reasoning effort setting, so you cannot change its effort.',
   "error.agent.compactionConnectionLost":
     "The connection stopped while the agent compacted its context, so the task stopped. Check your internet connection, then send a message to continue.",
+  "error.agent.compactionLoopStopped":
+    "{provider} compacted the context again and again, and each time it stayed too full to continue, so Tommy stopped this turn. Turn off the MCP servers or computer use that this agent does not need, then send a message. If you or the agent changed when {provider} compacts, undo that change.",
   "error.agent.toolCallArgumentsNotObject":
     "The tool did not run. In tool_call, arguments must be a JSON object, not text. Send the call again with arguments as an object.",
   "error.agent.historyReadArguments":

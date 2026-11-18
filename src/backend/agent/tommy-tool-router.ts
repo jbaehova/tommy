@@ -1592,8 +1592,8 @@ export class TommyToolRouter {
       // An effort alone applies to the model the new agent starts on, known only once it exists.
       const lateEffort = requested === null ? args.reasoningEffort : undefined;
       const sectionId = this.#sidebarLayout?.getSnapshot().agentAssignments[senderAgentId] ?? null;
-      // A new agent starts with Full access and Computer Use. A caller without them passes its limits
-      // on, so it cannot get around them through an agent it creates.
+      // A new agent starts with Full access, Computer Use and the auto-approve grant. A caller without
+      // them passes its limits on, so it cannot get around them through an agent it creates.
       const limits: Pick<UpdateAgentInput, "access" | "computerUse"> = {
         ...(workspaceAccessEnforced(caller) ? { access: "workspace" } : {}),
         ...(agentComputerUseEnabled(caller) ? {} : { computerUse: false }),
@@ -1617,6 +1617,11 @@ export class TommyToolRouter {
           (agent) =>
             Effect.gen({ self: this }, function* () {
               if (assign) yield* assign(agent.id).pipe(toToolOperationFailed);
+              // Saved before the first message starts a turn. A failed write removes the new agent.
+              if (!this.#approvalAutomation.autoApproves(caller.id) && this.#approvalAutomation.autoApproves(agent.id))
+                yield* this.#approvalAutomation
+                  .set({ agentId: agent.id, autoApprove: false })
+                  .pipe(toToolOperationFailed);
               if (lateEffort !== undefined) {
                 const models = this.#hooks.listModels();
                 const model = models.find(

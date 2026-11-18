@@ -278,6 +278,12 @@ export class MailboxStore {
   readonly #deliveryGate = new MailboxDeliveryGate();
   readonly #stagedGeneratedAttachments = new Map<string, StoredGeneratedAttachment>();
   #state: StoredState = structuredClone(EMPTY_STATE);
+  /**
+   * The app start loads the store before the window opens, and the agent service initializes the same
+   * store again. A second load reads every message and delivery again, which stops the main process
+   * for longer as the history grows.
+   */
+  #initialized = false;
   /** The rows changed, added or removed, since the last committed write. `#persist` writes only these. */
   readonly #changes = {
     messageIds: new Set<string>(),
@@ -296,6 +302,7 @@ export class MailboxStore {
   initialize = Effect.fn("MailboxStore.initialize")(function* (
     this: MailboxStore,
   ): Effect.fn.Return<void, StoredStateFailure> {
+    if (this.#initialized) return;
     try {
       yield* Effect.all(
         [
@@ -337,6 +344,7 @@ export class MailboxStore {
         .resetDrafts(retainedDrafts.map((draft) => draft.id))
         .pipe(Effect.mapError(({ cause }) => new StoredStateFailure({ cause })));
       yield* this.#drainFileDeletionOutboxEffect();
+      this.#initialized = true;
     } catch (cause) {
       return yield* new StoredStateFailure({ cause });
     }

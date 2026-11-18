@@ -7,6 +7,7 @@ import { Button } from "../../button";
 import { Brain, ChevronRight, Puzzle, Sparkles } from "../../icons";
 import { type TextValue, useText } from "../../text";
 import { prefersReducedMotion } from "../../utils";
+import { ActivityShine } from "./ActivityShine";
 import { useDuration } from "./Subagents";
 import { type TraceKeyboard, type TraceSpan, TraceWaterfallDialog } from "./TraceWaterfall";
 
@@ -109,7 +110,12 @@ function stepBody(step: AgentStep, newest: boolean, text: TextValue): JSX.Elemen
     );
   }
   const shown = step.kind === "thinking" ? step.text : text.sourceText(step.text);
-  return <span class={["agent-step-text", { "agent-activity-label": newest }]}>{shown}</span>;
+  return (
+    <span class={["agent-step-text", { "agent-activity-label": newest }]}>
+      {shown}
+      {newest && <ActivityShine text={shown} />}
+    </span>
+  );
 }
 
 function StepIcon(props: { kind: AgentStep["kind"] }) {

@@ -3,15 +3,29 @@ import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { StringDecoder } from "node:string_decoder";
 import { type DynamicRecord, isDynamicRecord } from "@tommy/contracts/runtime-values";
+import { createTommyLogger } from "@tommy/logging";
 import { Effect } from "effect";
 import { RequestTimeoutError } from "./agent-client";
 import { childProcessEnvironment } from "./child-process-environment";
 import type { SpawnTarget } from "./process-confinement";
 import { type ProviderClientOperationError, providerFailure } from "./provider-client-effects";
+import { endProcessGroupOnExit, PROVIDER_PROCESS_GROUP } from "./provider-process-group";
 import { registerProviderProcess } from "./provider-processes";
 import { createDiagnosticStream } from "./stderr-diagnostics";
 
 const PI_RECORD_LIMIT_BYTES = 256 * 1024 * 1024;
+const logger = createTommyLogger("provider-runtime");
+
+/** A JSON object with a string `type`, or null for any other line. */
+function piRecord(line: string): DynamicRecord | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  return isDynamicRecord(value) && typeof value.type === "string" ? value : null;
+}
 
 /** Owns one Pi RPC process and its correlated requests. Session policy belongs to the client. */
 export class PiRpc extends EventEmitter<{ record: [DynamicRecord]; diagnostic: [string]; exit: [Error] }> {
@@ -32,10 +46,12 @@ export class PiRpc extends EventEmitter<{ record: [DynamicRecord]; diagnostic: [
       env: childProcessEnvironment(env),
       stdio: "pipe",
       windowsHide: true,
-      detached: true,
+      detached: PROVIDER_PROCESS_GROUP,
     });
     this.#child = child;
     registerProviderProcess(child, this.provider);
+    // The stop below ends the group. This also ends it when Pi exits by itself.
+    endProcessGroupOnExit(child);
     const decoder = new StringDecoder("utf8");
     let buffered = "";
     const diagnostics = createDiagnosticStream({ redact: this.redact, emit: (line) => this.emit("diagnostic", line) });
@@ -57,6 +73,7 @@ export class PiRpc extends EventEmitter<{ record: [DynamicRecord]; diagnostic: [
       fail(new Error(`Pi process closed (${signal ?? code ?? "unknown"}).`));
       if (this.#child === child) this.#child = null;
     });
+    let skippedLine = false;
     child.stdout.on("data", (chunk: Buffer) => {
       buffered += decoder.write(chunk);
       try {
@@ -65,7 +82,17 @@ export class PiRpc extends EventEmitter<{ record: [DynamicRecord]; diagnostic: [
           const line = buffered.slice(0, newline);
           buffered = buffered.slice(newline + 1);
           if (Buffer.byteLength(line) > PI_RECORD_LIMIT_BYTES) throw new Error("Pi RPC record is too large.");
-          if (line.trim()) this.#record(JSON.parse(line));
+          const record = line.trim() ? piRecord(line) : null;
+          if (record) this.#record(record);
+          else if (line.trim() && !skippedLine) {
+            // A user's Pi extension or package can print to stdout. Pi's own RPC client skips such a
+            // line too. The log has only its length: the text can hold a secret.
+            skippedLine = true;
+            logger.warn("Pi wrote a stdout line that is not an RPC record. Tommy skips such lines.", {
+              provider: this.provider,
+              length: line.length,
+            });
+          }
           newline = buffered.indexOf("\n");
         }
         if (Buffer.byteLength(buffered) > PI_RECORD_LIMIT_BYTES) throw new Error("Pi RPC record is too large.");
@@ -77,8 +104,7 @@ export class PiRpc extends EventEmitter<{ record: [DynamicRecord]; diagnostic: [
     });
   }
 
-  #record(value: unknown): void {
-    if (!isDynamicRecord(value) || typeof value.type !== "string") throw new Error("Invalid Pi RPC record.");
+  #record(value: DynamicRecord): void {
     if (value.type !== "response") {
       this.emit("record", value);
       return;

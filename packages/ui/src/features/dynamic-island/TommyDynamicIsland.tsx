@@ -55,6 +55,7 @@ import {
   Switch,
   untrack,
 } from "solid-js";
+import { AmbientMotion } from "../../ambient-motion";
 import { AgentAvatar } from "../agents/AgentAvatar";
 import { StopIcon } from "../conversation/ConversationIcons";
 import { playIdleGreetingMotion } from "./idle-greeting-motion";
@@ -449,6 +450,9 @@ export function TommyDynamicIsland(props: TommyDynamicIslandProps): JSX.Element 
   const [compactLayoutPresentation, setCompactLayoutPresentation] = createSignal(initialPresentation);
   const [outgoingPresentation, setOutgoingPresentation] = createSignal<DynamicIslandPresentation>();
   const [modeTransitioning, setModeTransitioning] = createSignal(false);
+  // The island is on screen all day, above every app. Work moves on it only while the pointer is on it:
+  // an island that a click expanded stays open after the user goes back to another app.
+  const [ambientMotion, setAmbientMotion] = createSignal(false);
   let transitionRoot: HTMLDivElement | undefined;
   let modeAnimations: Animation[] = [];
   let modeTransitionVersion = 0;
@@ -628,95 +632,98 @@ export function TommyDynamicIsland(props: TommyDynamicIslandProps): JSX.Element 
       class="tommy-dynamic-island-transition-root"
       data-mode-transitioning={modeTransitioning() ? "true" : undefined}
     >
-      <DynamicIsland
-        label={
-          props.displayMode === "island"
-            ? t("island.label.externalDisplay", { label: t(config().label) })
-            : t(config().label)
-        }
-        ariaLive={config().ariaLive}
-        state={props.state}
-        displayMode={props.displayMode}
-        notchSize={islandNotchSize()}
-        extendedHoverArea={props.extendedHoverArea}
-        suppressInitialHover={props.suppressInitialHover}
-        onStateChange={changeState}
-        compactWidth={compactWidth()}
-        compactHeight={compactHeight()}
-        // A mode change moves its own layers from the old place to the new one, in step with the surface.
-        compactContentFollowsResize={!modeTransitioning()}
-        sharedMotion={{
-          leading: sharedLeading()?.[props.displayMode === "island" ? "island" : "notch"],
-          trailing: sharedTrailing()?.[props.displayMode === "island" ? "island" : "notch"],
-        }}
-        hoverBehavior={config().badge ? "expand" : "grow"}
-        hoverContentMotion={TOMMY_COMPACT_HOVER_MOTION}
-        pointerToggle={config().badge ? false : undefined}
-        class={[
-          "tommy-dynamic-island",
-          `dynamic-island-${visiblePresentation().mode === "message" ? "message-first" : visiblePresentation().mode}`,
-          config().badge ? "dynamic-island-status" : undefined,
-          visiblePresentation().mode !== "idle" && visiblePresentation().mode !== "working"
-            ? "dynamic-island-panel-wide"
-            : undefined,
-        ]
-          .filter(Boolean)
-          .join(" ")}
-        compactLeading={
-          <IslandModeSwap
-            slot="compact-leading"
-            presentation={visiblePresentation()}
-            outgoingPresentation={outgoingPresentation()}
-            renderOutgoing={(presentation) => (
-              <CompactLeading presentation={presentation} displayMode={props.displayMode} variant={props.variant} />
-            )}
-          >
-            <CompactLeading
+      <AmbientMotion when={ambientMotion()}>
+        <DynamicIsland
+          label={
+            props.displayMode === "island"
+              ? t("island.label.externalDisplay", { label: t(config().label) })
+              : t(config().label)
+          }
+          ariaLive={config().ariaLive}
+          state={props.state}
+          displayMode={props.displayMode}
+          notchSize={islandNotchSize()}
+          extendedHoverArea={props.extendedHoverArea}
+          suppressInitialHover={props.suppressInitialHover}
+          onStateChange={changeState}
+          compactWidth={compactWidth()}
+          compactHeight={compactHeight()}
+          // A mode change moves its own layers from the old place to the new one, in step with the surface.
+          compactContentFollowsResize={!modeTransitioning()}
+          sharedMotion={{
+            leading: sharedLeading()?.[props.displayMode === "island" ? "island" : "notch"],
+            trailing: sharedTrailing()?.[props.displayMode === "island" ? "island" : "notch"],
+          }}
+          hoverBehavior={config().badge ? "expand" : "grow"}
+          hoverContentMotion={TOMMY_COMPACT_HOVER_MOTION}
+          onHoverChange={setAmbientMotion}
+          pointerToggle={config().badge ? false : undefined}
+          class={[
+            "tommy-dynamic-island",
+            `dynamic-island-${visiblePresentation().mode === "message" ? "message-first" : visiblePresentation().mode}`,
+            config().badge ? "dynamic-island-status" : undefined,
+            visiblePresentation().mode !== "idle" && visiblePresentation().mode !== "working"
+              ? "dynamic-island-panel-wide"
+              : undefined,
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          compactLeading={
+            <IslandModeSwap
+              slot="compact-leading"
               presentation={visiblePresentation()}
-              displayMode={props.displayMode}
-              variant={props.variant}
-            />
-          </IslandModeSwap>
-        }
-        compactTrailing={
-          <IslandModeSwap
-            slot="compact-trailing"
-            presentation={visiblePresentation()}
-            outgoingPresentation={outgoingPresentation()}
-            renderOutgoing={(presentation) => <CompactTrailing presentation={presentation} />}
-          >
-            <CompactTrailing presentation={visiblePresentation()} />
-          </IslandModeSwap>
-        }
-        expandedContent={
-          <IslandModeSwap
-            slot="expanded"
-            presentation={visiblePresentation()}
-            outgoingPresentation={outgoingPresentation()}
-            block
-            renderOutgoing={(presentation) => (
+              outgoingPresentation={outgoingPresentation()}
+              renderOutgoing={(presentation) => (
+                <CompactLeading presentation={presentation} displayMode={props.displayMode} variant={props.variant} />
+              )}
+            >
+              <CompactLeading
+                presentation={visiblePresentation()}
+                displayMode={props.displayMode}
+                variant={props.variant}
+              />
+            </IslandModeSwap>
+          }
+          compactTrailing={
+            <IslandModeSwap
+              slot="compact-trailing"
+              presentation={visiblePresentation()}
+              outgoingPresentation={outgoingPresentation()}
+              renderOutgoing={(presentation) => <CompactTrailing presentation={presentation} />}
+            >
+              <CompactTrailing presentation={visiblePresentation()} />
+            </IslandModeSwap>
+          }
+          expandedContent={
+            <IslandModeSwap
+              slot="expanded"
+              presentation={visiblePresentation()}
+              outgoingPresentation={outgoingPresentation()}
+              block
+              renderOutgoing={(presentation) => (
+                <ExpandedContent
+                  presentation={presentation}
+                  displayMode={props.displayMode}
+                  inlineReply={props.inlineReply}
+                  onAction={props.onAction}
+                  onHaptic={props.onHaptic}
+                  onClose={() => props.onStateChange("compact", "pointer")}
+                />
+              )}
+            >
               <ExpandedContent
-                presentation={presentation}
+                presentation={visiblePresentation()}
                 displayMode={props.displayMode}
                 inlineReply={props.inlineReply}
                 onAction={props.onAction}
+                actionError={props.actionError}
                 onHaptic={props.onHaptic}
                 onClose={() => props.onStateChange("compact", "pointer")}
               />
-            )}
-          >
-            <ExpandedContent
-              presentation={visiblePresentation()}
-              displayMode={props.displayMode}
-              inlineReply={props.inlineReply}
-              onAction={props.onAction}
-              actionError={props.actionError}
-              onHaptic={props.onHaptic}
-              onClose={() => props.onStateChange("compact", "pointer")}
-            />
-          </IslandModeSwap>
-        }
-      />
+            </IslandModeSwap>
+          }
+        />
+      </AmbientMotion>
     </div>
   );
 }
@@ -1787,7 +1794,7 @@ function IslandAvatar(props: { agent: DynamicIslandAgentIdentity; working?: bool
       // avatar, 0.5% and one layout without, all day, whatever application the user
       // is actually in. `"hover"` holds the resting pose and brings the agent back the
       // moment a pointer reaches the island, so the motion is there when someone is
-      // looking at it. Work still animates on its own.
+      // looking at it. Work animates on its own only while the island is looked at: see `AmbientMotion`.
       motion="hover"
       mood={props.working ? "working" : "idle"}
       shape="cercle"
