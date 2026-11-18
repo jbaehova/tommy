@@ -16,8 +16,12 @@ EnvironmentFile=-/etc/tommy/server.env
 # The command line tools of the agents and the one key file. See scripts/hosting/tommy-install.
 Environment=PATH=/var/lib/tommy/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EnvironmentFile=-/var/lib/tommy/.config/tommy/agent.env
-# Provider CLIs do not send error reports or telemetry from this server.
-Environment=CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+# Provider CLIs do not send error reports or telemetry from this server, and do not update themselves.
+# Not CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: it also stops the plan usage read, so the usage rings
+# stay empty.
+Environment=DISABLE_TELEMETRY=1
+Environment=DISABLE_ERROR_REPORTING=1
+Environment=DISABLE_AUTOUPDATER=1
 ExecStart=/opt/Tommy/hosted/tommy-server
 # Stops the app before its virtual displays, so that it closes its database first.
 ExecStop=/opt/Tommy/hosted/tommy-server --stop

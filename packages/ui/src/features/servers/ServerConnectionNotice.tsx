@@ -2,6 +2,7 @@ import type { HostedServerIssue, HostedServerSleep, HostedServerStart } from "@t
 import { createEffect, createSignal, Show, untrack } from "solid-js";
 import { Button } from "../../button";
 import { ErrorReference } from "../../error-reference";
+import { PlushLoader } from "../../plush-loader";
 import { useText } from "../../text";
 import { AppLoadingScreen } from "../account/AppLoadingScreen";
 import { ServerStatusDialog } from "./ServerStatusDialog";
@@ -62,11 +63,26 @@ export interface ServerConnectionNoticeProps {
   upsell?: { onSeePlans: () => void } | null | undefined;
 }
 
-/** Connection feedback stays visible until the workspace can answer the user's actions. */
+/** The phases that only wait. Over loaded content they show a small indicator, not the notice. */
+const QUIET_PHASES: ReadonlySet<ServerWorkspacePhase> = new Set(["connecting", "loading", "reconnecting"]);
+
+/**
+ * Connection feedback stays visible until the workspace can answer the user's actions. Before any
+ * content loads, the app loading screen covers the panes. Over loaded content, a wait that needs no
+ * action shows a small indicator at the centre of the panes. A failure, a retry countdown, a hosted
+ * server state or an update shows the notice with Retry and Details.
+ */
 export function ServerConnectionNotice(props: ServerConnectionNoticeProps) {
   const { t } = useText();
   const since = Date.now();
   const [detailsOpen, setDetailsOpen] = createSignal(false);
+  const quiet = () =>
+    QUIET_PHASES.has(props.phase) &&
+    !props.issue &&
+    !props.detail &&
+    !props.reference &&
+    !props.remainingSeconds &&
+    !props.upsell;
   const title = () => {
     switch (props.issue) {
       case "plan_ended":
@@ -172,15 +188,24 @@ export function ServerConnectionNotice(props: ServerConnectionNoticeProps) {
     <Show
       when={props.initial}
       fallback={
-        <section class="server-connection-notice" role="status" aria-live="polite">
-          <div>
-            <p>{title()}</p>
-            <p class="server-connection-detail">{detail()}</p>
-            <ErrorReference reference={props.reference} />
-            {upsell()}
+        <Show
+          when={quiet()}
+          fallback={
+            <section class="server-connection-notice" role="status" aria-live="polite">
+              <div>
+                <p>{title()}</p>
+                <p class="server-connection-detail">{detail()}</p>
+                <ErrorReference reference={props.reference} />
+                {upsell()}
+              </div>
+              <div class="server-connection-actions">{actions()}</div>
+            </section>
+          }
+        >
+          <div class="server-connection-indicator">
+            <PlushLoader layout="stack" size={40} label={title()} />
           </div>
-          <div class="server-connection-actions">{actions()}</div>
-        </section>
+        </Show>
       }
     >
       <AppLoadingScreen

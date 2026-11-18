@@ -150,6 +150,22 @@
 .server-connection-notice p {
   margin: 0;
 }
+/* A wait over loaded content: a small loader at the centre of the panes. It does not take clicks, so
+ * the loaded content stays usable. It fades in late, so a fast load does not flash. */
+.server-connection-indicator {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  animation: server-connection-indicator-in var(--tommy-duration-slow) var(--tommy-ease-out) 300ms both;
+}
+@keyframes server-connection-indicator-in {
+  from {
+    opacity: 0;
+  }
+}
 .server-connection-detail {
   color: var(--tommy-text-muted);
   font-variant-numeric: tabular-nums;

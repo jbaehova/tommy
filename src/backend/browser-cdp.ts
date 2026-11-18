@@ -318,8 +318,10 @@ export class BrowserCdpEngine {
        * Which secret the fields are built for, so a fill that no user approves goes only there: every
        * field is a password field, or every field asks for a one-time code. A masked text input also
        * counts as a password field. A code field has one-time-code autocomplete, or strong authenticator
-       * words in its id, name or aria-label. SMS, email and recovery fields do not qualify by name.
-       * The fingerprint keeps these attributes stable until entry; the computed mask is read only here.
+       * words in its id, name, aria-label or label text, or a code or PIN label on a page whose path names
+       * an authenticator step. SMS, email and recovery fields do not qualify by name or label.
+       * The fingerprint keeps these attributes stable until entry. The computed mask, the label text and the
+       * path are read only here: the value still goes only to the fingerprinted input and its form.
        */
       fields: { password: boolean; oneTimeCode: boolean };
       /**
@@ -333,6 +335,8 @@ export class BrowserCdpEngine {
     const generation = this.#navigationGeneration;
     // A submitter that overrides the form to GET is part of it, so a page cannot add one while the
     // vault read waits.
+    // The text of the field's labels, its placeholder and its title. With the page path, it can show a code field.
+    const labelText = `[...(this.labels ?? []), ...(this.getAttribute('aria-labelledby') ?? '').split(/\\s+/).map((id) => id && document.getElementById(id))].map((label) => label?.textContent ?? '').concat(this.getAttribute('placeholder') ?? '', this.getAttribute('title') ?? '').join(' ')`;
     const fingerprintFields = `[this.localName, this.type, this.id, this.name, this.getAttribute('autocomplete'), this.getAttribute('aria-label'), this.form?.action, this.form?.method, [...(this.form?.elements ?? [])].some((element) => element.hasAttribute('formmethod') && element.getAttribute('formmethod').trim().toLowerCase() !== 'post')]`;
     const fingerprint = `function() { return JSON.stringify(${fingerprintFields}); }`;
     const nodes = yield* this.#leaseEffect((send) =>
@@ -409,8 +413,16 @@ export class BrowserCdpEngine {
             send,
             node.backendNodeId,
             `function() {
-              const named = [this.id, this.name, this.getAttribute('aria-label') ?? ''].join(' ').replace(/([a-z])([A-Z0-9])/g, '$1 $2').toLowerCase().replace(/[^a-z0-9]+/g, ' ');
-              const oneTimeCode = (this.getAttribute('autocomplete') ?? '').toLowerCase().split(/\\s+/).includes('one-time-code') || (['text', 'tel', 'number'].includes(this.type) && /totp|\\b(?:otp|2fa|mfa)+(?:code|token|pin)?\\b|\\bauthenticator\\b|\\bone ?time ?(?:code|password|passcode|pin)\\b|\\bverification ?code\\b|\\btwo ?factor\\b/.test(named) && !/backup|recovery|mail|phone|sms|name|label/.test(named));
+              const words = (value) => value.replace(/([a-z])([A-Z0-9])/g, '$1 $2').toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+              const named = words([this.id, this.name, this.getAttribute('aria-label') ?? ''].join(' '));
+              const labelled = words(${labelText});
+              const strong = /totp|\\b(?:otp|2fa|mfa)+(?:code|token|pin)?\\b|\\bauthenticator\\b|\\bone ?time ?(?:code|password|passcode|pin)\\b|\\bverification ?code\\b|\\btwo ?factor\\b/;
+              // A label such as "Enter code" counts only on a page whose path names an authenticator step,
+              // such as Google's /challenge/totp, so a promo or postal code field elsewhere does not qualify.
+              const authenticatorPage = /(?:^|[^a-z0-9])(?:totp|otp|2fa|2sv|mfa|authenticator|two ?factor|second ?factor)(?:[^a-z0-9]|$)/.test(words(location.pathname));
+              const codeLabel = /\\b(?:code|pin)\\b/.test(named + ' ' + labelled) && !/promo|coupon|discount|voucher|gift|zip|postal|country/.test(named + ' ' + labelled);
+              const excluded = /backup|recovery|mail|phone|sms|name|label/.test(named) || /backup|recovery|mail|phone|sms|name/.test(labelled);
+              const oneTimeCode = (this.getAttribute('autocomplete') ?? '').toLowerCase().split(/\\s+/).includes('one-time-code') || (['text', 'tel', 'number'].includes(this.type) && !excluded && (strong.test(named) || strong.test(labelled) || (authenticatorPage && codeLabel)));
               return { password: this.type === 'password' || (this.type === 'text' && !['', 'none'].includes(getComputedStyle(this).getPropertyValue('-webkit-text-security'))), oneTimeCode, network: ${LOADED_FROM_NETWORK} };
             }`,
             [],

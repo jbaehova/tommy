@@ -52,6 +52,16 @@ function site(request: Request, body: string): Response | Promise<Response> {
       <label>SMS code<input id="smsOtp" type="text"></label>
       <label>Recovery code<input id="totpbackup" type="text"></label>
       <button id="go">Continue</button></body>`);
+  if (pathname === "/v3/signin/challenge/totp" || pathname === "/checkout")
+    return html(`<!doctype html><title>Enter code</title><body>
+      <form method="post" action="/verified">
+        <label for="entry">Enter code</label><input id="entry" type="tel" name="pin">
+        <label>SMS code<input id="message" type="tel"></label>
+        <label>Recovery code<input id="backup" type="text"></label>
+        <label>Promo code<input id="offer" type="text"></label>
+        <span id="description">Authenticator code</span><input id="token" type="tel" aria-labelledby="description">
+        <button id="go">Next</button>
+      </form></body>`);
   if (pathname === "/large")
     return html(`<!doctype html><title>Large page</title><body>
       <div hidden>${"<div>Hidden menu item</div>".repeat(11_000)}</div>
@@ -190,6 +200,63 @@ async function main() {
           assert.equal(handoff.vaultFillable, fillable, `Wrong saved-login policy for ${selector}.`);
           handoff.cancel();
         }
+      } finally {
+        await runCauseEffect(browser.close(tabId));
+      }
+    },
+  );
+
+  await scenario(
+    "a plain code label qualifies only on an authenticator step, with unrelated fields excluded",
+    async () => {
+      for (const path of ["/v3/signin/challenge/totp", "/checkout"]) {
+        const tabId = await openLogin(path);
+        try {
+          for (const [selector, fillable] of [
+            ["#entry", path.endsWith("/totp")],
+            ["#message", false],
+            ["#backup", false],
+            ["#offer", false],
+            ["#token", true],
+          ] as const) {
+            const handoff = await prepare(tabId, {
+              method: "authenticator",
+              digits: 6,
+              targets: [{ kind: "css", selector }],
+            });
+            assert.equal(handoff.vaultFillable, fillable, `Wrong saved-login policy for ${path} ${selector}.`);
+            assert.equal(handoff.agentScriptedOrigin, false);
+            handoff.cancel();
+          }
+        } finally {
+          await runCauseEffect(browser.close(tabId));
+        }
+      }
+    },
+  );
+
+  await scenario(
+    "a labelled authenticator field submits its code without exposing it in the next snapshot",
+    async () => {
+      const tabId = await openLogin("/v3/signin/challenge/totp");
+      try {
+        const handoff = await prepare(tabId, {
+          method: "authenticator",
+          digits: 6,
+          targets: [{ kind: "css", selector: "#entry" }],
+        });
+        assert.equal(handoff.vaultFillable, true);
+        const contents = webContents.getAllWebContents().find((item) => item.getURL().endsWith("/challenge/totp"));
+        assert(contents, "Missing the authenticator fixture.");
+        const navigated = new Promise<void>((resolve) => contents.once("did-finish-load", () => resolve()));
+        assert.deepEqual(await runCauseEffect(handoff.submit("482061", false)), { status: "submitted" });
+        await navigated;
+        assert.equal(posts.at(-1)?.path, "/verified");
+        assert.equal(new URLSearchParams(posts.at(-1)?.body).get("pin"), "482061");
+        const snapshot = await tool("snapshot", { tabId, image: "never" });
+        assert.ok(snapshot.success, text(snapshot));
+        assert.ok(text(snapshot).includes("Signed in"));
+        assert.ok(!text(snapshot).includes("482061"), "The code reached a snapshot.");
       } finally {
         await runCauseEffect(browser.close(tabId));
       }
