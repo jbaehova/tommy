@@ -41,7 +41,6 @@ export const messages = {
   "status.messaging.telegramBrowserHelp": "Tommy를 열어 이 에이전트의 브라우저 탭을 보고 요청에 답하세요.",
   "status.messaging.telegramUnavailable": "서버에서 이 에이전트를 사용할 수 없습니다.",
   "status.messaging.telegramNeedsInput": "VPS에서 사용자 입력이 필요합니다. Tommy를 열고 대상 사이트를 확인하세요.",
-  "status.messaging.telegramImage": "에이전트가 보낸 이미지",
   "status.messaging.telegramCommandConnect": "에이전트마다 채팅 만들기",
   "status.messaging.telegramCommandNew": "새 에이전트 만들기",
   "status.messaging.telegramCommandAgents": "에이전트 채팅 목록",
@@ -54,6 +53,8 @@ export const messages = {
   "status.messaging.telegramUnsupported":
     "이런 메시지는 에이전트에게 전달할 수 없어요. 글자, 사진, 파일, 음성, 동영상을 보내 주세요.",
   "status.messaging.telegramEditedPrefix": "(수정한 메시지예요. 앞서 보낸 메시지를 대신합니다.)",
+  "status.messaging.telegramPrivateInput":
+    "{name} 에이전트가 비공개 답을 기다려요. Tommy를 열어 답하세요. 답은 이 채팅에 남지 않아요.",
   "status.messaging.telegramStopped": "진행 중인 작업을 멈췄어요.",
   "status.messaging.telegramLimit": "엔진 요금제 사용 한도에 도달했어요. {time}에 이어서 작업해요.",
   "status.messaging.telegramLimitLater": "엔진 요금제 사용 한도에 도달했어요. 한도가 풀리면 이어서 작업해요.",

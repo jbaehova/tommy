@@ -18,5 +18,9 @@ export const messages = {
   "browser.telegram.viewSnapshot": "화면 보기",
   "browser.telegram.refreshSnapshot": "새로고침",
   "browser.telegram.snapshotUnavailable": "이 페이지의 화면을 현재 볼 수 없습니다.",
+  "browser.telegram.skip": "건너뛰기",
+  "browser.telegram.promptTitle": "에이전트가 비공개 답을 기다려요",
+  "browser.telegram.vaultTitle": "Vault에 저장",
+  "browser.telegram.apiKeyTitle": "API 키 저장",
   "browser.telegram.refresh": "새로고침",
 } as const satisfies PartialTranslation<typeof source>;

@@ -307,4 +307,126 @@ describe("Telegram Mini App owner and browser boundary", () => {
       await new Promise<void>((resolve, reject) => server.close((e) => (e ? reject(e) : resolve())));
     }
   });
+  it("answers a private prompt only from the bot whose chat owns the turn, with known questions", async () => {
+    const managerId = 100;
+    const childId = 200;
+    const childToken = "example-child-token";
+    const answered: { requestId: string | number; answers: Record<string, string[]> }[] = [];
+    let prompts = [
+      {
+        requestId: "prompt-child",
+        agentId: "agent-child",
+        threadId: "thread",
+        turnId: "turn-child",
+        form: "vault" as const,
+        questions: [
+          { id: "username", header: "", question: "Username", isSecret: false, options: null },
+          { id: "password", header: "", question: "Password", isSecret: true, options: null },
+        ],
+      },
+      {
+        requestId: "prompt-root",
+        agentId: "agent-root",
+        threadId: "thread",
+        turnId: "turn-root",
+        form: null,
+        questions: [{ id: "code", header: "", question: "Code", isSecret: true, options: null }],
+      },
+    ];
+    const chatOf = (agentId: string) => (agentId === "agent-child" ? childId : managerId);
+    const app = new TelegramMiniApp({
+      publicOrigin: origin,
+      managerToken: token,
+      ownerId: owner,
+      managerId,
+      botToken: (bot) => Effect.succeed(bot === childId ? childToken : null),
+      listAgents: () => [],
+      ownsTurn: (agentId, _turn, bot) => bot === managerId || chatOf(agentId) === bot,
+      agents: {
+        getRuntimeSnapshot: () => ({ pendingBrowserTakeovers: [] }),
+        respondToBrowserSecret: () => Effect.void,
+        privatePrompts: () => prompts,
+        respondToPrompt: (input) => Effect.sync(() => void answered.push(input)),
+        listAgents: () => [{ id: "agent-child", name: "Child" }],
+      },
+    });
+    const server = createServer((req, res) => {
+      void Effect.runPromise(app.handle(req, res));
+    });
+    server.listen(0, "127.0.0.1");
+    try {
+      await once(server, "listening");
+      const address = server.address();
+      if (!address || typeof address !== "object") throw new Error("Missing test port");
+      const now = Math.floor(Date.now() / 1000);
+      const post = (route: string, body: string, query: string, signer: string) =>
+        fetch(`http://127.0.0.1:${address.port}${TELEGRAM_MINI_APP_PATH}/${route}${query}`, {
+          method: "POST",
+          headers: { origin, authorization: launch(owner, now, signer), "Content-Type": "application/json" },
+          body,
+        });
+      const promptsFrom = Schema.decodeUnknownSync(
+        Schema.Struct({
+          prompts: Schema.Array(
+            Schema.Struct({ handle: Schema.String, agentId: Schema.String, agentName: Schema.String }),
+          ),
+        }),
+      );
+      const child = promptsFrom(await (await post("state", "{}", `?bot=${childId}`, childToken)).json());
+      expect(child.prompts.map((prompt) => [prompt.agentId, prompt.agentName])).toEqual([["agent-child", "Child"]]);
+      const whole = promptsFrom(await (await post("state", "{}", "", token)).json());
+      expect(whole.prompts).toHaveLength(2);
+      const handle = child.prompts[0]?.handle;
+      const rootHandle = whole.prompts.find((prompt) => prompt.agentId === "agent-root")?.handle;
+      // A handle names its bot: the manager view cannot use the child view's handle, and the child cannot answer the root.
+      const answer = (value: { handle: string | undefined; decision: string; answers?: Record<string, string[]> }) =>
+        JSON.stringify(value);
+      expect((await post("answer", answer({ handle, decision: "skip" }), "", token)).status).toBe(409);
+      expect(
+        (await post("answer", answer({ handle: rootHandle, decision: "skip" }), `?bot=${childId}`, childToken)).status,
+      ).toBe(409);
+      expect(
+        (
+          await post(
+            "answer",
+            answer({ handle, decision: "submit", answers: { other: ["x"] } }),
+            `?bot=${childId}`,
+            childToken,
+          )
+        ).status,
+      ).toBe(400);
+      expect(
+        (
+          await post(
+            "answer",
+            answer({ handle, decision: "submit", answers: { password: ["a", "b"] } }),
+            `?bot=${childId}`,
+            childToken,
+          )
+        ).status,
+      ).toBe(400);
+      expect(answered).toEqual([]);
+      const submitted = { username: ["owner@example.com"], password: ["fake-value"] };
+      expect(
+        (
+          await post(
+            "answer",
+            answer({ handle, decision: "submit", answers: submitted }),
+            `?bot=${childId}`,
+            childToken,
+          )
+        ).status,
+      ).toBe(204);
+      expect(answered).toEqual([{ requestId: "prompt-child", answers: submitted }]);
+      prompts = prompts.filter((prompt) => prompt.requestId !== "prompt-child");
+      expect((await post("answer", answer({ handle, decision: "skip" }), `?bot=${childId}`, childToken)).status).toBe(
+        409,
+      );
+      expect((await post("answer", answer({ handle: rootHandle, decision: "skip" }), "", token)).status).toBe(204);
+      expect(answered.at(-1)).toEqual({ requestId: "prompt-root", answers: {} });
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => server.close((e) => (e ? reject(e) : resolve())));
+    }
+  });
 });

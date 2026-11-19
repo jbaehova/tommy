@@ -384,6 +384,22 @@ export interface AttentionRegistryOptions {
   apiKeys?: AgentApiKeys | null | undefined;
 }
 
+export interface PrivatePrompt {
+  requestId: RequestId;
+  agentId: string;
+  threadId: string;
+  turnId: string;
+  questions: AgentPromptQuestion[];
+  /** The Vault or API key form that asks, or null for a question with a secret answer. */
+  form: "vault" | "api-key" | null;
+}
+
+function isPrivatePrompt(pending: PendingPrompt): boolean {
+  return Boolean(
+    pending.uiBlock?.vault || pending.uiBlock?.apiKey || pending.questions.some((question) => question.isSecret),
+  );
+}
+
 export type RuntimeAttention = Pick<
   AgentRuntimeSnapshot,
   "attentionComplete" | "pendingPrompts" | "pendingApprovals" | "pendingBrowserTakeovers"
@@ -464,6 +480,21 @@ export class AttentionRegistry {
       [...this.#approvals.values()].some((pending) => pending.approval.agentId === agentId) ||
       [...this.#takeovers.values()].some((pending) => pending.request.agentId === agentId)
     );
+  }
+
+  /**
+   * Prompts that need private input: a secret question, or the form of `request_vault_item` or
+   * `request_api_key`. Telegram answers these in its Mini App, never in a chat.
+   */
+  privatePrompts(): PrivatePrompt[] {
+    return [...this.#prompts.values()].filter(isPrivatePrompt).map((pending) => ({
+      requestId: pending.id,
+      agentId: pending.agentId,
+      threadId: pending.publicThreadId,
+      turnId: pending.turnId,
+      questions: structuredClone(pending.questions),
+      form: pending.uiBlock?.vault ? "vault" : pending.uiBlock?.apiKey ? "api-key" : null,
+    }));
   }
 
   /** Full details for one agent; the UI snapshot has a separate size budget. */

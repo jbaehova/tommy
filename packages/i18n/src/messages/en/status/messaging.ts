@@ -51,7 +51,6 @@ export const messages = defineMessages("status.messaging", {
   "status.messaging.telegramUnavailable": "This Tommy agent is unavailable on the server.",
   "status.messaging.telegramNeedsInput":
     "This agent needs your input on the VPS. Open Tommy to inspect the site and respond.",
-  "status.messaging.telegramImage": "Image from your agent",
   "status.messaging.telegramCommandConnect": "Give an agent its own chat",
   "status.messaging.telegramCommandNew": "Create a new agent",
   "status.messaging.telegramCommandAgents": "List the agent chats",
@@ -64,6 +63,8 @@ export const messages = defineMessages("status.messaging", {
   "status.messaging.telegramUnsupported":
     "Tommy cannot pass this kind of message on. Send text, a photo, a file, a voice message or a video.",
   "status.messaging.telegramEditedPrefix": "(Edited. This replaces my earlier message.)",
+  "status.messaging.telegramPrivateInput":
+    "{name} needs a private answer. Open Tommy to answer it. The answer does not go into this chat.",
   "status.messaging.telegramStopped": "Stopped the current task.",
   "status.messaging.telegramLimit": "The engine plan reached its usage limit. Work continues at {time}.",
   "status.messaging.telegramLimitLater": "The engine plan reached its usage limit. Work continues when it resets.",

@@ -17,5 +17,9 @@ export const messages = defineMessages("browser", {
   "browser.telegram.viewSnapshot": "View screen",
   "browser.telegram.refreshSnapshot": "Refresh",
   "browser.telegram.snapshotUnavailable": "This page is no longer available to preview.",
+  "browser.telegram.skip": "Skip",
+  "browser.telegram.promptTitle": "Your agent needs a private answer",
+  "browser.telegram.vaultTitle": "Save to the Vault",
+  "browser.telegram.apiKeyTitle": "Save an API key",
   "browser.telegram.refresh": "Refresh",
 });
