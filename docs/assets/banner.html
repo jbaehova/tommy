@@ -6,187 +6,181 @@ the banner, or at 1200x630 for the link preview, both with a device scale factor
     <meta charset="utf-8" />
     <title>Tommy banner</title>
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300..500,0..100&display=swap"
       rel="stylesheet"
     />
+    <link rel="stylesheet" href="../../site/style.css" />
     <style>
       html,
       body {
-        width: 100%;
         height: 100%;
-        margin: 0;
         overflow: hidden;
-        background: #fff;
       }
 
-      body {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        box-sizing: border-box;
-        padding: 2vh 0 5vh;
-        color: #33383f;
-        font-family: "Inter Tight", "Helvetica Neue", Arial, sans-serif;
+      /* The link preview is the same picture, scaled to 1200 wide. */
+      @media (min-width: 1200px) {
+        body {
+          zoom: 1.1538;
+        }
       }
 
-      .stage {
-        position: relative;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        height: 1.84em;
-        overflow: hidden;
-        font-size: min(27vw, 40vh);
-        font-weight: 700;
-        line-height: 0.82;
-        letter-spacing: -0.065em;
-      }
-
-      .stage span {
-        display: block;
-        flex: none;
-        padding-right: 0.06em;
-      }
-
-      .ghost {
-        height: 0.82em;
-        color: transparent;
-        -webkit-text-stroke: 2px #e3e7ec;
-      }
-
-      .ghost.top {
-        margin-top: -0.4em;
-      }
-
-      .word {
-        height: 1.02em;
-        padding-top: 0.04em;
-        color: #3570ad;
-      }
-
-      .wrap {
-        position: relative;
-      }
-
-      .cursor {
+      .text {
         position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 56px;
         display: flex;
         flex-direction: column;
-        align-items: flex-start;
-        font: 600 15px/1 -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+        justify-content: center;
+        width: 400px;
       }
 
-      .cursor svg {
-        width: 20px;
-        height: 20px;
-        margin: 0 0 -2px -6px;
-        fill: currentColor;
-        stroke: #fff;
-        stroke-width: 1.4;
-        stroke-linejoin: round;
-      }
-
-      .tag {
-        display: inline-flex;
+      .wordmark {
+        display: flex;
         align-items: center;
-        gap: 8px;
-        margin-left: 8px;
-        padding: 4px 13px 4px 4px;
-        border-radius: 999px;
-        box-shadow: 0 8px 18px -8px rgb(0 0 0 / 0.4);
-        color: #fff;
-        white-space: nowrap;
+        gap: 12px;
+        font: 500 30px / 1 var(--display);
+        font-variation-settings: "SOFT" 100;
+        letter-spacing: -0.03em;
       }
 
-      .tag img {
-        width: 26px;
-        height: 26px;
-        border: 2px solid #fff;
+      .wordmark img {
+        width: 40px;
+        height: 40px;
         border-radius: 50%;
+        box-shadow: 0 0 0 1px rgb(0 0 0 / 0.1);
       }
 
-      .tag.plain {
-        padding-left: 13px;
-        height: 34px;
+      .text h1 {
+        margin-top: 26px;
+        font-size: 58px;
       }
 
-      .c1 {
-        top: 12%;
-        left: -14%;
-        color: #e0663d;
+      .text p {
+        margin-top: 18px;
+        color: var(--soft);
+        font-size: 17px;
       }
 
-      .c1 .tag {
-        background: #e0663d;
+      .window {
+        position: absolute;
+        top: 52px;
+        left: 466px;
+        width: 552px;
+        height: 560px;
+        grid-template-columns: 244px minmax(0, 1fr);
       }
 
-      .c2 {
-        top: 4%;
-        right: -16%;
-        color: #2f3540;
+      .messages {
+        justify-content: flex-start;
       }
 
-      .c2 .tag {
-        background: #2f3540;
+      .bubble {
+        max-width: 92%;
+        animation: none;
       }
 
-      .c3 {
-        bottom: 6%;
-        left: -6%;
-        color: #2f9467;
+      .capsule.who {
+        min-width: 150px;
       }
 
-      .c3 .tag {
-        background: #2f9467;
-      }
-
-      .c4 {
-        right: -19%;
-        bottom: 24%;
-        color: #3570ad;
-      }
-
-      .c4 .tag {
-        background: #3570ad;
-      }
-
-      .line {
-        margin: 0.4em 0 0;
-        font-size: min(4.2vw, 7.6vh);
-        font-weight: 700;
-        letter-spacing: -0.045em;
-      }
-
-      .line span {
-        color: #3570ad;
+      .chat-row .time {
+        font-size: 11px;
       }
     </style>
   </head>
   <body>
-    <div class="wrap">
-      <div class="stage">
-        <span class="ghost top">tommy</span>
-        <span class="word">tommy</span>
-        <span class="ghost">tommy</span>
-      </div>
-      <span class="cursor c1">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3.5 19 10l-6.2 1.8L10 18z" /></svg>
-        <span class="tag"><img src="../../site/avatars/travel.jpg" alt="" />Travel Planner</span>
-      </span>
-      <span class="cursor c2">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3.5 19 10l-6.2 1.8L10 18z" /></svg>
-        <span class="tag"><img src="../../site/avatars/engineer.jpg" alt="" />Engineer</span>
-      </span>
-      <span class="cursor c3">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3.5 19 10l-6.2 1.8L10 18z" /></svg>
-        <span class="tag"><img src="../../site/avatars/finance.jpg" alt="" />Finance</span>
-      </span>
-      <span class="cursor c4">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3.5 19 10l-6.2 1.8L10 18z" /></svg>
-        <span class="tag"><img src="../../site/avatars/designer.jpg" alt="" />Designer</span>
-      </span>
+    <svg class="sprite" aria-hidden="true">
+      <symbol id="i-search" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="6.5" />
+        <path d="m16 16 4 4" />
+      </symbol>
+      <symbol id="i-compose" viewBox="0 0 24 24">
+        <path d="M11.5 4.5H7A2.5 2.5 0 0 0 4.5 7v10A2.5 2.5 0 0 0 7 19.5h10a2.5 2.5 0 0 0 2.5-2.5v-4.5" />
+        <path d="m19.8 3.7-8.3 8.3-.5 2.5 2.5-.5 8.300-8.300a1.400 1.400 0 0 0-2-2z" />
+      </symbol>
+    </svg>
+
+    <div class="text">
+      <span class="wordmark"><img src="../../site/avatars/tommy.png" alt="" />tommy</span>
+      <h1>Your AI team<br />lives in Telegram.</h1>
+      <p>AI agents on a server you own.<br />Each one is a Telegram bot.</p>
     </div>
-    <p class="line">Your AI team. <span>In Telegram.</span></p>
+
+    <div class="window">
+      <aside class="sidebar">
+        <div class="side-top">
+          <span class="lights"><i></i><i></i><i></i></span>
+          <strong>Chats</strong>
+          <svg class="icon" aria-hidden="true"><use href="#i-compose" /></svg>
+        </div>
+        <div class="search">
+          <svg class="icon" aria-hidden="true"><use href="#i-search" /></svg>
+          Search (⌘K)
+        </div>
+        <ul class="chats">
+          <li>
+            <span class="chat-row" aria-current="true">
+              <img class="avatar" src="../../site/avatars/tommy.png" alt="" />
+              <span class="name">Tommy</span>
+              <span class="time">10:21 AM</span>
+              <span class="preview">Your trip is ready.</span>
+            </span>
+          </li>
+          <li>
+            <span class="chat-row">
+              <img class="avatar" src="../../site/avatars/travel.jpg" alt="" />
+              <span class="name">Travel Planner</span>
+              <span class="time">10:12 AM</span>
+              <span class="preview">Day 1: Asakusa</span>
+            </span>
+          </li>
+          <li>
+            <span class="chat-row">
+              <img class="avatar" src="../../site/avatars/finance.jpg" alt="" />
+              <span class="name">Finance</span>
+              <span class="time">10:09 AM</span>
+              <span class="preview">Total $1,840</span>
+            </span>
+          </li>
+          <li>
+            <span class="chat-row">
+              <img class="avatar" src="../../site/avatars/engineer.jpg" alt="" />
+              <span class="name">Engineer</span>
+              <span class="time">9:47 AM</span>
+              <span class="preview">Pull request #42</span>
+            </span>
+          </li>
+          <li>
+            <span class="chat-row">
+              <img class="avatar" src="../../site/avatars/researcher.jpg" alt="" />
+              <span class="name">Researcher</span>
+              <span class="time">10:07 AM</span>
+              <span class="preview">Late March</span>
+            </span>
+          </li>
+        </ul>
+      </aside>
+      <section class="chat">
+        <header class="chat-head">
+          <div class="capsule who">
+            <img class="avatar" src="../../site/avatars/tommy.png" alt="" width="34" height="34" />
+            <div class="head-text">
+              <strong>Tommy</strong>
+              <span>bot</span>
+            </div>
+          </div>
+        </header>
+        <div class="messages">
+          <p class="bubble out">Plan a 5-day trip to Tokyo for two. Budget $2,000.</p>
+          <p class="bubble in">On it. I split the work:
+Travel Planner: a day-by-day plan
+Finance: the budget
+Writer: a one-page guide</p>
+          <p class="service">Tommy handed work to 3 agents</p>
+          <p class="bubble in">Your trip is ready. 5 days for $1,840, so $160 stays in the budget.</p>
+        </div>
+      </section>
+    </div>
   </body>
 </html>

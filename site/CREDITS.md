@@ -17,4 +17,5 @@ and are used under the [Pexels License](https://www.pexels.com/license/).
 | `avatars/designer.jpg` | Designer | [Smiling Indian woman touching face](https://www.pexels.com/photo/6977987/) | [Monstera Production](https://www.pexels.com/@gabby-k/) |
 | `avatars/writer.jpg` | Writer | [Smiling Man in Black Polo Portrait](https://www.pexels.com/photo/28494857/) | [Moisés Sánchez](https://www.pexels.com/@moises-sanchez-1849845482/) |
 
-`avatars/tommy.svg`, the robot of the root agent, is original artwork of this project.
+`avatars/tommy.png`, the picture of the root agent, is the logo of this project. The hotel page in the
+browser example is invented.

@@ -95,5 +95,9 @@ to that agent. Tommy keeps one stable conversation when an agent changes provide
 
 `docs/assets/banner.png` (README) and `site/og.png` (link preview) are screenshots of
 `docs/assets/banner.html`. Render that file with a headless browser at 1040x420 and at 1200x630,
-both with a device scale factor of 2. The example avatars and their licenses are listed in
+both with a device scale factor of 2. The banner uses `site/style.css`, so render it again after a
+change to the Telegram window. The example avatars and their licenses are listed in
 [site/CREDITS.md](../site/CREDITS.md).
+
+`docs/assets/logo.png` is the logo: the black mark on a white circle. `site/avatars/tommy.png` is the
+same picture at 256 pixels.

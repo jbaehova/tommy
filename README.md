@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="https://jbaehova.github.io/tommy/"><img src="docs/assets/banner.png" width="880" alt="Tommy: your AI team, in Telegram"></a>
+<a href="https://jbaehova.github.io/tommy/"><img src="docs/assets/banner.png" width="880" alt="Tommy: your AI team lives in Telegram"></a>
 
 **Tommy runs a team of AI agents on your own server. You talk to them in Telegram.**
 
@@ -44,6 +44,12 @@ flowchart LR
 
 Telegram stores the messages and files sent in its chats. The agents, their workspaces, the
 conversations and the database stay on your server.
+
+### When a site asks for a password
+
+Each agent has a private browser on your server. When a page asks for a password or a code, the
+agent's chat shows an **Open Tommy** button. It opens a Mini App inside Telegram, where you see the
+agent's screen and type the value. The value goes to the page. It is not added to the chat.
 
 ## Install
 
@@ -128,8 +134,8 @@ The app lives in `/opt/Tommy`, the data in `/var/lib/tommy`, and the settings in
   each provider CLI, so every agent gets a known-good runtime.
 - **Agents that work together.** Agents hand work to each other inside Tommy, and answers come back
   formatted.
-- **Browser and Computer Use.** Agents drive a sandboxed browser on the server. A password or code
-  request opens a card inside the agent's chat. With
+- **Browser and Computer Use.** Agents drive a sandboxed browser on the server. You see its screen
+  and answer a password or code request in a Mini App inside Telegram. With
   [agent-desktop](https://github.com/vercel-labs/agent-desktop), agents also operate desktop apps.
 - **Routines and workflows.** Schedule recurring work, chain steps into workflows, and trigger them
   from signed webhooks.

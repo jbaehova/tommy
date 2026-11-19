@@ -6,7 +6,7 @@ const CHATS = [
   {
     id: "tommy",
     name: "Tommy",
-    avatar: "avatars/tommy.svg",
+    avatar: "avatars/tommy.png",
     messages: [
       { day: "Today" },
       { out: "Plan a 5-day trip to Tokyo for two in April. Budget $2,000, not counting flights.", time: "10:02" },
@@ -28,6 +28,7 @@ const CHATS = [
     id: "travel",
     name: "Travel Planner",
     avatar: "avatars/travel.jpg",
+    unread: 1,
     messages: [
       { day: "Today" },
       { from: "From Tommy", text: "Plan 5 days in Tokyo for two in April. Keep it walkable.", time: "10:03" },
@@ -36,8 +37,13 @@ const CHATS = [
         text: "Day 1: Asakusa and Senso-ji\nDay 2: Ueno Park and the museums\nDay 3: Shibuya and Harajuku\nDay 4: A day trip to Hakone\nDay 5: Tsukiji, then the airport",
         time: "10:12",
       },
-      { out: "Can day 4 be more relaxed?", time: "10:30" },
-      { text: "Sure. Day 4 is now a slow morning at a hot spring in Hakone, and an early train back.", time: "10:31" },
+      { out: "Looks good. Book the hotel for us.", time: "10:30" },
+      { text: "I opened the hotel site and picked a room for April 3 to 8. It asks me to sign in.", time: "10:31" },
+      {
+        text: "Travel Planner needs a private answer. Open Tommy to answer it. The answer does not go into this chat.",
+        button: "Open Tommy",
+        time: "10:31",
+      },
     ],
   },
   {
@@ -155,6 +161,10 @@ function previewText(message) {
   return (message.out ?? message.text).split("\n")[0];
 }
 
+function clock(time) {
+  return time ? `${time.replace(/^0/, "")} AM` : "";
+}
+
 function renderMessage(message, index) {
   if (message.day) return element("p", "day", message.day);
   if (message.service) return element("p", "service", message.service);
@@ -181,10 +191,19 @@ function renderMessage(message, index) {
     bubble.append(file);
   }
 
-  const meta = element("span", "meta", message.time);
+  const meta = element("span", "meta", clock(message.time));
   if (outgoing) meta.append(readChecks());
   bubble.append(meta);
-  return bubble;
+  if (!message.button) return bubble;
+
+  // A message with an inline button, as a bot sends it.
+  const group = element("div", "with-button");
+  const button = element("button", "inline-button", message.button);
+  button.type = "button";
+  button.dataset.open = "mini-app";
+  button.append(icon("app"));
+  group.append(bubble, button);
+  return group;
 }
 
 function typing() {
@@ -210,6 +229,7 @@ function setupDemo() {
 
   const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const rows = new Map();
+  const says = [...document.querySelectorAll(".say[data-chat]")];
   let current = CHATS[0];
   let run = 0;
 
@@ -236,6 +256,7 @@ function setupDemo() {
     current = chat;
     run += 1;
     for (const [id, row] of rows) row.setAttribute("aria-current", String(id === chat.id));
+    for (const say of says) say.setAttribute("aria-pressed", String(say.dataset.chat === chat.id));
     chat.unread = 0;
     rows.get(chat.id)?.querySelector(".badge")?.remove();
     headName.textContent = chat.name;
@@ -254,12 +275,12 @@ function setupDemo() {
     const avatar = element("img", "avatar");
     avatar.src = chat.avatar;
     avatar.alt = "";
-    avatar.width = 48;
-    avatar.height = 48;
+    avatar.width = 46;
+    avatar.height = 46;
     row.append(
       avatar,
       element("span", "name", chat.name),
-      element("span", "time", last.time ?? ""),
+      element("span", "time", clock(last.time ?? "")),
       element("span", "preview", previewText(last)),
     );
     if (chat.unread) row.append(element("span", "badge", String(chat.unread)));
@@ -268,6 +289,16 @@ function setupDemo() {
     const item = element("li");
     item.append(row);
     list.append(item);
+  }
+
+  // The names in the letter open the chat of that agent.
+  for (const say of says) {
+    const chat = CHATS.find((item) => item.id === say.dataset.chat);
+    if (!chat) continue;
+    say.addEventListener("click", () => open(chat, false));
+    say.addEventListener("pointerenter", (event) => {
+      if (event.pointerType === "mouse" && current !== chat) open(chat, false);
+    });
   }
 
   replay?.addEventListener("click", () => open(current, true));
@@ -285,6 +316,50 @@ function setupDemo() {
     );
     observer.observe(messages);
   }
+}
+
+function miniApp() {
+  return document.getElementById("mini-app")?.content.cloneNode(true) ?? null;
+}
+
+// The mini app opens over the chat, as it does in Telegram.
+function setupMiniApp() {
+  const still = document.getElementById("mini-static");
+  const stillCopy = miniApp();
+  if (still && stillCopy) still.append(stillCopy);
+
+  const sheet = document.getElementById("sheet");
+  const body = document.getElementById("sheet-body");
+  const messages = document.getElementById("messages");
+  if (!sheet || !body || !messages) return;
+
+  function close() {
+    sheet.hidden = true;
+    body.replaceChildren();
+  }
+
+  messages.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element) || !event.target.closest("[data-open]")) return;
+    const copy = miniApp();
+    if (!copy) return;
+    body.replaceChildren(copy);
+    sheet.hidden = false;
+  });
+
+  sheet.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element)) return;
+    const action = event.target.closest("[data-mini]")?.dataset.mini;
+    if (event.target === sheet || action === "cancel") close();
+    if (action !== "submit") return;
+    close();
+    messages.querySelector(".with-button")?.remove();
+    messages.append(
+      renderMessage({ text: "Thanks, I am signed in. The room is booked for April 3 to 8.", time: "10:33" }, 0),
+    );
+  });
+
+  // Another chat closes the mini app.
+  document.querySelector("#demo .chats")?.addEventListener("click", close);
 }
 
 function setupTabs() {
@@ -305,22 +380,21 @@ function setupCopy() {
   for (const button of document.querySelectorAll("[data-copy]")) {
     button.addEventListener("click", async () => {
       const text = document.getElementById(button.dataset.copy)?.textContent ?? "";
-      const use = button.querySelector("use");
+      const label = button.textContent;
       try {
         await navigator.clipboard.writeText(text);
-        button.classList.add("done");
-        use?.setAttribute("href", "#i-check");
+        button.textContent = "Copied";
       } catch {
-        button.setAttribute("aria-label", "Select the text to copy");
+        button.textContent = "Select the text to copy";
       }
       setTimeout(() => {
-        button.classList.remove("done");
-        use?.setAttribute("href", "#i-copy");
+        button.textContent = label;
       }, 1600);
     });
   }
 }
 
 setupDemo();
+setupMiniApp();
 setupTabs();
 setupCopy();
