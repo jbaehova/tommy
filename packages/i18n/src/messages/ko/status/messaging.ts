@@ -115,6 +115,9 @@ export const messages = {
   "status.messaging.telegramCommandDelete": "이 에이전트 지우기",
   "status.messaging.telegramPrivateInput":
     "{name} 에이전트가 비공개 답을 기다려요. Tommy를 열어 답하세요. 답은 이 채팅에 남지 않아요.",
+  "status.messaging.telegramHandoffWork": "📥 {source}에서 세션을 넘겨받았어요. 에이전트가 이어서 작업합니다.",
+  "status.messaging.telegramHandoffRecord":
+    "📥 {source}에서 세션 기록을 넘겨받았어요. 에이전트는 기록만 하고 작업하지 않습니다.",
   "status.messaging.telegramStopped": "진행 중인 작업을 멈췄어요.",
   "status.messaging.telegramLimit": "엔진 요금제 사용 한도에 도달했어요. {time}에 이어서 작업해요.",
   "status.messaging.telegramLimitLater": "엔진 요금제 사용 한도에 도달했어요. 한도가 풀리면 이어서 작업해요.",

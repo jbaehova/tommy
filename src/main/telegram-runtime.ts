@@ -364,7 +364,68 @@ export function createTelegramRuntime({
   vps.setAttention((chat, text, messageId) => attention.take(chat, text, messageId));
   let stopReplies = () => {};
   let heartbeat: NodeJS.Timeout | null = null;
+  const handoffHeaders = {
+    work: "[Context handoff] This summary comes from a session on the user's Mac. Treat it as the context of that session and continue from its next step. You run on another computer: paths in it are on the Mac, and you cannot read that session.",
+    record:
+      "[Context handoff: record only] This summary comes from a session on the user's Mac. Keep it as a record. Do not start the work or change anything. Answer with one short confirmation, and use it when the user asks about it later.",
+  } as const;
   return {
+    /** The visible agents, for a handoff from another computer. */
+    agents() {
+      return service
+        .listAgents()
+        .filter((agent) => agent.hiddenAt === undefined)
+        .map((agent) => ({
+          id: agent.id,
+          name: agent.name,
+          provider: agent.provider,
+          chat: chatFor(agent.id) !== undefined,
+        }));
+    },
+    /**
+     * A session summary from another computer. It enters the agent's Telegram chat as the owner's
+     * message, so the answer comes back to that chat. An agent without a chat gets it inside Tommy.
+     */
+    handoff: Effect.fn("TelegramRuntime.handoff")(function* (input: {
+      agent: string;
+      mode: "work" | "record";
+      source: string;
+      text: string;
+    }) {
+      const wanted = input.agent.toLowerCase();
+      const agent = service
+        .listAgents()
+        .find(
+          (entry) => entry.hiddenAt === undefined && (entry.id === input.agent || entry.name.toLowerCase() === wanted),
+        );
+      if (!agent) return yield* Effect.fail(new Error(`No agent is called ${input.agent}.`));
+      const redacted = redactText(input.text);
+      const redactions =
+        (redacted.match(/\[redacted/gu) ?? []).length - (input.text.match(/\[redacted/gu) ?? []).length;
+      const source = input.source ? `\nSource: ${input.source}` : "";
+      const message = `${handoffHeaders[input.mode]}${source}\n\n${redacted}`.slice(0, 100_000);
+      const chat = vps.workReady && ready() ? chatFor(agent.id) : undefined;
+      if (chat) {
+        const t = sourceTranslateFor(vps.language);
+        const notice = t(
+          input.mode === "work" ? "status.messaging.telegramHandoffWork" : "status.messaging.telegramHandoffRecord",
+          {
+            source: input.source || "Mac",
+          },
+        );
+        yield* sendTo(chat.id, notice, false).pipe(Effect.ignore);
+        yield* agents.submit(agent.id, chat.id, settings.ownerId, Date.now(), message);
+      } else {
+        yield* service.sendMessage({ agentId: agent.id, text: message });
+      }
+      return {
+        agentId: agent.id,
+        agentName: agent.name,
+        chat: chat !== undefined,
+        characters: message.length,
+        redactions: Math.max(0, redactions),
+      };
+    }),
     handle(request: IncomingMessage, response: ServerResponse) {
       if (!vps.listening && request.url?.startsWith("/tommy/telegram/")) {
         response.writeHead(503, { "cache-control": "no-store" }).end();

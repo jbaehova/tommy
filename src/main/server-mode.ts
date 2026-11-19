@@ -46,9 +46,22 @@ export interface ServerModeOptions {
   /** The memory guard, so that `status` shows the memory ceiling and the turn limit. */
   memory: Pick<ServerMemory, "level" | "sample" | "turnLimit"> | null;
   onError: (message: string, error: unknown) => void;
+  /** The agents that a handoff can reach. */
+  agents?: () => { id: string; name: string; provider: string; chat: boolean }[];
+  /** Gives a session summary from another computer to one agent. */
+  handoff?: (input: { agent: string; mode: "work" | "record"; source: string; text: string }) => Promise<{
+    agentId: string;
+    agentName: string;
+    chat: boolean;
+    characters: number;
+    redactions: number;
+  }>;
   /** Tests only. */
   uid?: number;
 }
+
+/** A handoff summary is long. Other control requests stay small. */
+const MAX_HANDOFF_BYTES = 512 * 1024;
 
 interface Answer {
   status: number;
@@ -119,8 +132,9 @@ export class ServerMode {
   async #handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     let answer: Answer;
     try {
-      const body = await readBody(request);
-      answer = body === null ? failure(413, "too_large") : await this.#route(request.method, request.url);
+      const handoff = request.method === "POST" && request.url?.split("?")[0] === "/v1/handoff";
+      const body = await readBody(request, handoff ? MAX_HANDOFF_BYTES : MAX_BODY_BYTES);
+      answer = body === null ? failure(413, "too_large") : await this.#route(request.method, request.url, body);
     } catch (error) {
       this.#options.onError("A server control request failed.", error);
       // The status lines name no secret.
@@ -131,12 +145,35 @@ export class ServerMode {
       .end(formatLines(answer.lines));
   }
 
-  async #route(method: string | undefined, url: string | undefined): Promise<Answer> {
+  async #route(method: string | undefined, url: string | undefined, body: URLSearchParams): Promise<Answer> {
     const path = url?.split("?")[0] ?? "";
     const route = `${method ?? ""} ${path}`;
     switch (route) {
       case "GET /v1/status":
         return this.#status();
+      case "GET /v1/agents": {
+        const agents = this.#options.agents?.();
+        return agents ? { status: 200, lines: { agents: JSON.stringify(agents) } } : failure(404, "not_found");
+      }
+      case "POST /v1/handoff": {
+        const handoff = this.#options.handoff;
+        if (!handoff) return failure(404, "not_found");
+        const agent = body.get("agent")?.trim() ?? "";
+        const mode = body.get("mode");
+        const text = body.get("text") ?? "";
+        if (!agent || (mode !== "work" && mode !== "record") || !text.trim()) return failure(400, "invalid");
+        const result = await handoff({ agent, mode, source: body.get("source")?.trim().slice(0, 200) ?? "", text });
+        return {
+          status: 200,
+          lines: {
+            agent_id: result.agentId,
+            agent_name: result.agentName,
+            chat: result.chat ? "telegram" : "tommy",
+            characters: result.characters,
+            redactions: result.redactions,
+          },
+        };
+      }
       default:
         return failure(404, "not_found");
     }
@@ -163,8 +200,8 @@ export class ServerMode {
 }
 
 /** The form body, or null when it is larger than a control request can be. */
-async function readBody(request: IncomingMessage): Promise<URLSearchParams | null> {
-  const body = await readBodyWithin(request, MAX_BODY_BYTES);
+async function readBody(request: IncomingMessage, limit: number): Promise<URLSearchParams | null> {
+  const body = await readBodyWithin(request, limit);
   return body === null ? null : new URLSearchParams(body.toString("utf8"));
 }
 

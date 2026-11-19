@@ -125,6 +125,9 @@ export const messages = defineMessages("status.messaging", {
   "status.messaging.telegramCommandDelete": "Delete this agent",
   "status.messaging.telegramPrivateInput":
     "{name} needs a private answer. Open Tommy to answer it. The answer does not go into this chat.",
+  "status.messaging.telegramHandoffWork": "📥 Received a session from {source}. The agent continues the work.",
+  "status.messaging.telegramHandoffRecord":
+    "📥 Received a session record from {source}. The agent keeps it and does not act.",
   "status.messaging.telegramStopped": "Stopped the current task.",
   "status.messaging.telegramLimit": "The engine plan reached its usage limit. Work continues at {time}.",
   "status.messaging.telegramLimitLater": "The engine plan reached its usage limit. Work continues when it resets.",

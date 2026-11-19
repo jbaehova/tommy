@@ -16,6 +16,10 @@ usage() {
   cat <<'EOF'
 Usage: tommy <command>
   status               Show the state of the server.
+  agents [--json]      List the agents that a handoff can reach.
+  handoff --agent <id or name> --mode <work|record> [--source <text>] < summary
+                       Give a session summary from another computer to one agent. Its Telegram
+                       chat shows the handoff and the answer.
   logs                 Follow the log of the service.
   restart              Restart the service (sudo).
 EOF
@@ -47,6 +51,39 @@ check_answer() {
 case ${1:-} in
   status)
     control GET http://tommy/v1/status
+    check_answer
+    sed '/^status=/d' <<<"$response"
+    ;;
+  agents)
+    control GET http://tommy/v1/agents
+    check_answer
+    agents=$(value agents)
+    if [ "${2:-}" = --json ]; then
+      printf '%s\n' "$agents"
+    else
+      python3 -c 'import json,sys
+for a in json.loads(sys.argv[1]): print(a["id"], a["name"], a["provider"], "telegram" if a["chat"] else "-", sep="\t")' "$agents"
+    fi
+    ;;
+  handoff)
+    shift
+    agent="" mode="" source=""
+    while [ $# -gt 0 ]; do
+      case $1 in
+        --agent) agent=${2:-}; shift 2 ;;
+        --mode) mode=${2:-}; shift 2 ;;
+        --source) source=${2:-}; shift 2 ;;
+        *) fail "Unknown option: $1" ;;
+      esac
+    done
+    [ -n "$agent" ] && { [ "$mode" = work ] || [ "$mode" = record ]; } ||
+      fail "Usage: tommy handoff --agent <id or name> --mode <work|record> [--source <text>] < summary"
+    summary=$(mktemp)
+    trap 'rm -f "$summary"' EXIT
+    cat >"$summary"
+    [ -s "$summary" ] || fail "The summary on standard input is empty."
+    control POST http://tommy/v1/handoff --data-urlencode "agent=$agent" --data-urlencode "mode=$mode" \
+      --data-urlencode "source=$source" --data-urlencode "text@$summary"
     check_answer
     sed '/^status=/d' <<<"$response"
     ;;
