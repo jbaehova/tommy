@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { sourceText } from "@tommy/i18n/source";
 import { createTommyLogger, redactText } from "@tommy/logging";
 import { Effect, Result, Schema, Semaphore } from "effect";
 import { isMissingFileError } from "../backend/file-errors";
@@ -30,6 +29,8 @@ const entrySchema = Schema.Struct({
   ref: refSchema,
   generation: Schema.String.check(Schema.isUUID(4)),
   offset: nonnegative,
+  /** The next file to send after the text. Absent on an entry from before files were sent. */
+  file: Schema.optionalKey(nonnegative),
   attempts: nonnegative,
   next: Schema.NullOr(nonnegative),
 });
@@ -60,7 +61,7 @@ interface Options {
   ownerId: number;
   directory: Pick<TelegramDirectory, "get">;
   agents: Pick<TelegramAgentHost, "readReply" | "ownsTurn">;
-  api: Pick<TelegramApi, "getManagedBotToken" | "sendMessage" | "sendPhoto">;
+  api: Pick<TelegramApi, "getManagedBotToken" | "sendMessage" | "sendFile">;
   ready(): boolean;
 }
 
@@ -275,8 +276,9 @@ export class TelegramDelivery {
             yield* api.sendMessage(token, ref.ownerId, chunk.text);
           else if (Result.isFailure(rich)) return yield* Effect.fail(rich.failure);
         }
-      } else if (reply.image) {
-        yield* api.sendPhoto(token, ref.ownerId, reply.image, sourceText("status.messaging.telegramImage"));
+      } else {
+        const file = reply.files[entry.file ?? 0];
+        if (file) yield* api.sendFile(token, ref.ownerId, file);
       }
       return true;
     });
@@ -292,7 +294,12 @@ export class TelegramDelivery {
     }
     if (!sent.success && this.#closed) return;
     if (!sent.success) return yield* this.#update(entry, null, false);
-    const done = !hasText || (chunk.end === body.length && !reply.image);
-    yield* this.#update(entry, done ? null : { ...entry, offset: chunk.end, attempts: 0, next: 0 }, done);
+    const nextFile = hasText ? 0 : (entry.file ?? 0) + 1;
+    const done = hasText ? chunk.end === body.length && reply.files.length === 0 : nextFile >= reply.files.length;
+    yield* this.#update(
+      entry,
+      done ? null : { ...entry, offset: hasText ? chunk.end : entry.offset, file: nextFile, attempts: 0, next: 0 },
+      done,
+    );
   });
 }

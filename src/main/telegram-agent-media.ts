@@ -46,3 +46,38 @@ export const readTelegramImage = Effect.fn("TelegramAgentHost.readImage")(functi
     }
   });
 });
+
+const MAX_FILE_BYTES = 49 * 1024 * 1024;
+
+export interface TelegramFile {
+  name: string;
+  mimeType: string;
+  bytes: Buffer;
+}
+
+/** A file that the agent attached to its answer, read as the host stored it. Null when it is gone or too large. */
+export const readTelegramFile = Effect.fn("TelegramAgentHost.readFile")(function* (
+  mailbox: Pick<MailboxStore, "resolveAttachment">,
+  attachment: AttachmentSummary,
+) {
+  if (attachment.size > MAX_FILE_BYTES) return null;
+  const file = yield* mailbox.resolveAttachment(attachment.id);
+  if (!file) return null;
+  return yield* remoteCall(async (): Promise<TelegramFile | null> => {
+    const handle = await open(file.path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try {
+      const stat = await handle.stat();
+      if (!stat.isFile() || stat.size > MAX_FILE_BYTES) return null;
+      const bytes = Buffer.alloc(stat.size);
+      let offset = 0;
+      while (offset < bytes.length) {
+        const { bytesRead } = await handle.read(bytes, offset, bytes.length - offset, offset);
+        if (bytesRead === 0) return null;
+        offset += bytesRead;
+      }
+      return { name: attachment.name || file.name, mimeType: file.mimeType, bytes };
+    } finally {
+      await handle.close();
+    }
+  });
+});

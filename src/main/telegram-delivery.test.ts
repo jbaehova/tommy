@@ -41,7 +41,7 @@ async function fixture() {
     ownerId,
     status: "completed",
     text: "private output",
-    image: Buffer.from("private image"),
+    files: [{ name: "report.pdf", mimeType: "application/pdf", bytes: Buffer.from("private image") }],
   };
   const binding: TelegramConnection = {
     id: telegramId,
@@ -77,10 +77,10 @@ async function fixture() {
           sent.push(text);
           first.notify();
         }),
-      sendPhoto: (_token: string, chat: number, image: Buffer) =>
+      sendFile: (_token: string, chat: number, file: { bytes: Uint8Array }) =>
         Effect.sync(() => {
           expect(chat).toBe(ownerId);
-          expect(image).toEqual(reply.image);
+          expect(file).toEqual(reply.files[0]);
           photo.notify();
         }),
     },
@@ -191,7 +191,7 @@ describe("Telegram reply delivery boundary", () => {
   it("answers in the root agent's manager chat with the manager credential only", async () => {
     const f = await fixture();
     const managerId = f.config.managerId;
-    const reply = { ...f.reply, telegramId: managerId, image: null };
+    const reply = { ...f.reply, telegramId: managerId, files: [] };
     const tokens: string[] = [];
     const sender = f.create({
       directory: { get: (id) => (id === managerId ? { ...f.binding, id: managerId } : undefined) },

@@ -318,11 +318,21 @@ export class TelegramVps {
     this: TelegramVps,
     recipient: number,
     updateId: number,
-    message: Message,
+    received: Message,
   ) {
     const { settings, directory, agents, ready } = this.#options;
-    this.#language = message.from.language_code?.toLowerCase().startsWith("ko") ? "ko" : "en";
+    this.#language = received.from.language_code?.toLowerCase().startsWith("ko") ? "ko" : "en";
     const t = sourceTranslateFor(this.#language);
+    if (received.unsupported) {
+      if (recipient === settings.managerId || directory.get(recipient)?.ownerConfirmed)
+        yield* this.#say(recipient, t("status.messaging.telegramUnsupported"));
+      return;
+    }
+    // An edit reaches the agent as a new message that says it replaces the earlier one.
+    if (received.edited && received.text.trim().startsWith("/")) return;
+    const message = received.edited
+      ? { ...received, text: `${t("status.messaging.telegramEditedPrefix")}\n${received.text}` }
+      : received;
     const words = message.text.trim().split(/\s+/);
     const command = words[0]?.toLowerCase();
     const child = directory.get(recipient);

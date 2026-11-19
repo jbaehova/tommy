@@ -13,7 +13,7 @@ import { type MailboxStore, TELEGRAM_EXCHANGE_DEPTH_LIMIT } from "../backend/mai
 import type { SidebarLayoutStore } from "../backend/sidebar-layout-store";
 import type { TommyDatabase } from "../backend/tommy-database";
 import { RemoteWorkflowError } from "./remote-service-effects";
-import { readTelegramImage } from "./telegram-agent-media";
+import { readTelegramFile, readTelegramImage, type TelegramFile } from "./telegram-agent-media";
 import { maskEmails } from "./telegram-format";
 
 const logger = createTommyLogger("telegram-agent-host");
@@ -29,7 +29,8 @@ export interface TelegramReplyRef {
 
 export interface TelegramAgentReply extends TelegramReplyRef {
   text: string;
-  image: Buffer | null;
+  /** The generated image and the files the agent attached, in order. */
+  files: TelegramFile[];
 }
 
 function senderId(telegramId: number, ownerId: number): string {
@@ -258,7 +259,7 @@ export class TelegramAgentHost {
             ? "status.messaging.telegramTaskFailed"
             : "status.messaging.telegramTaskCancelled",
         ),
-        image: null,
+        files: [],
       };
     const rows = this.database.readTurnAssistantMessages(agentId, threadId, turnId);
     const answer = latestTurnAnswer(rows, turnId);
@@ -276,6 +277,16 @@ export class TelegramAgentHost {
     const image = attachment
       ? yield* readTelegramImage(this.mailbox, agentId, threadId, attachment).pipe(Effect.orElseSucceed(() => null))
       : null;
-    return text || image ? { ...address, text, image } : null;
+    const files: TelegramFile[] = image ? [{ name: "image.png", mimeType: "image/png", bytes: image }] : [];
+    // Files that attach_files_to_response staged in this turn.
+    const attached = rows
+      .filter((row) => row.itemType === "agent_attachment" && row.status === "completed")
+      .flatMap((row) => row.attachments ?? [])
+      .slice(0, 10);
+    for (const item of attached) {
+      const file = yield* readTelegramFile(this.mailbox, item).pipe(Effect.orElseSucceed(() => null));
+      if (file) files.push(file);
+    }
+    return text || files.length ? { ...address, text, files } : null;
   }).bind(this);
 }

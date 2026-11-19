@@ -51,6 +51,9 @@ export const messages = {
   "status.messaging.telegramCommandDisconnect": "에이전트 채팅 연결 해제",
   "status.messaging.telegramCommandEngine": "codex 또는 claude로 엔진 바꾸기",
   "status.messaging.telegramCommandName": "이 에이전트 이름 바꾸기",
+  "status.messaging.telegramUnsupported":
+    "이런 메시지는 에이전트에게 전달할 수 없어요. 글자, 사진, 파일, 음성, 동영상을 보내 주세요.",
+  "status.messaging.telegramEditedPrefix": "(수정한 메시지예요. 앞서 보낸 메시지를 대신합니다.)",
   "status.messaging.telegramStopped": "진행 중인 작업을 멈췄어요.",
   "status.messaging.telegramLimit": "엔진 요금제 사용 한도에 도달했어요. {time}에 이어서 작업해요.",
   "status.messaging.telegramLimitLater": "엔진 요금제 사용 한도에 도달했어요. 한도가 풀리면 이어서 작업해요.",

@@ -61,6 +61,9 @@ export const messages = defineMessages("status.messaging", {
   "status.messaging.telegramCommandDisconnect": "Unlink an agent chat",
   "status.messaging.telegramCommandEngine": "Switch to codex or claude",
   "status.messaging.telegramCommandName": "Rename this agent",
+  "status.messaging.telegramUnsupported":
+    "Tommy cannot pass this kind of message on. Send text, a photo, a file, a voice message or a video.",
+  "status.messaging.telegramEditedPrefix": "(Edited. This replaces my earlier message.)",
   "status.messaging.telegramStopped": "Stopped the current task.",
   "status.messaging.telegramLimit": "The engine plan reached its usage limit. Work continues at {time}.",
   "status.messaging.telegramLimitLater": "The engine plan reached its usage limit. Work continues when it resets.",

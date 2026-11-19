@@ -22,6 +22,12 @@ const managedUpdate = Schema.Struct({
   bot: telegramAccount,
 });
 const fileId = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,256}$/));
+const media = Schema.Struct({
+  file_id: fileId,
+  file_name: Schema.optionalKey(Schema.String.check(Schema.isBetweenLength(1, 255))),
+  mime_type: Schema.optionalKey(Schema.String.check(Schema.isBetweenLength(1, 255))),
+  file_size: Schema.optionalKey(Schema.Int),
+});
 const incomingMessage = Schema.Struct({
   message_id: Schema.Int.check(Schema.isGreaterThan(0)),
   chat: Schema.Struct({
@@ -47,19 +53,23 @@ const incomingMessage = Schema.Struct({
       }),
     ),
   ),
-  document: Schema.optionalKey(
-    Schema.Struct({
-      file_id: fileId,
-      file_name: Schema.optionalKey(Schema.String.check(Schema.isBetweenLength(1, 255))),
-      mime_type: Schema.optionalKey(Schema.String.check(Schema.isBetweenLength(1, 255))),
-      file_size: Schema.optionalKey(Schema.Int),
-    }),
-  ),
+  document: Schema.optionalKey(media),
+  audio: Schema.optionalKey(media),
+  voice: Schema.optionalKey(media),
+  video: Schema.optionalKey(media),
+  video_note: Schema.optionalKey(media),
+  animation: Schema.optionalKey(media),
 });
 const updateId = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 const update = Schema.Union([
   Schema.Struct({ update_id: updateId, managed_bot: managedUpdate, message: Schema.optionalKey(Schema.Never) }),
   Schema.Struct({ update_id: updateId, message: incomingMessage, managed_bot: Schema.optionalKey(Schema.Never) }),
+  Schema.Struct({
+    update_id: updateId,
+    edited_message: incomingMessage,
+    message: Schema.optionalKey(Schema.Never),
+    managed_bot: Schema.optionalKey(Schema.Never),
+  }),
 ]);
 type DecodedMessage = typeof incomingMessage.Type;
 /** A file the owner sent. The bot that received it downloads it with its own token. */
@@ -69,13 +79,20 @@ export interface TelegramFileRef {
   mimeType: string;
   size: number | null;
 }
-export type TelegramMessage = Omit<DecodedMessage, "text" | "caption" | "photo" | "document"> & {
+export type TelegramMessage = Omit<
+  DecodedMessage,
+  "text" | "caption" | "photo" | "document" | "audio" | "voice" | "video" | "video_note" | "animation"
+> & {
   /** The text, or the caption of a photo or file. Empty when a file came without one. */
   text: string;
   files: TelegramFileRef[];
+  /** The owner changed a message that Tommy already received. */
+  edited: boolean;
+  /** A sticker, location, poll or other content that Tommy cannot pass on. */
+  unsupported: boolean;
 };
 export type TelegramUpdate =
-  | Extract<typeof update.Type, { managed_bot: unknown }>
+  | { update_id: number; managed_bot: typeof managedUpdate.Type; message?: never }
   | { update_id: number; message: TelegramMessage; managed_bot?: never };
 export type TelegramAccount = typeof telegramAccount.Type;
 
@@ -84,23 +101,41 @@ export function decodeTelegramUpdate(body: unknown): TelegramUpdate | null {
   const decoded = Option.getOrNull(decodeUpdate(body));
   if (!decoded) return null;
   if (decoded.managed_bot) return { update_id: decoded.update_id, managed_bot: decoded.managed_bot };
-  if (!decoded.message) return null;
-  const { text, caption, photo, document, ...rest } = decoded.message;
+  const decodedMessage = "edited_message" in decoded ? decoded.edited_message : decoded.message;
+  if (!decodedMessage) return null;
+  const { text, caption, photo, document, audio, voice, video, video_note, animation, ...rest } = decodedMessage;
   const files: TelegramFileRef[] = [];
   // Telegram sends each photo in several sizes. The last is the largest.
   const largest = photo?.at(-1);
   if (largest)
     files.push({ fileId: largest.file_id, name: "photo.jpg", mimeType: "image/jpeg", size: largest.file_size ?? null });
-  if (document)
-    files.push({
-      fileId: document.file_id,
-      name: document.file_name ?? "file",
-      mimeType: document.mime_type ?? "application/octet-stream",
-      size: document.file_size ?? null,
-    });
+  const kinds = [
+    [document, "file", "application/octet-stream"],
+    [audio, "audio.mp3", "audio/mpeg"],
+    [voice, "voice.ogg", "audio/ogg"],
+    [video, "video.mp4", "video/mp4"],
+    [video_note, "video-note.mp4", "video/mp4"],
+    [animation, "animation.mp4", "video/mp4"],
+  ] as const;
+  for (const [item, name, mimeType] of kinds)
+    if (item)
+      files.push({
+        fileId: item.file_id,
+        name: item.file_name ?? name,
+        mimeType: item.mime_type ?? mimeType,
+        size: item.file_size ?? null,
+      });
   const messageText = text ?? caption ?? "";
-  if (!messageText && files.length === 0) return null;
-  return { update_id: decoded.update_id, message: { ...rest, text: messageText, files } };
+  return {
+    update_id: decoded.update_id,
+    message: {
+      ...rest,
+      text: messageText,
+      files,
+      edited: "edited_message" in decoded,
+      unsupported: !messageText && files.length === 0,
+    },
+  };
 }
 
 type TelegramLinkButton = { text: string; url: string } | { text: string; web_app: { url: string } };
@@ -148,6 +183,7 @@ export class TelegramApi {
       | "getFile"
       | "sendMessage"
       | "sendPhoto"
+      | "sendDocument"
       | "setWebhook",
     payload: () => ConnectorJson | FormData,
     resultSchema: S,
@@ -319,6 +355,32 @@ export class TelegramApi {
     yield* this.#request(token, "sendChatAction", () => ({ chat_id: chat, action: "typing" }), Schema.Literal(true));
   }).bind(this);
 
+  /** A file the agent made. Photos up to 10 MB show inline; anything else is a document. */
+  readonly sendFile = Effect.fn("TelegramApi.sendFile")(function* (
+    this: TelegramApi,
+    token: string,
+    chat: number,
+    file: { name: string; mimeType: string; bytes: Uint8Array },
+  ): Effect.fn.Return<void, TelegramApiFailure> {
+    registerSecretValue(token);
+    if (file.bytes.byteLength > 49 * 1024 * 1024)
+      return yield* Effect.fail(new TelegramApiFailure({ kind: "input", status: 0 }));
+    const photo =
+      (file.mimeType === "image/png" || file.mimeType === "image/jpeg") && file.bytes.byteLength <= 10 * 1024 * 1024;
+    const name = file.name.replace(/[\p{Cc}/\\]/gu, "_").slice(0, 200) || "file";
+    yield* this.#request(
+      token,
+      photo ? "sendPhoto" : "sendDocument",
+      () => {
+        const form = new FormData();
+        form.set("chat_id", String(chat));
+        form.set(photo ? "photo" : "document", new Blob([Uint8Array.from(file.bytes)], { type: file.mimeType }), name);
+        return form;
+      },
+      posted,
+    );
+  }).bind(this);
+
   readonly sendPhoto = Effect.fn("TelegramApi.sendPhoto")(function* (
     this: TelegramApi,
     token: string,
@@ -366,7 +428,7 @@ export class TelegramApi {
       () => ({
         url,
         secret_token: secret,
-        allowed_updates: ["message", "managed_bot"],
+        allowed_updates: ["message", "edited_message", "managed_bot"],
         max_connections: 1,
       }),
       Schema.Literal(true),

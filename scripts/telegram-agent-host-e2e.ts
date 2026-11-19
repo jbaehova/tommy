@@ -200,7 +200,7 @@ async function fixture(scratch: string) {
     assert.equal(reply.agentId, agent);
     assert.equal(reply.telegramId, telegramId);
     assert.equal(reply.ownerId, ownerId);
-    assert.equal(reply.image, null);
+    assert.deepEqual(reply.files, []);
     assert.ok(current.host.ownsTurn(agent, reply.turnId, telegramId, ownerId));
     assert.ok(!current.host.ownsTurn(agent, reply.turnId, telegramId, ownerId + 1));
     await runCauseEffect(current.host.submit(agent, telegramId, ownerId, 71, request));
