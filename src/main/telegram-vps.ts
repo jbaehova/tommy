@@ -11,6 +11,7 @@ import {
   type TelegramReplyMarkup,
   type TelegramUpdate,
 } from "./telegram-api";
+import { TELEGRAM_COMMAND_MENU, type TelegramCommands } from "./telegram-commands";
 import { chatReady, type TelegramConnection, type TelegramDirectory } from "./telegram-directory";
 import { TelegramDisconnect } from "./telegram-disconnect";
 import type { TelegramProfile } from "./telegram-profile";
@@ -27,6 +28,10 @@ interface Options {
   retryChat?: (id: number) => Effect.Effect<void, Error>;
   /** Stops the agent's running turn. False when nothing runs. */
   stop?: (agentId: string) => Effect.Effect<boolean, Error>;
+  /** Agent settings and information commands, for the agent that answers in a chat. */
+  commands?: Pick<TelegramCommands, "handle">;
+  /** The owner's time zone for times in chat. */
+  timeZone?: () => string;
   /** The agent's profile, so each bot shows who answers in it. */
   agentProfile?: (agentId: string) => { name: string; title: string; description: string } | null;
 }
@@ -111,6 +116,9 @@ export class TelegramVps {
     const names = manager
       ? (["connect", "new", "agents", "stop", "browser", "root", "disconnect"] as const)
       : (["stop", "browser", "engine", "name"] as const);
+    const shared = this.#options.commands
+      ? TELEGRAM_COMMAND_MENU.filter(([command]) => !(manager && command === "delete"))
+      : [];
     for (const language of ["", "ko"] as const) {
       const t = sourceTranslateFor(language === "ko" ? "ko" : "en");
       const descriptions = {
@@ -126,7 +134,10 @@ export class TelegramVps {
       };
       yield* this.#options.api.setMyCommands(
         token,
-        names.map((command) => ({ command, description: descriptions[command] })),
+        [
+          ...names.map((command) => ({ command, description: descriptions[command] })),
+          ...shared.map(([command, key]) => ({ command, description: t(key) })),
+        ],
         language,
       );
     }
@@ -351,7 +362,18 @@ export class TelegramVps {
     const command = words[0]?.toLowerCase();
     const child = directory.get(recipient);
     if (recipient === settings.managerId) {
-      if (!message.text.trim().startsWith("/")) {
+      const rootAgentId = directory.managerAgent()?.agentId;
+      const rootReply =
+        message.text.trim().startsWith("/") && rootAgentId && this.#options.commands
+          ? yield* this.#options.commands.handle(rootAgentId, message.text, t, {
+              timeZone: this.#options.timeZone?.() ?? "UTC",
+              language: this.#language,
+              isRoot: true,
+            })
+          : null;
+      if (rootReply) {
+        yield* this.#options.api.sendMessage(settings.token, settings.ownerId, rootReply.html, rootReply.markup, true);
+      } else if (!message.text.trim().startsWith("/")) {
         if (this.#attention?.(settings.managerId, message.text, message.message_id)) return;
         yield* this.#toRoot(updateId, message, t);
       } else if (command === "/root") {
@@ -435,6 +457,17 @@ export class TelegramVps {
     const profileReply = this.#options.profile ? yield* this.#options.profile.handle(child, message.text, t) : null;
     if (profileReply !== null) {
       yield* this.sendFromAgent(child.id, settings.ownerId, profileReply);
+      return;
+    }
+    const commandReply = this.#options.commands
+      ? yield* this.#options.commands.handle(child.agentId, message.text, t, {
+          timeZone: this.#options.timeZone?.() ?? "UTC",
+          language: this.#language,
+          isRoot: false,
+        })
+      : null;
+    if (commandReply) {
+      yield* this.sendFromAgent(child.id, settings.ownerId, commandReply.html, commandReply.markup, true);
       return;
     }
     const files = yield* this.#download(child.id, message, t);

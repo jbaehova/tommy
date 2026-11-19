@@ -12,6 +12,7 @@ import type { TommyDatabase } from "../backend/tommy-database";
 import { TelegramAgentHost } from "./telegram-agent-host";
 import { TelegramApi, TelegramApiFailure } from "./telegram-api";
 import { TelegramAttention } from "./telegram-attention";
+import { TelegramCommands } from "./telegram-commands";
 import { TelegramDelivery } from "./telegram-delivery";
 import { chatReady, type TelegramConnection, TelegramDirectory } from "./telegram-directory";
 import { TelegramExchange } from "./telegram-exchange";
@@ -91,6 +92,8 @@ export function createTelegramRuntime({
     ready,
     profile,
     retryChat: (id) => delivery.retryChat(id),
+    commands: new TelegramCommands({ service, dataRoot }),
+    timeZone: () => ownerTimeZone(),
     agentProfile: (agentId) => {
       const agent = service.listAgents().find((entry) => entry.id === agentId);
       return agent ? { name: agent.name, title: agent.title, description: agent.description } : null;
@@ -278,6 +281,17 @@ export function createTelegramRuntime({
   };
   const tokenFor = (id: number) => (id === settings.managerId ? Effect.succeed(settings.token) : botToken(id));
   const attention = new TelegramAttention({
+    appButton: (chat) => ({
+      inline_keyboard: [
+        [
+          {
+            text: sourceTranslateFor(vps.language)("status.messaging.telegramOpenApp"),
+            web_app: { url: `${settings.publicOrigin}/tommy/telegram/app?bot=${chat}` },
+          },
+        ],
+      ],
+    }),
+    isPrivate: (requestId) => service.privatePrompts().some((prompt) => prompt.requestId === requestId),
     chatFor: (agentId, turnId) => requestChat(agentId, turnId)?.id ?? null,
     agentName: (agentId) => service.listAgents().find((agent) => agent.id === agentId)?.name ?? agentId,
     send: (chat, html, markup) =>
