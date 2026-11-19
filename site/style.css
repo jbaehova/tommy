@@ -543,8 +543,8 @@ h3 {
 :root {
   --tg-accent: #4c91c7;
   --tg-icon: #2481cc;
-  --tg-glass: rgb(255 255 255 / 0.78);
-  --tg-edge: 0 0 0 1px rgb(0 0 0 / 0.06), 0 2px 10px rgb(0 0 0 / 0.07);
+  --tg-glass: rgb(255 255 255 / 0.82);
+  --tg-edge: 0 0 0 0.5px rgb(0 0 0 / 0.08), 0 2px 8px rgb(0 0 0 / 0.07);
 }
 
 .window {
@@ -552,10 +552,10 @@ h3 {
   display: grid;
   grid-template-columns: 290px minmax(0, 1fr);
   overflow: hidden;
-  border-radius: 24px;
+  border-radius: 26px;
   background: #fff;
   box-shadow:
-    0 0 0 1px rgb(0 0 0 / 0.1),
+    0 0 0 0.5px rgb(0 0 0 / 0.16),
     0 44px 90px -34px rgb(20 30 50 / 0.34),
     0 12px 28px -14px rgb(20 30 50 / 0.16);
   color: #000;
@@ -580,21 +580,32 @@ h3 {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  margin: 6px 0 6px 6px;
+  margin: 8px 0 8px 8px;
   overflow: hidden;
   border-radius: 19px;
   background: #fff;
   box-shadow:
-    0 0 0 1px rgb(0 0 0 / 0.07),
-    0 2px 14px rgb(0 0 0 / 0.07);
+    0 0 0 0.5px rgb(0 0 0 / 0.1),
+    0 1px 10px rgb(0 0 0 / 0.07);
+}
+
+.sidebar::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 84px;
+  background: linear-gradient(rgb(255 255 255 / 0), #fff 62%);
+  content: "";
+  pointer-events: none;
 }
 
 .side-top {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  height: 46px;
-  padding: 2px 14px 0 12px;
+  height: 44px;
+  padding: 2px 13px 0 14px;
 }
 
 .side-top strong {
@@ -633,10 +644,10 @@ h3 {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  height: 34px;
-  margin: 2px 9px 10px;
-  border-radius: 17px;
-  box-shadow: inset 0 0 0 1px #e7e7e9;
+  height: 32px;
+  margin: 2px 10px 10px;
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1px #e9e9eb;
   color: #8a8a8e;
 }
 
@@ -648,9 +659,9 @@ h3 {
 .chats {
   flex: 1;
   margin: 0;
-  padding: 5px 3px 0;
+  padding: 4px;
   overflow: hidden;
-  border-top: 1px solid #eaeaea;
+  border-top: 1px solid #ececec;
   list-style: none;
 }
 
@@ -658,19 +669,22 @@ h3 {
   display: block;
   border-radius: 50%;
   background: var(--tint);
-  /* The logo is white, so it needs an edge on a white surface. */
-  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.07);
   object-fit: cover;
+}
+
+/* The logo is white, so it needs an edge on a white surface. */
+.avatar[src$="tommy.png"] {
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.18);
 }
 
 .chat-row {
   position: relative;
   display: grid;
   grid-template-columns: 46px minmax(0, 1fr) auto;
-  gap: 1px 11px;
+  gap: 2px 11px;
   align-items: center;
   width: 100%;
-  padding: 8px 9px;
+  padding: 8px 10px 8px 8px;
   border: 0;
   border-radius: 14px;
   background: none;
@@ -684,10 +698,10 @@ h3 {
 .chats li + li .chat-row::before {
   position: absolute;
   top: 0;
-  right: 0;
-  left: 66px;
+  right: -4px;
+  left: 65px;
   height: 1px;
-  background: #eaeaea;
+  background: #ececec;
   content: "";
 }
 
@@ -697,7 +711,7 @@ h3 {
 }
 
 .chat-row:hover {
-  background: #f4f4f5;
+  background: #f5f5f6;
 }
 
 .chat-row:focus-visible {
@@ -734,15 +748,15 @@ h3 {
 
 .chat-row .badge {
   justify-self: end;
-  min-width: 19px;
-  height: 19px;
+  min-width: 20px;
+  height: 20px;
   padding: 0 6px;
   border-radius: 10px;
   background: var(--tg-accent);
   color: #fff;
   font-size: 12px;
   font-weight: 500;
-  line-height: 19px;
+  line-height: 20px;
   text-align: center;
 }
 
@@ -759,16 +773,17 @@ h3 {
 .tabbar {
   position: absolute;
   right: 0;
-  bottom: 12px;
+  bottom: 10px;
   left: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  width: 222px;
-  height: 44px;
+  width: 244px;
+  height: 46px;
   margin: 0 auto;
-  padding: 0 14px;
-  border-radius: 22px;
+  padding: 0 20px;
+  border-radius: 23px;
   background: var(--tg-glass);
   box-shadow: var(--tg-edge);
   -webkit-backdrop-filter: blur(14px) saturate(1.6);
@@ -776,19 +791,24 @@ h3 {
 }
 
 .tabbar .icon {
-  width: 23px;
-  height: 23px;
+  width: 24px;
+  height: 24px;
 }
 
 .tabbar .on {
   display: grid;
   place-items: center;
-  width: 54px;
-  height: 36px;
-  margin: 0 -8px;
-  border-radius: 18px;
-  background: #eaeaeb;
+  width: 60px;
+  height: 38px;
+  margin: 0 -18px;
+  border-radius: 19px;
+  background: #ececed;
   color: var(--tg-icon);
+}
+
+.on .icon {
+  width: 27px;
+  height: 27px;
 }
 
 .chat {
@@ -799,9 +819,9 @@ h3 {
 
 .chat-head {
   position: absolute;
-  top: 10px;
-  right: 12px;
-  left: 10px;
+  top: 8px;
+  right: 10px;
+  left: 8px;
   z-index: 2;
   display: flex;
   align-items: center;
@@ -812,8 +832,8 @@ h3 {
 .capsule {
   display: flex;
   align-items: center;
-  height: 46px;
-  border-radius: 23px;
+  height: 44px;
+  border-radius: 22px;
   background: var(--tg-glass);
   box-shadow: var(--tg-edge);
   -webkit-backdrop-filter: blur(14px) saturate(1.6);
@@ -822,13 +842,13 @@ h3 {
 
 .capsule.who {
   gap: 9px;
-  min-width: 190px;
-  padding: 0 22px 0 6px;
+  min-width: 200px;
+  padding: 0 22px 0 5px;
 }
 
 .capsule.tools {
   gap: 16px;
-  padding: 0 15px;
+  padding: 0 14px;
 }
 
 .head-text {
@@ -854,8 +874,8 @@ h3 {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  gap: 5px;
-  padding: 66px 14px 68px 12px;
+  gap: 4px;
+  padding: 62px 18px 70px 16px;
   overflow: hidden;
 }
 
@@ -877,9 +897,10 @@ h3 {
 }
 
 .bubble {
+  position: relative;
   max-width: min(440px, 82%);
   margin: 0;
-  padding: 7px 12px 8px;
+  padding: 6px 12px 7px;
   border-radius: 17px;
   white-space: pre-line;
   animation: rise 0.35s ease-out both;
@@ -894,8 +915,34 @@ h3 {
 .bubble.out {
   align-self: flex-end;
   border-bottom-right-radius: 6px;
-  background: var(--tg-accent, #4c91c7);
+  background: var(--tg-accent);
   color: #fff;
+}
+
+.bubble::after {
+  position: absolute;
+  bottom: 0;
+  left: -6px;
+  display: none;
+  width: 10px;
+  height: 16px;
+  background: inherit;
+  content: "";
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 16'%3E%3Cpath d='M6 0c0 6.500-1.600 11.300-4.300 14.100C1 14.800 1.300 16 2.300 16H10V0z'/%3E%3C/svg%3E")
+    no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 16'%3E%3Cpath d='M6 0c0 6.500-1.600 11.300-4.300 14.100C1 14.800 1.300 16 2.300 16H10V0z'/%3E%3C/svg%3E")
+    no-repeat;
+}
+
+.bubble.in:not(:has(+ .bubble.in, + .with-button))::after,
+.bubble.out:not(:has(+ .bubble.out))::after {
+  display: block;
+}
+
+.bubble.out::after {
+  right: -6px;
+  left: auto;
+  transform: scaleX(-1);
 }
 
 .bubble .from {
@@ -1058,13 +1105,13 @@ h3 {
 
 .composer {
   position: absolute;
-  right: 12px;
-  bottom: 10px;
-  left: 10px;
+  right: 10px;
+  bottom: 8px;
+  left: 8px;
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
 }
 
 .round,
@@ -1082,13 +1129,18 @@ h3 {
 }
 
 .commands-button {
-  background: var(--tg-icon);
-  box-shadow: none;
-  color: #fff;
+  color: var(--tg-icon);
 }
 
 .commands-button .icon {
-  stroke-width: 2.2;
+  padding: 5px;
+  box-sizing: content-box;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--tg-icon);
+  color: #fff;
+  stroke-width: 2.4;
 }
 
 .composer .field {
@@ -1120,9 +1172,11 @@ h3 {
   inset: 0;
   z-index: 3;
   display: flex;
+  align-items: center;
   justify-content: center;
-  padding: 10px;
-  background: rgb(0 0 0 / 0.3);
+  padding: 12px;
+  border-radius: inherit;
+  background: rgb(0 0 0 / 0.32);
   animation: fade 0.2s ease-out;
 }
 
@@ -1132,10 +1186,11 @@ h3 {
 
 .sheet-panel {
   width: min(372px, 100%);
+  max-height: 100%;
   overflow: hidden auto;
   border-radius: 18px;
   background: #f2f2f6;
-  box-shadow: 0 24px 60px -14px rgb(0 0 0 / 0.45);
+  box-shadow: 0 24px 60px -14px rgb(0 0 0 / 0.5);
   scrollbar-width: none;
   animation: rise 0.25s ease-out both;
 }
@@ -1680,7 +1735,8 @@ h3 {
   .side-top strong,
   .side-top .icon,
   .search,
-  .tabbar {
+  .tabbar,
+  .sidebar::after {
     display: none;
   }
 

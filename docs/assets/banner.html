@@ -32,7 +32,7 @@ the banner, or at 1200x630 for the link preview, both with a device scale factor
         display: flex;
         flex-direction: column;
         justify-content: center;
-        width: 400px;
+        width: 430px;
       }
 
       .wordmark {
@@ -53,7 +53,8 @@ the banner, or at 1200x630 for the link preview, both with a device scale factor
 
       .text h1 {
         margin-top: 26px;
-        font-size: 58px;
+        font-size: 54px;
+        white-space: nowrap;
       }
 
       .text p {
@@ -65,10 +66,10 @@ the banner, or at 1200x630 for the link preview, both with a device scale factor
       .window {
         position: absolute;
         top: 52px;
-        left: 466px;
-        width: 552px;
+        left: 496px;
+        width: 524px;
         height: 560px;
-        grid-template-columns: 244px minmax(0, 1fr);
+        grid-template-columns: 236px minmax(0, 1fr);
       }
 
       .messages {
@@ -123,15 +124,15 @@ the banner, or at 1200x630 for the link preview, both with a device scale factor
             <span class="chat-row" aria-current="true">
               <img class="avatar" src="../../site/avatars/tommy.png" alt="" />
               <span class="name">Tommy</span>
-              <span class="time">10:21 AM</span>
-              <span class="preview">Your trip is ready.</span>
+              <span class="time">10:21</span>
+              <span class="preview">Trip is ready.</span>
             </span>
           </li>
           <li>
             <span class="chat-row">
               <img class="avatar" src="../../site/avatars/travel.jpg" alt="" />
               <span class="name">Travel Planner</span>
-              <span class="time">10:12 AM</span>
+              <span class="time">10:12</span>
               <span class="preview">Day 1: Asakusa</span>
             </span>
           </li>
@@ -139,7 +140,7 @@ the banner, or at 1200x630 for the link preview, both with a device scale factor
             <span class="chat-row">
               <img class="avatar" src="../../site/avatars/finance.jpg" alt="" />
               <span class="name">Finance</span>
-              <span class="time">10:09 AM</span>
+              <span class="time">10:09</span>
               <span class="preview">Total $1,840</span>
             </span>
           </li>
@@ -147,7 +148,7 @@ the banner, or at 1200x630 for the link preview, both with a device scale factor
             <span class="chat-row">
               <img class="avatar" src="../../site/avatars/engineer.jpg" alt="" />
               <span class="name">Engineer</span>
-              <span class="time">9:47 AM</span>
+              <span class="time">9:47</span>
               <span class="preview">Pull request #42</span>
             </span>
           </li>
@@ -155,7 +156,7 @@ the banner, or at 1200x630 for the link preview, both with a device scale factor
             <span class="chat-row">
               <img class="avatar" src="../../site/avatars/researcher.jpg" alt="" />
               <span class="name">Researcher</span>
-              <span class="time">10:07 AM</span>
+              <span class="time">10:07</span>
               <span class="preview">Late March</span>
             </span>
           </li>
@@ -172,13 +173,13 @@ the banner, or at 1200x630 for the link preview, both with a device scale factor
           </div>
         </header>
         <div class="messages">
-          <p class="bubble out">Plan a 5-day trip to Tokyo for two. Budget $2,000.</p>
+          <p class="bubble out">Plan 5 days in Tokyo for two. Budget $2,000.</p>
           <p class="bubble in">On it. I split the work:
-Travel Planner: a day-by-day plan
+Travel Planner: the plan
 Finance: the budget
 Writer: a one-page guide</p>
           <p class="service">Tommy handed work to 3 agents</p>
-          <p class="bubble in">Your trip is ready. 5 days for $1,840, so $160 stays in the budget.</p>
+          <p class="bubble in">Your trip is ready. 5 days for $1,840.</p>
         </div>
       </section>
     </div>
