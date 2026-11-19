@@ -103,6 +103,8 @@ export function decodeTelegramUpdate(body: unknown): TelegramUpdate | null {
   if (decoded.managed_bot) return { update_id: decoded.update_id, managed_bot: decoded.managed_bot };
   const decodedMessage = "edited_message" in decoded ? decoded.edited_message : decoded.message;
   if (!decodedMessage) return null;
+  // Telegram notes a new managed bot in the chat. The managed_bot update already carries it.
+  if (isDynamicRecord(body) && isDynamicRecord(body.message) && "managed_bot_created" in body.message) return null;
   const { text, caption, photo, document, audio, voice, video, video_note, animation, ...rest } = decodedMessage;
   const files: TelegramFileRef[] = [];
   // Telegram sends each photo in several sizes. The last is the largest.

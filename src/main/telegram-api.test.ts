@@ -29,6 +29,10 @@ describe("Telegram transport trust boundary", () => {
     ).toBeNull();
     expect(decodeTelegramUpdate({ update_id: 34, message: { ...privateMessage, from: undefined } })).toBeNull();
     expect(
+      decodeTelegramUpdate({ update_id: 36, message: { ...privateMessage, text: undefined, managed_bot_created: {} } }),
+    ).toBeNull();
+    expect(decodeTelegramUpdate({ update_id: 37, message: privateMessage })).not.toBeNull();
+    expect(
       decodeTelegramUpdate({ update_id: 35, message: { ...privateMessage, from: { ...human, id: Number.MAX_VALUE } } }),
     ).toBeNull();
   });
