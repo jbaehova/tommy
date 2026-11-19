@@ -313,9 +313,7 @@ export class TelegramVps {
         if (answer !== null) yield* this.#tellOwner(answer);
       } else if (command === "/new") {
         yield* this.#tellOwner(t("status.messaging.telegramCreateHelp"), {
-          keyboard: [[{ text: t("status.messaging.telegramCreate"), request_managed_bot: { request_id: 1 } }]],
-          resize_keyboard: true,
-          one_time_keyboard: true,
+          inline_keyboard: [[{ text: t("status.messaging.telegramCreate"), url: this.#newBotLink() }]],
         });
       } else if (command === "/agents") {
         const names = directory
@@ -496,9 +494,23 @@ export class TelegramVps {
   }).bind(this);
 
   /**
-   * One create button for each agent without a bot. Telegram does not return the button's
-   * request_id, so the new bot's name selects the agent.
+   * A Telegram link that asks the owner to create a bot that this manager controls. A link can sit on a
+   * button in the message, so the chat keeps its normal keyboard. The created bot arrives as managed_bot.
    */
+  #newBotLink(name?: string) {
+    const link = `https://t.me/newbot/${encodeURIComponent(this.#manager)}`;
+    if (!name) return link;
+    const base = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    const username = `${base}_tommy_bot`;
+    // encodeURIComponent writes a space as %20.
+    const query = `?name=${encodeURIComponent(name.slice(0, 64))}`;
+    return /^[a-z][a-z0-9_]{4,31}$/.test(username) ? `${link}/${username}${query}` : `${link}${query}`;
+  }
+
+  /** One create link for each agent without a bot. The new bot's name selects the agent. */
   readonly #connect = Effect.fn("TelegramVps.connect")(function* (this: TelegramVps, t: Translate) {
     if (!this.#options.ready()) return yield* Effect.fail(new Error("Tommy is starting."));
     const choices = this.#unbound().slice(0, 50);
@@ -507,14 +519,9 @@ export class TelegramVps {
       return;
     }
     yield* this.#tellOwner(t("status.messaging.telegramConnectHelp"), {
-      keyboard: pairs(
-        choices.map((agent, index) => ({
-          text: agent.name.slice(0, 120),
-          request_managed_bot: { request_id: index + 2, suggested_name: agent.name.slice(0, 64) },
-        })),
+      inline_keyboard: pairs(
+        choices.map((agent) => ({ text: agent.name.slice(0, 120), url: this.#newBotLink(agent.name) })),
       ),
-      resize_keyboard: true,
-      one_time_keyboard: true,
     });
   }).bind(this);
 
