@@ -512,6 +512,11 @@ When the last copy ends, the waiting answers start in one turn, and the prompt n
 whose copy ended with no answer. A message from the person does not wait: it starts at once and
 takes the answers that are already in. Each end of a copy schedules a drain for the requester.
 
+The busy-message mode says what a message sent while the agent works does. The host default is
+"steer" (`DEFAULT_BUSY_MESSAGE_MODE`), so the message goes into the running turn. A saved host
+default or an agent's own setting can choose "queue". A provider that does not steer natively
+queues the message in both modes.
+
 A message from another agent follows the recipient's busy-message mode, as a message from the
 person does. When the mode is "steer", the provider steers natively and the recipient runs a chat
 turn, `send_message` and the result relay take the message into that turn
