@@ -178,6 +178,7 @@ export class TelegramApi {
       | "getMe"
       | "getWebhookInfo"
       | "getManagedBotToken"
+      | "replaceManagedBotToken"
       | "setMyName"
       | "setMyCommands"
       | "setMyDescription"
@@ -238,6 +239,18 @@ export class TelegramApi {
     id: number,
   ) {
     const token = yield* this.#request(managerToken, "getManagedBotToken", () => ({ user_id: id }), credential);
+    if (!token.startsWith(`${id}:`)) return yield* Effect.fail(new TelegramApiFailure({ kind: "response", status: 0 }));
+    registerSecretValue(token);
+    return token;
+  }).bind(this);
+
+  /** Revokes the current token of a managed bot and returns a new one. Telegram tells the manager in a managed_bot update. */
+  readonly replaceManagedBotToken = Effect.fn("TelegramApi.replaceManagedBotToken")(function* (
+    this: TelegramApi,
+    managerToken: string,
+    id: number,
+  ) {
+    const token = yield* this.#request(managerToken, "replaceManagedBotToken", () => ({ user_id: id }), credential);
     if (!token.startsWith(`${id}:`)) return yield* Effect.fail(new TelegramApiFailure({ kind: "response", status: 0 }));
     registerSecretValue(token);
     return token;

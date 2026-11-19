@@ -1,7 +1,8 @@
 import { createHmac, randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { sourceText, sourceTranslateFor } from "@tommy/i18n/source";
-import { Effect, Result, Schedule, Semaphore } from "effect";
+import { createTommyLogger, type Logger } from "@tommy/logging";
+import { Cause, Effect, Result, Schedule, Semaphore } from "effect";
 import { readBodyWithin } from "./http-body";
 import type { TelegramAgentHost } from "./telegram-agent-host";
 import {
@@ -34,11 +35,21 @@ interface Options {
   timeZone?: () => string;
   /** The agent's profile, so each bot shows who answers in it. */
   agentProfile?: (agentId: string) => { name: string; title: string; description: string } | null;
+  logger?: Pick<Logger, "warn">;
 }
 
 type Message = NonNullable<TelegramUpdate["message"]>;
 type Translate = typeof sourceText;
 const updatePath = "/tommy/telegram/update/";
+const defaultLogger = createTommyLogger("telegram");
+
+/** The category and status of a failure. A message or a response body can contain a token or owner text. */
+const failureFields = (cause: Cause.Cause<unknown>) => {
+  const error = Cause.squash(cause);
+  if (error instanceof TelegramApiFailure) return { failure: error.kind, status: error.status };
+  const tag = typeof error === "object" && error !== null && "_tag" in error ? error._tag : null;
+  return { failure: typeof tag === "string" ? tag : error instanceof Error ? error.name : "unknown", status: 0 };
+};
 const bodyLimit = 128 * 1024;
 
 /** How long a role from /new and a role question stay valid. */
@@ -71,6 +82,8 @@ export class TelegramVps {
   #askingRole: { agentId: string; botId: number; username: string; name: string; expires: number } | null = null;
   /** An agent delete that waits for the owner to send its code. */
   #deleting: { agentId: string; name: string; code: string; expires: number } | null = null;
+  /** Bots whose token this process replaced once. A second rejection does not revoke the new token again. */
+  readonly #replaced = new Set<number>();
   #closed = false;
   #attention: ((chat: number, text: string, messageId: number) => boolean) | null = null;
 
@@ -180,7 +193,12 @@ export class TelegramVps {
     for (const child of directory.list()) {
       // A deleted child can no longer return a token. Its sibling webhooks still need to be installed.
       if (!child.ownerConfirmed) continue;
-      yield* Effect.result(this.#installChild(child.id));
+      const installed = yield* Effect.exit(this.#installChild(child.id));
+      if (installed._tag === "Failure")
+        (this.#options.logger ?? defaultLogger).warn("Telegram agent bot setup failed", {
+          bot: child.id,
+          ...failureFields(installed.cause),
+        });
     }
     this.#manager = manager.username;
     this.#managerCaughtUp = !restoring;
@@ -215,8 +233,17 @@ export class TelegramVps {
   }).bind(this);
 
   readonly #installChild = Effect.fn("TelegramVps.installChild")(function* (this: TelegramVps, id: number) {
-    const token = yield* this.#options.api.getManagedBotToken(this.#options.settings.token, id);
-    yield* this.#webhook(id, token);
+    const { api, settings } = this.#options;
+    const token = yield* api.getManagedBotToken(settings.token, id);
+    yield* this.#webhook(id, token).pipe(
+      // Telegram can return a token that it no longer accepts. A new token repairs the bot.
+      Effect.catch((failure) => {
+        if (!(failure instanceof TelegramApiFailure && failure.status === 401) || this.#replaced.has(id))
+          return Effect.fail(failure);
+        this.#replaced.add(id);
+        return api.replaceManagedBotToken(settings.token, id).pipe(Effect.flatMap((fresh) => this.#webhook(id, fresh)));
+      }),
+    );
   }).bind(this);
 
   readonly sendFromAgent = Effect.fn("TelegramVps.sendFromAgent")(function* (
@@ -765,6 +792,13 @@ export class TelegramVps {
             ),
           );
           status = updated._tag === "Success" ? 200 : 503;
+          if (updated._tag === "Failure")
+            (this.#options.logger ?? defaultLogger).warn("Telegram update failed", {
+              bot: id,
+              update: update.managed_bot ? "managed_bot" : "message",
+              ...(update.managed_bot ? { managedBot: update.managed_bot.bot.id } : {}),
+              ...failureFields(updated.cause),
+            });
         }
       }
     }

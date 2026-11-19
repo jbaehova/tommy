@@ -9,6 +9,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { isDynamicRecord } from "@tommy/contracts/runtime-values";
+import { createTommyLogger } from "@tommy/logging";
 import { Effect, Schema } from "effect";
 import { TelegramApi } from "../src/main/telegram-api";
 import { TelegramDirectory } from "../src/main/telegram-directory";
@@ -26,11 +27,19 @@ const analyst = { id: 41006, is_bot: true, first_name: "Analyst", username: "exa
 const owner = { id: 51001, is_bot: false, first_name: "Owner", language_code: "en" };
 const stranger = { id: 51002, is_bot: false, first_name: "Other" };
 const skipper = { id: 41007, is_bot: true, first_name: "Skipper", username: "example_skipper_bot" };
-const accounts = [manager, planner, builder, helper, writer, analyst, skipper];
+const repaired = { id: 41008, is_bot: true, first_name: "Repaired", username: "example_repaired_bot" };
+const broken = { id: 41009, is_bot: true, first_name: "Broken", username: "example_broken_bot" };
+const accounts = [manager, planner, builder, helper, writer, analyst, skipper, repaired, broken];
 const tokens = new Map(
   accounts.map((account) => [account.id, `${account.id}:${randomBytes(30).toString("base64url")}`]),
 );
 const webhooks = new Map<number, string>();
+/** Tokens that getManagedBotToken still returns but that Telegram rejects with 401. */
+const deadTokens = new Set<string>();
+/** Bots for which replaceManagedBotToken fails. */
+const replaceFails = new Set<number>();
+const replacements: number[] = [];
+const logLines: string[] = [];
 const wire: { from: number; to: number | string; text: string }[] = [];
 const checks: string[] = [];
 let phase = "setup";
@@ -59,6 +68,8 @@ const telegramHttp: WorkflowConnectorFetch = async (url, init) => {
     target.origin === "https://api.telegram.org" && init.method === "POST",
     "Unexpected Telegram API origin or method",
   );
+  if ([...deadTokens].some((token) => target.pathname.startsWith(`/bot${token}/`)))
+    return Response.json({ ok: false, error_code: 401, description: "Unauthorized" });
   const account = accounts.find((candidate) => target.pathname.startsWith(`/bot${tokenFor(candidate.id)}/`));
   assert.ok(account, "Unknown outgoing Telegram identity");
   const method = target.pathname.split("/").at(-1);
@@ -74,6 +85,19 @@ const telegramHttp: WorkflowConnectorFetch = async (url, init) => {
         "Only the manager can request agent tokens",
       );
       return Response.json({ ok: true, result: tokenFor(body.user_id) });
+    case "replaceManagedBotToken": {
+      assert.ok(
+        account.id === manager.id && typeof body.user_id === "number",
+        "Only the manager can replace agent tokens",
+      );
+      replacements.push(body.user_id);
+      if (replaceFails.has(body.user_id))
+        return Response.json({ ok: false, error_code: 400, description: "Bad Request" });
+      deadTokens.add(tokenFor(body.user_id));
+      const fresh = `${body.user_id}:${randomBytes(30).toString("base64url")}`;
+      tokens.set(body.user_id, fresh);
+      return Response.json({ ok: true, result: fresh });
+    }
     case "setWebhook":
       assert.ok(
         body.url === `${publicOrigin}/tommy/telegram/update/${account.id}` &&
@@ -156,6 +180,7 @@ function openHost() {
     directory,
     agents,
     ready: () => ready,
+    logger: createTommyLogger("telegram", (line) => logLines.push(line), "warn"),
   });
   return { directory, service };
 }
@@ -444,6 +469,64 @@ try {
   await post(manager, message(owner, "/delete spare agent"));
   await post(manager, message(owner, `/delete Spare Agent ${lastCode(deleteOffset)}`));
   check("The code deletes the agent without a chat", deletedAgents.length === 1 && deletedAgents[0] === spareId);
+
+  phase = "rejected agent bot token";
+  const issuedTokens = () => [...tokens.values(), ...deadTokens];
+  deadTokens.add(tokenFor(repaired.id));
+  const repairedStatus = await post(manager, managed(repaired));
+  check(
+    "A rejected agent bot token is replaced once and the webhook is installed",
+    repairedStatus === 200 &&
+      replacements.filter((id) => id === repaired.id).length === 1 &&
+      webhooks.has(repaired.id) &&
+      !deadTokens.has(tokenFor(repaired.id)),
+  );
+  const repairedTurns = submissions.length;
+  await post(repaired, message(owner, "Hello after a new token"));
+  check(
+    "The bot with the new token answers the owner",
+    submissions.length === repairedTurns + 1 && submissions.at(-1)?.telegramId === repaired.id,
+  );
+  // Telegram tells the manager about the new token.
+  const tokenChanged = await post(manager, managed(repaired));
+  check(
+    "The update about the new token does not replace the token again",
+    tokenChanged === 200 && replacements.filter((id) => id === repaired.id).length === 1,
+  );
+  deadTokens.add(tokenFor(broken.id));
+  replaceFails.add(broken.id);
+  const logOffset = logLines.length;
+  const brokenStatus = await post(manager, managed(broken));
+  const retriedStatus = await post(manager, managed(broken));
+  const failures = logLines.slice(logOffset);
+  check(
+    "A bot that Telegram cannot repair makes Telegram retry, and the token is replaced only once",
+    brokenStatus === 503 &&
+      retriedStatus === 503 &&
+      !webhooks.has(broken.id) &&
+      replacements.filter((id) => id === broken.id).length === 1,
+  );
+  check(
+    "A failed update logs the bot, the update kind and the failure status",
+    failures.length === 2 &&
+      failures.every(
+        (line) =>
+          line.includes("WARN") &&
+          line.includes("Telegram update failed") &&
+          line.includes(`"bot":${manager.id}`) &&
+          line.includes(`"managedBot":${broken.id}`) &&
+          line.includes("managed_bot") &&
+          line.includes("api"),
+      ) &&
+      Boolean(failures[0]?.includes("400")) &&
+      Boolean(failures[1]?.includes("401")),
+  );
+  check(
+    "The log contains no token",
+    logLines.every((line) =>
+      issuedTokens().every((token) => !line.includes(token) && !line.includes(token.split(":")[1] ?? token)),
+    ),
+  );
   passed = true;
 } finally {
   host.service.close();
