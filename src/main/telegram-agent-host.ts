@@ -1,0 +1,263 @@
+import { INPUT_LIMITS } from "@tommy/contracts/input-limits";
+import {
+  type AgentEvent,
+  type AgentTurnCompletedEvent,
+  type AttachmentDataInput,
+  latestTurnAnswer,
+} from "@tommy/contracts/ipc";
+import { sourceText } from "@tommy/i18n/source";
+import { createTommyLogger, redactText } from "@tommy/logging";
+import { Effect } from "effect";
+import type { AgentService } from "../backend/agent-service";
+import { type MailboxStore, TELEGRAM_EXCHANGE_DEPTH_LIMIT } from "../backend/mailbox-store";
+import type { SidebarLayoutStore } from "../backend/sidebar-layout-store";
+import type { TommyDatabase } from "../backend/tommy-database";
+import { RemoteWorkflowError } from "./remote-service-effects";
+import { readTelegramImage } from "./telegram-agent-media";
+import { maskEmails } from "./telegram-format";
+
+const logger = createTommyLogger("telegram-agent-host");
+
+export interface TelegramReplyRef {
+  telegramId: number;
+  ownerId: number;
+  agentId: string;
+  threadId: string;
+  turnId: string;
+  status: "completed" | "failed" | "cancelled";
+}
+
+export interface TelegramAgentReply extends TelegramReplyRef {
+  text: string;
+  image: Buffer | null;
+}
+
+function senderId(telegramId: number, ownerId: number): string {
+  return `telegram:${telegramId}:${ownerId}`;
+}
+
+/** Connects a verified Telegram identity to a local agent and its completed public answer. */
+export class TelegramAgentHost {
+  constructor(
+    private readonly service: Pick<
+      AgentService,
+      "listAgents" | "saveProfile" | "sendMessage" | "prepareImportedAttachments" | "on" | "off"
+    >,
+    private readonly sidebar: Pick<SidebarLayoutStore, "getSnapshot" | "withProfileAssignment">,
+    private readonly mailbox: Pick<
+      MailboxStore,
+      "telegramExchangeOriginsForTurn" | "resolveAttachment" | "generatedImageDigest"
+    >,
+    private readonly database: Pick<TommyDatabase, "readTurnAssistantMessages">,
+  ) {}
+
+  isAvailable(agentId: string): boolean {
+    return this.service.listAgents().some((agent) => agent.id === agentId && agent.hiddenAt === undefined);
+  }
+
+  /** Visible agents the owner can choose to answer in the manager chat. */
+  choices(): { id: string; name: string }[] {
+    return this.service
+      .listAgents()
+      .filter((agent) => agent.hiddenAt === undefined)
+      .map((agent) => ({ id: agent.id, name: agent.name }));
+  }
+
+  /** The caller persists this UUID before first use. saveProfile replays its SQLite receipt after a restart. */
+  readonly ensureAgent = Effect.fn("TelegramAgentHost.ensureAgent")(function* (
+    this: TelegramAgentHost,
+    operationId: string,
+    name: string,
+    initialMessage: string,
+  ) {
+    const displayName = name.trim().slice(0, INPUT_LIMITS.agentName);
+    const { agent } = yield* this.service.saveProfile(
+      {
+        operationId,
+        draft: {
+          name: displayName,
+          title: "",
+          description: displayName,
+          avatarSeed: operationId,
+          avatarHue: null,
+          sectionId: null,
+        },
+        initialMessage,
+      },
+      this.sidebar,
+    );
+    return agent.id;
+  }).bind(this);
+
+  readonly submit = Effect.fn("TelegramAgentHost.submit")(function* (
+    this: TelegramAgentHost,
+    agentId: string,
+    telegramId: number,
+    ownerId: number,
+    updateId: number,
+    text: string,
+    files: readonly AttachmentDataInput[] = [],
+  ) {
+    // sendMessage can create some missing built-in agents. A revoked Telegram binding must never do so.
+    if (!this.isAvailable(agentId))
+      return yield* new RemoteWorkflowError({ cause: new Error(sourceText("error.agent.gone")) });
+    const drafts = files.length ? yield* this.service.prepareImportedAttachments([], [...files]) : [];
+    yield* this.service.sendMessage(
+      {
+        agentId,
+        text: redactText(text),
+        clientMessageId: `telegram:${telegramId}:${updateId}`,
+        ...(drafts.length ? { attachmentDraftIds: drafts.map((draft) => draft.id) } : {}),
+      },
+      {
+        id: senderId(telegramId, ownerId),
+        name: "Telegram",
+      },
+    );
+  }).bind(this);
+
+  ownsTurn(agentId: string, turnId: string, telegramId: number, ownerId: number): boolean {
+    return this.#turnSender(agentId, turnId) === senderId(telegramId, ownerId);
+  }
+
+  /** Authorizes an owner's pending interaction, including work delegated by their original Telegram agent. */
+  canInspectTurn(
+    agentId: string,
+    turnId: string,
+    telegramId: number,
+    ownerId: number,
+    rootAgentForBot: (rootTelegramId: number) => string | null,
+  ): boolean {
+    if (rootAgentForBot(telegramId) !== agentId || !this.isAvailable(agentId)) return false;
+    const origins = this.mailbox.telegramExchangeOriginsForTurn(agentId, turnId);
+    const first = origins[0];
+    if (!first) return false;
+    const root = first.exchange;
+    if (!root) return this.#turnSender(agentId, turnId) === senderId(telegramId, ownerId);
+    if (root.ownerId !== ownerId) return false;
+    const rootAgentId = rootAgentForBot(root.rootTelegramId);
+    if (!rootAgentId || !this.isAvailable(rootAgentId)) return false;
+    return origins.every(
+      (origin) =>
+        origin.exchange?.rootMessageId === root.rootMessageId &&
+        origin.exchange.rootTelegramId === root.rootTelegramId &&
+        origin.exchange.ownerId === ownerId &&
+        (agentId === rootAgentId ? origin.replyToOwnRequest === true : origin.delegatedByRootAgentId === rootAgentId),
+    );
+  }
+
+  /** A turn that only reads teammates' answers inside Tommy belongs to the turn that asked them. */
+  #turnSender(agentId: string, turnId: string, depth = 0): string | undefined {
+    if (!this.isAvailable(agentId)) return;
+    const origins = this.mailbox.telegramExchangeOriginsForTurn(agentId, turnId);
+    const senders = origins.map((origin) => {
+      if (origin.replyToOwnRequest && origin.exchange)
+        return senderId(origin.exchange.rootTelegramId, origin.exchange.ownerId);
+      if (origin.answerToTurnId && !origin.exchange)
+        return depth < TELEGRAM_EXCHANGE_DEPTH_LIMIT
+          ? this.#turnSender(agentId, origin.answerToTurnId, depth + 1)
+          : undefined;
+      return origin.senderId;
+    });
+    const first = senders[0];
+    return first && senders.every((id) => id === first) ? first : undefined;
+  }
+
+  /**
+   * The Telegram chat whose owner message started this work, following requests between agents
+   * inside Tommy. Only browser requests use it: a reply still goes only to the agent's own chat.
+   */
+  tracedChat(agentId: string, turnId: string, ownerId: number, depth = 0): number | null {
+    if (!this.isAvailable(agentId)) return null;
+    const origins = this.mailbox.telegramExchangeOriginsForTurn(agentId, turnId);
+    const chats = origins.map((origin) => {
+      if (origin.requestFrom && !origin.exchange)
+        return depth < TELEGRAM_EXCHANGE_DEPTH_LIMIT
+          ? this.tracedChat(origin.requestFrom.agentId, origin.requestFrom.turnId, ownerId, depth + 1)
+          : null;
+      const sender = this.#turnSender(agentId, turnId)?.match(/^telegram:([1-9]\d{0,15}):([1-9]\d{0,15})$/u);
+      return sender && Number(sender[2]) === ownerId ? Number(sender[1]) : null;
+    });
+    const first = chats[0] ?? null;
+    return first !== null && chats.every((chat) => chat === first) ? first : null;
+  }
+
+  onReply(receive: (reply: TelegramAgentReply) => void): () => void {
+    const replies = this.replies(receive);
+    this.service.on("event", replies.observe);
+    return () => {
+      replies.stop();
+      this.service.off("event", replies.observe);
+    };
+  }
+
+  /** The same as onReply, for a caller that already listens to agent events. */
+  replies(receive: (reply: TelegramAgentReply) => void) {
+    let active = true;
+    const observe = (event: AgentEvent) => {
+      if (event.type !== "turn-completed" || event.quiet || event.continues || event.origin === "routine") return;
+      void Effect.runPromise(this.#reply(event))
+        .then((reply) => {
+          if (active && reply && this.ownsTurn(event.agentId, event.turnId, reply.telegramId, reply.ownerId))
+            receive(reply);
+        })
+        .catch(() => logger.warn("Could not deliver a Telegram agent reply."));
+    };
+    return {
+      observe,
+      stop: () => {
+        active = false;
+      },
+    };
+  }
+
+  readonly #reply = Effect.fn("TelegramAgentHost.reply")(function* (
+    this: TelegramAgentHost,
+    event: AgentTurnCompletedEvent,
+  ) {
+    const { agentId, threadId, turnId } = event;
+    const identity = this.#turnSender(agentId, turnId)?.match(/^telegram:([1-9]\d{0,15}):([1-9]\d{0,15})$/u);
+    if (!identity) return null;
+    const telegramId = Number(identity[1]);
+    const ownerId = Number(identity[2]);
+    if (!Number.isSafeInteger(telegramId) || !Number.isSafeInteger(ownerId)) return null;
+    const status = event.status === "completed" || event.status === "failed" ? event.status : "cancelled";
+    return yield* this.readReply({ agentId, threadId, turnId, telegramId, ownerId, status });
+  });
+
+  /** A pending delivery stores only these ids. Recheck its source before reading any answer or file. */
+  readonly readReply = Effect.fn("TelegramAgentHost.readReply")(function* (
+    this: TelegramAgentHost,
+    address: TelegramReplyRef,
+  ): Effect.fn.Return<TelegramAgentReply | null> {
+    const { agentId, threadId, turnId } = address;
+    if (!this.ownsTurn(agentId, turnId, address.telegramId, address.ownerId)) return null;
+    if (address.status !== "completed")
+      return {
+        ...address,
+        text: sourceText(
+          address.status === "failed"
+            ? "status.messaging.telegramTaskFailed"
+            : "status.messaging.telegramTaskCancelled",
+        ),
+        image: null,
+      };
+    const rows = this.database.readTurnAssistantMessages(agentId, threadId, turnId);
+    const answer = latestTurnAnswer(rows, turnId);
+    const text = answer?.status === "completed" ? redactText(maskEmails(answer.text.trim())) : "";
+    const generated = rows.findLast(
+      (row) =>
+        row.itemType === "image_generation" &&
+        row.status === "completed" &&
+        row.imageGeneration &&
+        !row.imageGeneration.error,
+    );
+    const attachment = generated?.attachments?.find(
+      (candidate) => candidate.kind === "image" && candidate.mimeType === "image/png",
+    );
+    const image = attachment
+      ? yield* readTelegramImage(this.mailbox, agentId, threadId, attachment).pipe(Effect.orElseSucceed(() => null))
+      : null;
+    return text || image ? { ...address, text, image } : null;
+  }).bind(this);
+}

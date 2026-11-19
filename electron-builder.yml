@@ -3,11 +3,8 @@ productName: Tommy
 copyright: Copyright © 2026 Synthetify Labs spółka z ograniczoną odpowiedzialnością
 asar: true
 artifactName: ${productName}-${version}-${arch}.${ext}
-# The source of app updates, written into app-update.yml.
-publish:
-  provider: github
-  owner: jbaehova
-  repo: tommy
+# Releases are built by CI and attached to a GitHub release; the server has no updater.
+publish: null
 electronFuses:
   resetAdHocDarwinSignature: true
   runAsNode: false
@@ -35,8 +32,6 @@ asarUnpack:
   - out/main/agent-database-host.js
   # The unpacked host resolves Effect without loading any application module from asar.
   - node_modules/effect/**/*
-  # The FFI addon that stops the Dynamic Island panel from activating the app on macOS.
-  - node_modules/@koromix/koffi-*/**/*
 extraResources:
   - from: resources/managed-skills
     to: managed-skills
@@ -49,59 +44,12 @@ extraResources:
   # The Computer Use driver of this target, which `beforePack` stages from native-runtime.lock.json.
   - from: .tommy-build/agent-desktop
     to: agent-desktop
-  - from: build/icon-production.png
-    to: icons/icon-production.png
-  - from: build/icon-dev.png
-    to: icons/icon-dev.png
-  - from: build/icon-preview.png
-    to: icons/icon-preview.png
   - from: node_modules/electron/dist/LICENSE
     to: licenses/Electron-LICENSE
   - from: node_modules/electron/dist/LICENSES.chromium.html
     to: licenses/LICENSES.chromium.html
 directories:
   output: dist
-toolsets:
-  # The static AppImage runtime (AppImage/type2-runtime) has libfuse built in, so the AppImage starts
-  # on Arch Linux, Omarchy and other systems with no libfuse.so.2. It needs only `fusermount3`
-  # from fuse3. The default toolset needs libfuse.so.2. `--appimage-extract` works with both.
-  appimage: "1.0.3"
-mac:
-  category: public.app-category.productivity
-  minimumSystemVersion: "13.0"
-  # A local build is signed ad hoc, the arm64 minimum, and is not notarized. A release build uses
-  # electron-builder.release.yml, which adds the Developer ID, the hardened runtime and notarization.
-  identity: "-"
-  notarize: false
-  hardenedRuntime: false
-  # Only the .icns: build/macos/Assets.car needs Xcode to compile, so the app does not use the old catalog.
-  icon: build/icon-production.icns
-  extraResources:
-    - from: build/icon-production-macos-safe-area.png
-      to: icons/icon-production-macos-safe-area.png
-    - from: build/icon-dev-macos-safe-area.png
-      to: icons/icon-dev-macos-safe-area.png
-    - from: build/icon-preview-macos-safe-area.png
-      to: icons/icon-preview-macos-safe-area.png
-    # The menu bar icon. macOS draws a `Template` image in the color of the menu bar.
-    - from: build/macos/tray
-      to: icons/tray
-      filter:
-        - "*.png"
-  darkModeSupport: true
-  extendInfo:
-    NSMicrophoneUsageDescription: Tommy uses the microphone for voice prompts.
-    # Computer Use runs its driver as a child process, so macOS asks for these grants in Tommy's name.
-    NSScreenCaptureUsageDescription: Tommy captures the screen so an agent can see the app windows you ask it to control.
-    NSAppleEventsUsageDescription: Tommy sends Automation events so an agent can control the apps you ask it to control.
-    NSUserActivityTypes:
-      - NSUserActivityTypeBrowsingWeb
-  # No `arch` here: a target's own `arch` list replaces the one given on the command line, so
-  # `--x64` would still build ARM64. With no flag, electron-builder builds for the machine it runs
-  # on.
-  target:
-    - dmg
-    - zip
 linux:
   category: Development
   icon: build/icon-production.png
@@ -119,27 +67,9 @@ linux:
   # matches a running window to the launcher through `StartupWMClass`. Syncing the two from one
   # value is what makes the taskbar icon group with the window it belongs to.
   syncDesktopName: true
+  # The server installs the unpacked build with scripts/hosting/tommy-install.
   target:
-    - target: AppImage
+    - target: dir
       arch:
         - x64
         - arm64
-dmg:
-  title: ${productName} ${version}
-  # The art is 478 pt high, so it fills the window when Finder shows only the title bar.
-  # With the tab bar and status bar, the window shows the top 410 pt.
-  background: build/dmg-background.png
-  iconSize: 128
-  iconTextSize: 14
-  window:
-    x: 400
-    y: 467
-    width: 680
-    height: 506
-  contents:
-    - x: 190
-      y: 220
-    - x: 490
-      y: 220
-      type: link
-      path: /Applications

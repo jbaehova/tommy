@@ -19,17 +19,10 @@
       "!!out-*",
       "!!build",
       "!!dist",
-      "!!storybook-static",
       "!!**/dist",
       "!!**/.wrangler",
-      "!!apps/mobile/.expo",
-      "!!apps/mobile/android",
-      "!!apps/mobile/ios",
-      "!apps/mobile/expo-env.d.ts",
-      "!apps/mobile/src/uniwind-types.d.ts",
       "!**/routeTree.gen.ts",
       "!tools/biome/anti-slop",
-      "!tools/ui-foundation/fixtures",
       "!!coverage",
       "!!.tommy-build",
       "!!Agents",
@@ -37,7 +30,6 @@
       "!!Shared",
       "!!.worktrees",
       "!!.agents",
-      "!src/renderer/src/vendor",
       "!marketplace/production-catalog/bundles"
     ]
   },
@@ -90,16 +82,6 @@
   },
   "overrides": [
     {
-      "includes": ["src/renderer/src/styles/app-shell.css", "src/renderer/src/features/conversation/conversation.css"],
-      "linter": {
-        "rules": {
-          "style": {
-            "noDescendingSpecificity": "off"
-          }
-        }
-      }
-    },
-    {
       "includes": [
         "packages/contracts/src/**/*.ts",
         "packages/team-client/src/**/*.ts",
@@ -144,32 +126,7 @@
       }
     },
     {
-      "includes": [
-        "src/renderer/src/**/*.ts",
-        "src/renderer/src/**/*.tsx",
-        "packages/ui/src/**/*.ts",
-        "packages/ui/src/**/*.tsx"
-      ],
-      "linter": {
-        "rules": {
-          "style": {
-            "noRestrictedImports": {
-              "level": "error",
-              "options": {
-                "patterns": [
-                  {
-                    "group": ["**/main/**", "**/backend/**", "**/preload/**"],
-                    "message": "The renderer reaches main only through the IPC contract. Declare a channel in packages/contracts and go through window.tommy."
-                  }
-                ]
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "includes": ["src/main/**/*.ts", "src/backend/**/*.ts", "src/preload/**/*.ts"],
+      "includes": ["src/main/**/*.ts", "src/backend/**/*.ts"],
       "linter": {
         "rules": {
           "style": {
@@ -240,74 +197,6 @@
         "./tools/biome/anti-slop/rules/no-class-selector-queries.grit",
         "./tools/biome/anti-slop/rules/no-sleep-in-tests.grit"
       ]
-    },
-    {
-      "includes": ["src/renderer/**", "packages/ui/**", "packages/brand/**"],
-      "plugins": [
-        "./tools/biome/anti-slop/rules/no-collections-in-stores.grit",
-        "./tools/biome/anti-slop/rules/no-cleanup-in-effect-callbacks.grit"
-      ]
-    },
-    {
-      "includes": ["**/*.stories.ts", "**/*.stories.tsx"],
-      "plugins": ["./tools/ui-foundation/no-story-play.grit"]
-    },
-    {
-      "includes": [
-        "src/renderer/src/**/*.ts",
-        "src/renderer/src/**/*.tsx",
-        "packages/ui/src/**/*.ts",
-        "packages/ui/src/**/*.tsx",
-        "apps/mobile/src/**/*.ts",
-        "apps/mobile/src/**/*.tsx",
-        "!**/*.test.ts",
-        "!**/*.test.tsx",
-        "!**/*.stories.tsx",
-        "!src/renderer/src/preview/**",
-        "!src/renderer/src/setupTests.ts"
-      ],
-      "plugins": ["./tools/ui-foundation/no-hardcoded-ui-text.grit"]
-    },
-    {
-      "includes": ["packages/ui/src/**/*.ts", "packages/ui/src/**/*.tsx"],
-      "plugins": ["./tools/ui-foundation/no-desktop-preload.grit"],
-      "linter": {
-        "rules": {
-          "style": {
-            "noRestrictedImports": {
-              "level": "error",
-              "options": {
-                "patterns": [
-                  {
-                    "group": ["**/renderer/**", "**/main/**", "**/backend/**", "**/preload/**"],
-                    "message": "Shared UI receives data and actions through props; do not import application or platform implementations."
-                  }
-                ]
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "includes": ["apps/mobile/src/**/*.ts", "apps/mobile/src/**/*.tsx"],
-      "linter": {
-        "rules": {
-          "style": {
-            "noRestrictedImports": {
-              "level": "error",
-              "options": {
-                "paths": {
-                  "lucide-react-native": {
-                    "allowImportNames": ["LucideIcon", "LucideProps"],
-                    "message": "Metro does not remove unused exports, so this index adds every icon to the mobile bundle. Import one icon from \"lucide-react-native/icons/<name>\"."
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
     }
   ],
   "javascript": {

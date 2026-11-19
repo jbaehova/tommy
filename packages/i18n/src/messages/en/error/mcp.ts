@@ -10,13 +10,5 @@ export const messages = defineMessages("error.mcp", {
   "error.mcp.redirectSignedIn": "Tommy is signed in. You can close this window.",
   "error.mcp.signInFileUnreadable": "The MCP sign-in file is unreadable.",
   "error.mcp.signInFileTooLarge": "The MCP sign-in file is too large.",
-  "error.mcp.unsupported": "MCP servers are not supported by this server.",
-  "error.mcp.signInOnHost": "Sign-in to an MCP server works only in Tommy on the host computer.",
-  "error.mcp.signInAppUnsupported": "This server does not support sign-in apps. Update Tommy on the host.",
   "error.mcp.redirectRelayed": "Tommy sent the sign-in to the server. You can close this window.",
-  "error.mcp.relayEnded": "This sign-in ended. Start it again.",
-  "error.mcp.relayNoState":
-    "The server's sign-in page does not protect its return address, so Tommy does not open it on this computer.",
-  "error.mcp.relayAddressInvalid":
-    "This is not the address at the end of this sign-in. Copy the full address from the browser.",
 });

@@ -30,10 +30,9 @@ import type { AgentLifecycleFailed, AgentService } from "../backend/agent-servic
 import { writeFileAtomically } from "../backend/atomic-json-file";
 import { AUTOMATION_HEADERS_FILE, AUTOMATION_TOKEN_FILE, AUTOMATION_URL_FILE } from "../backend/automation-command";
 import { causeHelpers, runCauseEffect } from "../backend/effect-boundary";
+import { approvalDecision, HttpError, promptAnswers } from "./automation-inputs";
 import { readBodyWithin } from "./http-body";
 import { listenLoopback } from "./listen-loopback";
-import { HttpError } from "./team-api/http-error";
-import { approvalDecision, promptAnswers } from "./team-api/request-helpers";
 
 const logger = createTommyLogger("automation");
 

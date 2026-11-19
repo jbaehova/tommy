@@ -19,7 +19,6 @@ export const messages = {
     "OPENAI_API_KEY처럼 영문 대문자로 시작하고 영문 대문자, 숫자, 밑줄(_)로 된 변수 이름을 입력해 주세요.",
   "error.vault.apiKeyNameTaken": "이 변수 이름의 API 키가 보관함에 이미 있어요.",
   "error.vault.csvInvalid": "비밀번호를 내보낸 CSV 파일이 아니에요.",
-  "error.vault.csvTooLarge": "CSV 파일이 너무 커요.",
   "error.vault.twoStepKeyInvalid":
     "올바른 2단계 인증 키가 아니에요. 사이트의 설정 키 또는 otpauth:// 링크를 입력해 주세요.",
 } as const satisfies PartialTranslation<typeof source>;

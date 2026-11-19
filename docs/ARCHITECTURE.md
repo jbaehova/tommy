@@ -1,7 +1,9 @@
 # Tommy architecture
 
-Tommy is a Bun workspace with desktop, browser, and mobile applications, two Cloudflare Workers,
-a self-hosted Signal service, and shared packages.
+Tommy is a Bun workspace for one Linux server that people use through Telegram. There are no
+client apps: the Electron main process runs headless as a systemd service, and the Telegram
+runtime in `src/main/telegram-*.ts` is its only interface. Some topic notes below still describe
+parts of the old desktop and mobile apps; the code is the reference where they differ.
 
 The architecture notes are in one file for each topic:
 
@@ -14,8 +16,6 @@ The architecture notes are in one file for each topic:
   - [Effect service execution](architecture/change-rules.md#effect-service-execution)
   - [Change rules](architecture/change-rules.md#change-rules)
   - [Required verification](architecture/change-rules.md#required-verification)
-- [Team API compatibility](architecture/team-api.md)
-  - [Team API compatibility boundary](architecture/team-api.md#team-api-compatibility-boundary)
 - [Browser](architecture/browser.md)
   - [Browser client](architecture/browser.md#browser-client)
   - [Browser tool execution](architecture/browser.md#browser-tool-execution)
@@ -34,21 +34,12 @@ The architecture notes are in one file for each topic:
   - [Agent import](architecture/agents.md#agent-import)
   - [Instance transfer](architecture/agents.md#instance-transfer)
   - [Agent templates](architecture/agents.md#agent-templates)
-- [Analytics](architecture/analytics.md)
-  - [Mobile product analytics](architecture/analytics.md#mobile-product-analytics)
-  - [Website analytics](architecture/analytics.md#website-analytics)
-  - [Agent usage analytics](architecture/analytics.md#agent-usage-analytics)
-- [Servers, storage, and billing](architecture/servers.md)
-  - [Storage and files](architecture/servers.md#storage-and-files)
-  - [Desktop server notifications](architecture/servers.md#desktop-server-notifications)
-  - [Billing](architecture/servers.md#billing)
-  - [macOS Host Manager](architecture/servers.md#macos-host-manager)
-  - [Hosted servers](architecture/servers.md#hosted-servers)
 - [Channels, messaging, and mobile](architecture/channels-and-messaging.md)
   - [Android notifications](architecture/channels-and-messaging.md#android-notifications)
   - [Shared channel chats](architecture/channels-and-messaging.md#shared-channel-chats)
   - [Messaging connections](architecture/channels-and-messaging.md#messaging-connections)
   - [Mobile chat queue](architecture/channels-and-messaging.md#mobile-chat-queue)
+- [Servers, routine flows and workflows](architecture/servers.md)
 - [Skills and plugins](architecture/skills-and-plugins.md)
   - [Skill folders and MCP configuration](architecture/skills-and-plugins.md#skill-folders-and-mcp-configuration)
   - [Local skill library](architecture/skills-and-plugins.md#local-skill-library)

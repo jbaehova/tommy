@@ -10,20 +10,11 @@ import {
   VAULT_TEXT_LIMIT,
   type VaultContactFields,
   type VaultSaveInput,
-  type VaultSecretField,
-  type VaultSecretRequest,
 } from "@tommy/contracts/ipc";
-import type { DynamicRecord } from "@tommy/contracts/runtime-values";
+import { type DynamicRecord, isDynamicRecord as isObject } from "@tommy/contracts/runtime-values";
 import { normalizeTwoStepKey, TWO_STEP_KEY_LIMIT } from "@tommy/contracts/two-step-code";
 import { type SourceMessages, sourceText } from "@tommy/i18n/source";
 import { websiteUrl } from "../backend/password-vault";
-import { isObject } from "./ipc/validation";
-
-const SECRET_FIELDS: readonly VaultSecretField[] = ["password", "number", "securityCode", "key"];
-
-function isSecretField(value: unknown): value is VaultSecretField {
-  return SECRET_FIELDS.some((field) => field === value);
-}
 
 function isInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value);
@@ -180,12 +171,4 @@ export function decodeVaultSaveInput(value: unknown): VaultSaveInput {
     default:
       throw new Error("Invalid Vault item kind.");
   }
-}
-
-export function decodeVaultSecretRequest(value: unknown): VaultSecretRequest {
-  if (!isObject(value)) throw new Error("Invalid Vault secret request.");
-  const itemId = id(value.id);
-  if (itemId === null) throw new Error("id is invalid.");
-  if (!isSecretField(value.field)) throw new Error("field is invalid.");
-  return { id: itemId, field: value.field };
 }

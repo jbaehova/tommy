@@ -49,6 +49,7 @@ const CHANNEL_START_FAILED = "The provider could not start this assignment. Resu
 const TURN_START_GRACE_MS = 5 * 60_000;
 
 export interface DrainHooks {
+  answerFailedRequest(agentId: string, deliveryId: string): Effect.Effect<void>;
   tagReferences?(agentId: string, threadId: string | null): TagReferenceSource;
   skillLearningEnabled?(): boolean;
   emitError(code: string, error: unknown, agentId?: string): void;
@@ -1119,7 +1120,7 @@ export class DrainScheduler {
           }
           this.#mailboxSync.emitQueue(delivery.recipientAgentId);
           // The agent that asked gets the failure as its answer; the drain of the sender below starts it.
-          yield* this.#answerFailedRequest(delivery.id, delivery.recipientAgentId);
+          yield* this.#hooks.answerFailedRequest(delivery.recipientAgentId, delivery.id);
           if (this.#channels)
             yield* this.#channels.deliveryFailed(delivery.id, CHANNEL_START_FAILED).pipe(toDeliveryStartFailed);
           // The provider refused the session or the turn, so no turn line records the failure.
@@ -1146,24 +1147,6 @@ export class DrainScheduler {
       ),
     );
   }, Effect.uninterruptible);
-
-  /** Sends the agent that asked the note that its request failed. A failed note does not stop the drain. */
-  #answerFailedRequest(deliveryId: string, agentId: string): Effect.Effect<void> {
-    return this.#mailbox
-      .answerFailedRequest(
-        deliveryId,
-        (taskId) => this.#tasks.threadId(taskId) !== null,
-        (id) => this.#store.list().some((agent) => agent.id === id),
-      )
-      .pipe(
-        Effect.match({
-          onFailure: (failure) => this.#hooks.emitError("failed_request_answer_failed", failure.cause, agentId),
-          onSuccess: (requesterId) => {
-            if (requesterId) this.#mailboxSync.emitQueue(requesterId);
-          },
-        }),
-      );
-  }
 
   /**
    * Whether this delivery is a routine run in the agent's own chat. It runs in a provider session

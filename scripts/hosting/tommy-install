@@ -4,8 +4,8 @@
 #   bash scripts/hosting/tommy-install dist/linux-unpacked [https://tommy.example.com]
 #
 # The optional second argument is the public HTTPS address of the server (the one that
-# nginx-tommy.conf serves). It goes into /etc/tommy/server.env, and pairing codes name it. Give it
-# again only to change it.
+# nginx-tommy.conf serves). It goes into /etc/tommy/server.env as TOMMY_TELEGRAM_PUBLIC_URL, where
+# Telegram sends its updates and opens the Mini App. Give it again only to change it.
 #
 # Each path, the user and the unit are its own, so a Tommy install on the same computer keeps
 # running. Run it again to upgrade. The data in /var/lib/tommy stays.
@@ -72,6 +72,7 @@ rm -rf "$INSTALL/app.old"
 
 install -m 0755 "$SOURCE/tommy-server" "$INSTALL/hosted/tommy-server"
 install -m 0755 "$SOURCE/tommy" "$INSTALL/hosted/tommy"
+install -m 0755 "$SOURCE/tommy-telegram-owner-id" "$INSTALL/hosted/tommy-telegram-owner-id"
 ln -sfn "$INSTALL/hosted/tommy" /usr/local/bin/tommy
 
 # Host settings and optional connector secrets. Only root and the unit read this file.
@@ -79,13 +80,13 @@ install -d -m 0755 /etc/tommy
 if [ -n "$PUBLIC_URL" ]; then
   SERVER_ENV_TEMP=$(mktemp /etc/tommy/server.env.XXXXXX)
   if [ -f /etc/tommy/server.env ]; then
-    awk '!/^TOMMY_PUBLIC_URL=/' /etc/tommy/server.env >"$SERVER_ENV_TEMP"
+    awk '!/^TOMMY_TELEGRAM_PUBLIC_URL=/' /etc/tommy/server.env >"$SERVER_ENV_TEMP"
   fi
-  printf 'TOMMY_PUBLIC_URL=%s\n' "$PUBLIC_URL" >>"$SERVER_ENV_TEMP"
+  printf 'TOMMY_TELEGRAM_PUBLIC_URL=%s\n' "$PUBLIC_URL" >>"$SERVER_ENV_TEMP"
   chmod 0600 "$SERVER_ENV_TEMP"
   mv "$SERVER_ENV_TEMP" /etc/tommy/server.env
-elif ! grep -qs '^TOMMY_PUBLIC_URL=https://' /etc/tommy/server.env; then
-  echo "No public address is set, so pairing codes name no server. Run this again with the address." >&2
+elif ! grep -qs '^TOMMY_TELEGRAM_PUBLIC_URL=https://' /etc/tommy/server.env; then
+  echo "No public address is set, so Telegram cannot reach this server. Run this again with the address." >&2
 fi
 if [ -f /etc/tommy/server.env ]; then chmod 0600 /etc/tommy/server.env; fi
 install -m 0644 "$SOURCE/tommy.service" /etc/systemd/system/tommy.service
@@ -129,4 +130,4 @@ fi
 
 systemctl daemon-reload
 systemctl enable --now tommy.service
-echo "Installed Tommy. Pair a device with: sudo tommy pair"
+echo "Installed Tommy. Connect Telegram as docs/INSTALL.md describes, then check it with: sudo tommy status"

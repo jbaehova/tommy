@@ -27,7 +27,7 @@ import { isString } from "@tommy/contracts/runtime-values";
 import { isUiBlockId, normalizeUiBlockSpec } from "@tommy/contracts/ui-blocks";
 import { sourceText } from "@tommy/i18n/source";
 import { createTommyLogger, redactText } from "@tommy/logging";
-import { Effect, Result } from "effect";
+import { Deferred, Effect, Result } from "effect";
 import { z } from "zod";
 import type { AgentApiKeys, SavedApiKey } from "../agent-api-keys";
 import type { AgentClient, AgentProvider } from "../agent-client";
@@ -111,6 +111,7 @@ import {
 } from "./screen-capture";
 import { type AgentSidebar, handleSidebarTool } from "./sidebar-tools";
 import { LOCAL_SKILL_TOOL_DEFINITIONS, type LocalSkillTools, runLocalSkillTool } from "./skill-tools";
+import type { AgentTelegramExchange } from "./telegram-exchange-gate";
 import { isDynamicToolCall } from "./thread-items";
 import { toolCallIdempotencyKey } from "./tool-call-idempotency";
 import {
@@ -190,6 +191,7 @@ export interface TommyToolRouterHooks {
 }
 
 export interface TommyToolRouterOptions {
+  telegramExchange: AgentTelegramExchange;
   capturedSteps?: (session: ProviderSession) => Effect.Effect<Map<string, string> | null, ToolOperationFailed>;
   store: AgentStore;
   mailbox: MailboxStore;
@@ -231,6 +233,9 @@ export interface TommyToolRouterOptions {
  * It never imports the agent service facade.
  */
 export class TommyToolRouter {
+  readonly #telegramExchange: AgentTelegramExchange;
+  readonly #pendingMessages = new Map<string, Deferred.Deferred<TommyToolResponse, ToolOperationFailed>>();
+
   readonly #history: HistoryTools;
   readonly #store: AgentStore;
   readonly #mailbox: MailboxStore;
@@ -260,6 +265,7 @@ export class TommyToolRouter {
   readonly #interruptTool: AgentInterruptTool;
 
   constructor(options: TommyToolRouterOptions) {
+    this.#telegramExchange = options.telegramExchange;
     this.#history = new HistoryTools({
       store: options.store,
       redact: options.hooks.redactMcp,
@@ -1148,7 +1154,7 @@ export class TommyToolRouter {
 
     if (params.tool === "react_to_user_message") return yield* this.#react(params, senderAgentId);
 
-    return yield* this.#sendMessage(params, senderAgentId);
+    return yield* this.#sendMessage(params, senderAgentId, () => client.running && !request.signal?.aborted);
   });
 
   #remoteMember(messageId: string): boolean {
@@ -1813,11 +1819,31 @@ export class TommyToolRouter {
     Effect.uninterruptible,
   );
 
-  readonly #sendMessage = Effect.fn("TommyToolRouter.sendMessage")(
+  readonly #sendMessage = Effect.fn("TommyToolRouter.sendMessage")(function* (
+    this: TommyToolRouter,
+    params: DynamicToolCallParams,
+    senderAgentId: string,
+    isLive: () => boolean,
+  ) {
+    const key = toolCallIdempotencyKey(params);
+    const pendingKey = JSON.stringify([senderAgentId, key]);
+    const existing = this.#pendingMessages.get(pendingKey);
+    if (existing) return yield* Deferred.await(existing);
+    const done = Deferred.makeUnsafe<TommyToolResponse, ToolOperationFailed>();
+    this.#pendingMessages.set(pendingKey, done);
+    return yield* this.#deliverMessage(params, senderAgentId, key, isLive).pipe(
+      Effect.onExit((exit) => Deferred.done(done, exit)),
+      Effect.ensuring(Effect.sync(() => this.#pendingMessages.delete(pendingKey))),
+    );
+  }, Effect.uninterruptible);
+
+  readonly #deliverMessage = Effect.fn("TommyToolRouter.deliverMessage")(
     function* (
       this: TommyToolRouter,
       params: DynamicToolCallParams,
       senderAgentId: string,
+      idempotencyKey: string,
+      isLive: () => boolean,
     ): Effect.fn.Return<TommyToolResponse, ToolOperationFailed> {
       if (params.tool !== "send_message" || !isRecord(params.arguments)) {
         throw new Error(`Unsupported Tommy tool: ${params.tool}`);
@@ -1877,6 +1903,14 @@ export class TommyToolRouter {
       const answerTaskId = replyTo ? this.#mailbox.answerTaskId(senderAgentId, replyTo, recipientValues) : null;
       const taskId = answerTaskId && this.#tasks.threadId(answerTaskId) !== null ? answerTaskId : undefined;
       const text = params.arguments.text;
+      const telegramExchange = yield* this.#telegramExchange.confirm(
+        senderAgentId,
+        params.turnId,
+        recipientValues,
+        () => this.#hooks.redactMcp(text),
+        idempotencyKey,
+      );
+      if (telegramExchange && !isLive()) throw new Error(sourceText("error.messaging.telegramExchangeUnavailable"));
       const receipt = yield* this.#mailbox
         .enqueue({
           sender: { kind: "agent", agentId: senderAgentId },
@@ -1888,7 +1922,8 @@ export class TommyToolRouter {
           ...(messagingReturn ? { messagingReturn } : {}),
           ...(senderTaskId ? { senderTaskId } : {}),
           ...(taskId ? { taskId } : {}),
-          idempotencyKey: toolCallIdempotencyKey(params),
+          ...(telegramExchange ? { telegramExchange } : {}),
+          idempotencyKey,
         })
         .pipe(toToolOperationFailed);
       for (const delivery of receipt.deliveries) {

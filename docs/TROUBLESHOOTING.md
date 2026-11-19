@@ -2,7 +2,7 @@
 
 ## Tommy says agent CLI setup is required
 
-Open Terminal and verify the CLI:
+On the server, verify the CLI as the service user (`sudo -u tommy -H bash`):
 
 ```bash
 codex --version
@@ -14,9 +14,8 @@ If the command is missing, install Codex using the official installer:
 curl -fsSL https://chatgpt.com/codex/install.sh | sh
 ```
 
-Then run `codex login`, sign in with ChatGPT, fully quit Tommy, and open it again. To use OpenAI
-API credits instead of a ChatGPT plan, select Add key under API key in Settings > Providers > ChatGPT,
-or run `printenv OPENAI_API_KEY | codex login --with-api-key`.
+Then run `codex login` as the service user, sign in with ChatGPT, and restart Tommy. To use OpenAI
+API credits instead of a ChatGPT plan, run `printenv OPENAI_API_KEY | codex login --with-api-key`.
 
 You can use Claude instead. Verify and install Claude CLI:
 
@@ -30,47 +29,6 @@ If Codex is installed in a non-standard location, launch Tommy with `TOMMY_CODEX
 absolute Codex executable path.
 
 For a non-standard Claude location, set `TOMMY_CLAUDE_PATH` to the absolute Claude executable path.
-
-## The Linux AppImage exits immediately
-
-On Ubuntu 23.10 or newer and on Debian 13, unprivileged user namespaces are restricted by AppArmor.
-The Electron sandbox is built on one, so Tommy exits during launch and writes a message about the
-SUID sandbox or a user namespace to the terminal.
-
-Install the AppArmor profile that ships with Tommy, then reload AppArmor:
-
-```bash
-sudo install -m 0644 build/linux/tommy.apparmor /etc/apparmor.d/tommy
-sudo systemctl reload apparmor
-```
-
-The same file is inside the AppImage at `resources/linux/tommy.apparmor`. The profile attaches to
-the usual places to keep an AppImage; if yours is somewhere else, edit the path in the profile before
-you install it.
-
-Do not start Tommy with `--no-sandbox`. It is not a supported workaround. The sandbox is the
-boundary between a web renderer and the rest of your computer, and Tommy gives its agents full
-local access on the other side of it.
-
-## The Linux AppImage says that no fusermount binary was found
-
-The AppImage mounts itself with FUSE. It does not need libfuse2, but it needs the `fusermount3`
-program. Install the `fuse3` package (`sudo pacman -S fuse3` on Arch Linux and Omarchy,
-`sudo apt install fuse3` on Ubuntu and Debian), then start the AppImage again. With no FUSE, such
-as in a container, start it with `--appimage-extract-and-run`.
-
-## Remote desktop is missing on Linux
-
-Remote desktop on Linux needs the x64 AppImage and an X11 session. Sunshine captures the X11 screen
-and sends mouse and keyboard input through the XTest extension. Under Wayland, or with no `DISPLAY`,
-remote desktop reports that it needs an X11 session. Log in with an Xorg session, or start Tommy
-under `xvfb-run` on a server. The arm64 AppImage does not include the runtime.
-
-## Voice prompts fail on an older Linux
-
-The voice runtime of the x64 AppImage needs glibc 2.32 or later, such as Ubuntu 22.04 or Debian 12.
-On Ubuntu 20.04 or Debian 11, the dictation model downloads, but the runtime does not load, and
-voice prompts show an error. Use a newer distribution. The arm64 AppImage needs glibc 2.17 or later.
 
 ## Tommy is slow or stops because of the GPU on Linux
 
@@ -188,30 +146,6 @@ On Windows, the same file is at `%APPDATA%\Tommy\tommy.db`.
 Report the field the message names, together with the details below. The output holds your own file
 paths, so review it before you publish it.
 
-## Routines do not run while the computer sleeps
-
-A routine runs only while the computer is awake and Tommy is open.
-
-- After a sleep, each overdue routine runs one time, when the network is back. Tommy does not run
-  each occurrence that it missed.
-- After Tommy was closed, the routine setting "If Tommy was closed at the scheduled time"
-  decides: skip the run, or run it one time when Tommy opens.
-
-On macOS and Windows, turn on Settings → General → **Keep this computer awake**. While the computer
-is connected to power, it then does not sleep when idle. The display can still turn off. A closed
-laptop lid, or a sleep that you select, still sleeps the computer, unless macOS uses an external
-display (closed-display mode). On battery power, the computer sleeps as usual, unless you also turn
-on **Also on battery**.
-
-`pmset -g assertions` can show a Tommy entry named `WebRTC has active PeerConnections`. It
-exists only while another device is connected to this computer, so the computer can sleep after that
-device disconnects. With the setting on, the entry is named `Electron`.
-
-To see when a Mac slept, run `pmset -g log | grep -E " Sleep | Wake "`. `logs/main/main.log` (see
-[Report a problem](#report-a-problem)) has a `Keeping this computer awake.` line when Tommy
-starts to keep it awake. For routines that run when no computer of yours is on, use a
-hosted server or a self-hosted server.
-
 ## A company firewall or proxy blocks Tommy
 
 Sign-in shows "A firewall or proxy on this network blocked Tommy from reaching `<host>`" when a
@@ -244,47 +178,43 @@ review it. For Fortinet, use the FortiGuard web filter lookup.
 
 ## Reset Tommy
 
-Quit Tommy before moving data. To reset application state and the shared browser profile while
-keeping agent workspaces, move this folder somewhere safe:
+Stop the service with `sudo systemctl stop tommy` before you move data. To reset the application
+state and the shared browser profile while keeping agent workspaces, move this folder somewhere safe:
 
 ```text
-~/Library/Application Support/Tommy
+/var/lib/tommy/.config/Tommy
 ```
 
 To also reset agent workspaces, managed transfers, and downloads, move this folder as well:
 
 ```text
-~/Tommy
+/var/lib/tommy/Tommy
 ```
 
-Tommy creates fresh folders on the next launch. Review and back up their contents first. Do not
-remove `~/.codex` or `~/.claude` unless you intentionally want to manage CLI login and history.
+Tommy creates fresh folders on the next start. Review and back up their contents first. Do not
+remove `/var/lib/tommy/.codex` or `/var/lib/tommy/.claude` unless you intentionally want to manage
+CLI login and history.
 
 ## Uninstall
 
-Quit Tommy. On macOS remove `Tommy.app` from Applications; on Windows use the installer's
-uninstaller; on Linux delete the AppImage, `~/.local/share/applications/tommy.desktop`,
-`~/.local/share/icons/tommy.png`, and `/etc/apparmor.d/tommy` if you installed the profile. If
-you also want to remove local Tommy data, follow the reset steps above. Agent CLIs and their data
-are independent and are not removed with Tommy.
+Run `sudo systemctl disable --now tommy`, then remove `/opt/Tommy`, `/etc/systemd/system/tommy.service`,
+`/etc/apparmor.d/tommy`, the nginx site and `/usr/local/bin/tommy`. To also remove the data, remove
+`/var/lib/tommy` and `/etc/tommy` after the reset steps above. Agent CLIs and their data are
+independent and are not removed with Tommy.
 
 ## Report a problem
 
 Use the [bug report form](https://github.com/jbaehova/tommy/issues/new?template=bug_report.yml)
-for reproducible bugs. It asks for the platform, the Tommy version (Settings → Updates on the
-desktop, Settings → About on the phone), the operating system and hardware, the provider and its CLI
-version, the steps, and the expected and actual results. When a provider row shows an error, select
-**Copy diagnostics** in its menu and paste the result into the form. On the phone, Settings →
-Support → **Save log file** makes a log that you can attach. Never publish tokens, `~/.codex`,
-`~/.claude`, conversations, private files, Electron user data, or full unreviewed diagnostics.
+for reproducible bugs. Give the Tommy version (`sudo tommy status`), the operating system and
+hardware, the provider and its CLI version, the steps, and the expected and actual results. Never
+publish tokens, `~/.codex`, `~/.claude`, conversations, private files, Electron user data, or full
+unreviewed diagnostics.
 
-When the desktop app closes by itself, look in the `logs` folder of its user data
-(`%APPDATA%\Tommy\logs` on Windows, `~/Library/Application Support/Tommy/logs` on macOS,
-`~/.config/Tommy/logs` on Linux):
+When Tommy stops by itself, look in `/var/lib/tommy/.config/Tommy/logs`:
 
-- `main/main.log` has a `Quitting: <reason>.` line when Tommy quit by itself or was closed.
-- `trace.ndjson` has an `exit` line with the same reason, and a `crash` line for each renderer or
-  helper process that stopped.
+- `main/main.log` has a `Quitting: <reason>.` line when Tommy quit by itself or was stopped.
+- `trace.ndjson` has an `exit` line with the same reason, and a `crash` line for each helper process
+  that stopped.
 
 A dump in the `Crashpad` folder next to `logs` means a process crashed. Tell us that a dump exists,
 but do not attach it publicly: it can hold secrets. When neither file has a reason and there is no

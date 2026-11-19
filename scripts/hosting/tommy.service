@@ -1,5 +1,5 @@
 # Tommy on a Linux server. `tommy-install` installs this unit. Nginx holds TLS on port 443 and forwards
-# the device paths to the gateway on loopback. See nginx-tommy.conf.
+# the Telegram and webhook paths to the loopback listener. See nginx-tommy.conf.
 [Unit]
 Description=Tommy server
 Wants=network-online.target
@@ -11,7 +11,7 @@ User=tommy
 RuntimeDirectory=tommy
 RuntimeDirectoryMode=0700
 Environment=XDG_RUNTIME_DIR=/run/tommy
-# TOMMY_PUBLIC_URL, the public HTTPS address. `tommy-install` writes it.
+# TOMMY_TELEGRAM_PUBLIC_URL and the other Telegram settings. `tommy-install` writes the address.
 EnvironmentFile=-/etc/tommy/server.env
 # The command line tools of the agents and the one key file. See scripts/hosting/tommy-install.
 Environment=PATH=/var/lib/tommy/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

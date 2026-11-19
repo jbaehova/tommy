@@ -62,10 +62,6 @@ export const messages = defineMessages("error.provider", {
   "error.provider.releaseMetadataNotObject": "The release metadata is not a JSON object.",
   "error.provider.releaseCheckHttp": "The release check failed with HTTP {status}.",
   "error.provider.releaseMetadataTooLarge": "The release metadata is too large.",
-  "error.provider.localOnly": "Providers can only be changed on the computer that runs the agents.",
-  "error.provider.keyRequired": "A provider key is required.",
-  "error.provider.keyTooLong": "The provider key is too long.",
-  "error.provider.keyInvalidCharacters": "The provider key contains a space or a character that a key cannot contain.",
   "error.provider.noModel": "The selected provider has no available model.",
   "error.provider.noModelNamed": "{provider} has no model available.",
   "error.provider.acpNoModels": "ACP CLI did not advertise any ACP models. Tommy will not guess a fallback model.",
@@ -115,12 +111,8 @@ export const messages = defineMessages("error.provider", {
   "error.provider.cliNewVersionNotStarted": "The new version did not start.",
   "error.provider.cliBusyReconnect": "The {provider} CLI is working on a turn. Wait for it to finish, then reconnect.",
   "error.provider.cliBusySignOut": "The {provider} CLI is working on a turn. Wait for it to finish, then disconnect.",
-  "error.provider.opencodeKeyExpired":
-    "Your OpenCode API key expired. Create a new key in OpenCode Console, paste it in the OpenCode settings, then try again.",
   "error.provider.opencodeServiceFailure":
     "OpenCode could not complete this turn because its local service failed. Try again. If the error continues, reconnect OpenCode in Settings.",
-  "error.provider.opencodeUnreadableContent":
-    "This model cannot read a file or image in this chat. Choose a model that can read files, then send your message again.",
   "error.provider.opencodeDatabaseNewer":
     "OpenCode could not open its database because a newer OpenCode version changed it. Update OpenCode to version 2 or later, then try again.",
   "error.provider.chatgptPageFailed": "Tommy could not open the ChatGPT connection page.",
@@ -155,14 +147,12 @@ export const messages = defineMessages("error.provider", {
   "error.provider.acpSignInFailedReason": "The sign-in did not complete: {reason}",
   "error.provider.acpSignInMethodMissing":
     "This provider does not offer this sign-in on this computer. Update the provider, then try again.",
-  "error.provider.httpsSignInLinkOnly": "Only HTTPS sign-in links can open in the browser.",
   "error.provider.messageTooLarge": "Tommy stopped {provider} because it sent a message larger than {limit} MB.",
   "error.provider.off": "{provider} is off in Tommy. Turn it on in provider settings first.",
   "error.provider.inUse": "An agent uses {provider}. Change its model before you turn this provider off.",
   "error.provider.useBusy": "Wait for the provider check or sign-in to finish, then try again.",
   "error.provider.useSettingsReadOnly":
     "The saved provider settings cannot be read. Update Tommy before you change them.",
-  "error.provider.useChangeFailed": "Tommy could not change the provider setting.",
   "error.provider.accountsUnsupported": "{provider} can hold one account only.",
   "error.provider.accountNeedsConnection": "Connect {provider} before you add another account.",
   "error.provider.usageResetUnsupported": "{provider} cannot reset usage limits.",

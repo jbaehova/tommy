@@ -9,8 +9,6 @@ export const messages = {
   "error.workflow.branch": "‘예’와 ‘아니요’ 연결은 조건에만 있을 수 있어요.",
   "error.workflow.conditionBranch": "조건에서 나가는 각 연결은 ‘예’ 또는 ‘아니요’여야 해요.",
   "error.workflow.duplicateEdge": "이 두 단계에는 이미 이 연결이 있어요.",
-  "error.workflow.serverTooOld":
-    "이 서버는 워크플로를 지원하지 않아요. 서버를 실행하는 컴퓨터에서 Tommy를 업데이트하세요.",
   "error.workflow.nodeUnsupported": "이 버전의 Tommy는 아직 이미지, 파일, 메시지 단계를 실행할 수 없어요.",
   "error.workflow.interrupted": "이 단계가 실행되는 동안 Tommy가 중지됐어요. 다시 실행해 주세요.",
   "error.workflow.agentMissing": "이 단계의 에이전트를 선택하세요.",
@@ -32,10 +30,6 @@ export const messages = {
   "error.workflow.outputRefused": "위치에서 게시를 거부했어요. Tommy가 그곳에 게시할 수 있는지 확인하세요.",
   "error.workflow.outputUncertain":
     "게시가 도중에 멈췄어요. 일부가 이미 그 위치에 있을 수 있어요. 다시 시도하기 전에 확인하세요.",
-  "error.workflow.tooLarge":
-    "이 워크플로는 너무 커서 저장할 수 없어요. 그림이나 긴 텍스트를 일부 삭제한 후 다시 시도해 주세요.",
-  "error.workflow.tooLargeToSend":
-    "이 워크플로는 너무 커서 다른 컴퓨터로 보낼 수 없어요. 서버를 실행하는 컴퓨터에서 여세요.",
   "error.workflow.webhookMissing": "이 단계는 웹훅 트리거가 아니에요. 워크플로를 저장한 후 다시 시도해 주세요.",
   "error.workflow.githubActionMissing": "이 출력이 GitHub에서 할 동작을 선택하세요.",
   "error.workflow.githubRepositoryMissing": "이 출력의 저장소를 선택하세요.",

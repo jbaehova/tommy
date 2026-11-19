@@ -75,4 +75,15 @@ export const messages = {
   "status.agent.branchTitle": "분기된 채팅",
   "status.agent.compactionContinues": "에이전트가 컨텍스트를 압축하는 동안 연결이 끊겼어요. 에이전트가 계속해요.",
   "status.agent.workflowDelete": "워크플로 {title}과 실행 기록, 버전을 삭제해요. 진행 중인 단계도 중지돼요.",
+  "status.agent.telegramEngineUsage":
+    "이 에이전트에 사용할 엔진을 선택하려면 /engine codex 또는 /engine claude를 보내세요.",
+  "status.agent.telegramEngineSet": "이 에이전트는 {engine}의 {model} 모델을 사용합니다.",
+  "status.agent.telegramEngineQueued": "현재 작업을 마치면 이 에이전트가 {engine}의 {model} 모델을 사용합니다.",
+  "status.agent.telegramEngineUnavailable":
+    "{engine}을 선택할 수 없습니다. VPS에서 해당 공급자의 연결 상태와 사용 가능한 모델을 확인하세요.",
+  "status.agent.telegramNameUsage": "/name 다음에 공개할 표시 이름을 입력하세요. 한 줄에 64자까지 사용할 수 있습니다.",
+  "status.agent.telegramNameRefused": "Tommy에서 에이전트 표시 이름을 변경하지 못했습니다.",
+  "status.agent.telegramNameRetry":
+    "Tommy에 표시 이름을 저장했습니다. 같은 /name 명령을 다시 보내 텔레그램 프로필에도 적용하세요.",
+  "status.agent.telegramNameSet": "Tommy와 텔레그램 기본 프로필의 표시 이름을 {name}(으)로 설정했습니다.",
 } as const satisfies PartialTranslation<typeof source>;

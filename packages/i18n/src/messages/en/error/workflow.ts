@@ -9,7 +9,6 @@ export const messages = defineMessages("error.workflow", {
   "error.workflow.branch": "Only a condition can have yes and no connections.",
   "error.workflow.conditionBranch": "Each connection from a condition must be yes or no.",
   "error.workflow.duplicateEdge": "These two steps already have this connection.",
-  "error.workflow.serverTooOld": "This server does not support workflows. Update Tommy on the computer that runs it.",
   "error.workflow.nodeUnsupported": "This version of Tommy cannot run image, file and message steps yet.",
   "error.workflow.interrupted": "Tommy stopped while this step ran. Run it again.",
   "error.workflow.agentMissing": "Choose an agent for this step.",
@@ -32,9 +31,6 @@ export const messages = defineMessages("error.workflow", {
   "error.workflow.outputRefused": "The place refused the post. Make sure that Tommy can post there.",
   "error.workflow.outputUncertain":
     "The post stopped on its way. Part of it can be in the place. Look there before you try again.",
-  "error.workflow.tooLarge": "This workflow is too large to save. Remove some drawings or long texts, then try again.",
-  "error.workflow.tooLargeToSend":
-    "This workflow is too large to send to another computer. Open it on the computer that runs the server.",
   "error.workflow.webhookMissing": "This step is not a webhook trigger. Save the workflow, then try again.",
   "error.workflow.githubActionMissing": "Choose what this output does on GitHub.",
   "error.workflow.githubRepositoryMissing": "Choose a repository for this output.",

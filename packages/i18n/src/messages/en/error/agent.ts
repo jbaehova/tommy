@@ -7,24 +7,12 @@ export const messages = defineMessages("error.agent", {
     "Invalid tool discovery arguments. Use the declared schema and an original qualified tool name.",
   // Agent errors that the main process and the backend send.
   "error.agent.approvalWhileDeleting": "Cannot grant approval while the agent is being deleted.",
-  "error.agent.accessLocalOnly": "Agent access can only be changed on the computer that runs the agent.",
   "error.agent.duplicateCleanupFailed": "Agent duplication failed and the incomplete copy could not be removed.",
   "error.agent.commitEffectsFailed": "The transaction committed, but its saved effects failed.",
-  "error.agent.settingsLocalOnly": "Agent settings can only be changed on the computer that runs the agent.",
-  "error.agent.skillsLocalOnly": "Skills can only be changed on the computer that runs the agent.",
-  "error.agent.searchQueryRequired": "A search query is required.",
   "error.agent.messageTooLong": "Message is too long.",
-  "error.agent.messageOrAttachmentRequired": "A message or attachment is required.",
   "error.agent.promptAnswersTooLong": "Prompt answers are too long.",
   "error.agent.gone": "This agent no longer exists.",
-  "error.agent.instructionsTooLarge": "The instructions file is too large to open here. Shorten it in a text editor.",
-  "error.agent.instructionsOutside":
-    "The instructions file links to a place outside the agent's workspace, so Tommy does not open it.",
-  "error.agent.instructionsReadFailed": "Could not read the instructions file.",
-  "error.agent.instructionsSaveFailed": "Could not save the instructions file.",
   "error.agent.profileGenerationBusy": "Profile generation is busy. Try again shortly.",
-  "error.agent.instructionsChanged":
-    "The agent changed the instructions file. Your last change was not saved. Make it again.",
   "error.agent.initialMessageRequired": "Initial message is required.",
   "error.agent.initialMessageTooLong": "Initial message is too long.",
   "error.agent.setupCleanupFailed": "Agent setup failed and the incomplete agent could not be removed.",
@@ -93,16 +81,8 @@ export const messages = defineMessages("error.agent", {
     'Stored agent profile {id} has an unreadable "{field}" value; update the data before starting Tommy.',
   // Written by `QueueEditRejectedError` in @tommy/contracts, which cannot import this package.
   "error.agent.queueEditRejected": "Queue edit rejected: {reason}",
-  "error.agent.computerUseLocalOnly": "Computer Use can only be changed on the computer that runs the agent.",
-  "error.agent.automationLocalOnly": "Local scripts can only be allowed on the computer that runs the agent.",
-  "error.agent.newChatLocalOnly": "Only the computer that runs the agent can let it start new chats.",
-  "error.agent.quickAcknowledgementLocalOnly": "Only the computer that runs the agent can change this setting.",
   "error.agent.sideQuestionBusy": "Too many side questions are running. Try again shortly.",
   "error.agent.sideQuestionFailed": "The agent could not answer the side question. Try again.",
-  "error.agent.busyMessageModeLocalOnly":
-    "What messages do while the agent works can only be set on the computer that runs the agent.",
-  "error.agent.backupModelsLocalOnly": "Backup models can only be set on the computer that runs the agent.",
-  "error.agent.taskLimitLocalOnly": "The task limit can only be set on the computer that runs the agent.",
   "error.agent.localScriptsOff": "This agent does not allow local scripts.",
   "error.agent.localScriptsRateLimited":
     "Local scripts sent this agent {limit} message or routine requests in the last hour. Try again later.",
@@ -133,11 +113,6 @@ export const messages = defineMessages("error.agent", {
     "That window is not open now. Call list_capture_sources to get the current window ids.",
   "error.agent.screenCaptureDisplayMissing":
     "That display is not connected now. Call list_capture_sources to get the current display ids.",
-  "error.agent.screenCaptureRegionOutside":
-    "The region is not inside one display. Use desktop points inside the bounds of one display from list_capture_sources.",
-  "error.agent.screenCapturePermissionMissing":
-    "Tommy does not have the Screen Recording permission. Ask the user to open System Settings > Privacy & Security > Screen & System Audio Recording, turn on Tommy, then quit and open Tommy again.",
-  "error.agent.screenCaptureFailed": "The screen capture failed. Try again.",
   "error.agent.reasoningEffortNotConfigurable":
     'Model "{model}" has no reasoning effort setting, so you cannot change its effort.',
   "error.agent.compactionConnectionLost":

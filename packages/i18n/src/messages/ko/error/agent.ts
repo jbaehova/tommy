@@ -7,23 +7,12 @@ export const messages = {
   "error.agent.toolRequestInvalid":
     "도구 검색 인수가 올바르지 않아요. 선언된 스키마와 원래의 정규화된 도구 이름을 사용하세요.",
   "error.agent.approvalWhileDeleting": "에이전트를 삭제하는 중에는 승인할 수 없어요.",
-  "error.agent.accessLocalOnly": "에이전트 접근 권한은 에이전트를 실행하는 컴퓨터에서만 변경할 수 있어요.",
   "error.agent.duplicateCleanupFailed": "에이전트 복제에 실패했고 불완전한 사본을 제거할 수 없었어요.",
   "error.agent.commitEffectsFailed": "트랜잭션은 커밋되었지만 저장된 후속 작업이 실패했어요.",
-  "error.agent.settingsLocalOnly": "에이전트 설정은 에이전트를 실행하는 컴퓨터에서만 변경할 수 있어요.",
-  "error.agent.skillsLocalOnly": "스킬은 에이전트를 실행하는 컴퓨터에서만 변경할 수 있어요.",
-  "error.agent.searchQueryRequired": "검색어가 필요해요.",
   "error.agent.messageTooLong": "메시지가 너무 길어요.",
-  "error.agent.messageOrAttachmentRequired": "메시지 또는 첨부 파일이 필요해요.",
   "error.agent.promptAnswersTooLong": "프롬프트 답변이 너무 길어요.",
   "error.agent.gone": "이 에이전트는 더 이상 없어요.",
-  "error.agent.instructionsTooLarge": "지침 파일이 너무 커서 여기서 열 수 없어요. 텍스트 편집기에서 줄여 주세요.",
-  "error.agent.instructionsOutside": "지침 파일이 에이전트 작업 공간 밖을 가리켜서 Tommy에서 열지 않아요.",
-  "error.agent.instructionsReadFailed": "지침 파일을 읽지 못했어요.",
-  "error.agent.instructionsSaveFailed": "지침 파일을 저장하지 못했어요.",
   "error.agent.profileGenerationBusy": "프로필 생성이 바빠요. 잠시 후 다시 시도해 주세요.",
-  "error.agent.instructionsChanged":
-    "에이전트가 지침 파일을 변경했습니다. 마지막 변경 사항이 저장되지 않았습니다. 다시 변경하세요.",
   "error.agent.initialMessageRequired": "첫 메시지가 필요해요.",
   "error.agent.initialMessageTooLong": "첫 메시지가 너무 길어요.",
   "error.agent.setupCleanupFailed": "에이전트 설정에 실패했고 불완전한 에이전트를 제거할 수 없었어요.",
@@ -91,17 +80,8 @@ export const messages = {
   "error.agent.storedProfileUnreadableId":
     '저장된 에이전트 프로필 {id}의 "{field}" 값을 읽을 수 없어요. Tommy를 시작하기 전에 데이터를 업데이트하세요.',
   "error.agent.queueEditRejected": "대기열 수정이 거부되었어요: {reason}",
-  "error.agent.computerUseLocalOnly": "컴퓨터 제어는 에이전트를 실행하는 컴퓨터에서만 변경할 수 있어요.",
-  "error.agent.automationLocalOnly": "로컬 스크립트는 에이전트를 실행하는 컴퓨터에서만 허용할 수 있어요.",
-  "error.agent.newChatLocalOnly":
-    "에이전트가 새 채팅을 시작하도록 허용하는 것은 에이전트를 실행하는 컴퓨터에서만 할 수 있어요.",
-  "error.agent.quickAcknowledgementLocalOnly": "이 설정은 에이전트를 실행하는 컴퓨터에서만 변경할 수 있어요.",
   "error.agent.sideQuestionBusy": "곁다리 질문이 너무 많이 실행 중이에요. 잠시 후 다시 시도해 주세요.",
   "error.agent.sideQuestionFailed": "에이전트가 곁다리 질문에 답하지 못했어요. 다시 시도해 주세요.",
-  "error.agent.busyMessageModeLocalOnly":
-    "에이전트가 작업 중일 때 메시지를 처리하는 방식은 에이전트를 실행하는 컴퓨터에서만 설정할 수 있어요.",
-  "error.agent.backupModelsLocalOnly": "백업 모델은 에이전트를 실행하는 컴퓨터에서만 설정할 수 있어요.",
-  "error.agent.taskLimitLocalOnly": "작업 한도는 에이전트를 실행하는 컴퓨터에서만 설정할 수 있어요.",
   "error.agent.localScriptsOff": "이 에이전트는 로컬 스크립트를 허용하지 않아요.",
   "error.agent.localScriptsRateLimited":
     "지난 1시간 동안 로컬 스크립트가 이 에이전트에게 메시지 또는 루틴 요청을 {limit}건 보냈어요. 나중에 다시 시도해 주세요.",
@@ -132,11 +112,6 @@ export const messages = {
     "해당 창이 지금 열려 있지 않아요. list_capture_sources를 호출해 현재 창 ID를 확인하세요.",
   "error.agent.screenCaptureDisplayMissing":
     "해당 디스플레이가 지금 연결되어 있지 않아요. list_capture_sources를 호출해 현재 디스플레이 ID를 확인하세요.",
-  "error.agent.screenCaptureRegionOutside":
-    "해당 영역이 하나의 디스플레이 안에 있지 않아요. list_capture_sources에서 가져온 한 디스플레이 범위 안의 데스크톱 포인트를 사용하세요.",
-  "error.agent.screenCapturePermissionMissing":
-    "Tommy에 화면 녹화 권한이 없어요. 사용자에게 시스템 설정 > 개인정보 보호 및 보안 > 화면 및 시스템 오디오 녹화를 열어 Tommy를 켠 다음, Tommy를 종료했다가 다시 열도록 요청하세요.",
-  "error.agent.screenCaptureFailed": "화면 캡처에 실패했어요. 다시 시도해 주세요.",
   "error.agent.reasoningEffortNotConfigurable": '모델 "{model}"에는 추론 강도 설정이 없어서 강도를 바꿀 수 없어요.',
   "error.agent.compactionConnectionLost":
     "에이전트가 컨텍스트를 압축하는 동안 연결이 끊겨 작업이 멈췄어요. 인터넷 연결을 확인한 다음 메시지를 보내 계속해 주세요.",

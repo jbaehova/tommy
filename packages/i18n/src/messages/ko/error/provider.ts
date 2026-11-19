@@ -63,10 +63,6 @@ export const messages = {
   "error.provider.releaseMetadataNotObject": "릴리스 메타데이터가 JSON 객체가 아니에요.",
   "error.provider.releaseCheckHttp": "릴리스 확인이 HTTP {status}(으)로 실패했어요.",
   "error.provider.releaseMetadataTooLarge": "릴리스 메타데이터가 너무 커요.",
-  "error.provider.localOnly": "제공자는 에이전트를 실행하는 컴퓨터에서만 변경할 수 있어요.",
-  "error.provider.keyRequired": "제공자 키가 필요해요.",
-  "error.provider.keyTooLong": "제공자 키가 너무 길어요.",
-  "error.provider.keyInvalidCharacters": "제공자 키에 공백이나 키에 쓸 수 없는 문자가 있어요.",
   "error.provider.noModel": "선택한 제공자에 사용할 수 있는 모델이 없어요.",
   "error.provider.noModelNamed": "{provider}에 사용할 수 있는 모델이 없어요.",
   "error.provider.acpNoModels": "ACP CLI가 ACP 모델을 알리지 않았어요. Tommy는 대체 모델을 추측하지 않아요.",
@@ -119,12 +115,8 @@ export const messages = {
   "error.provider.cliBusyReconnect": "{provider} CLI가 턴을 처리하는 중이에요. 끝날 때까지 기다린 후 다시 연결하세요.",
   "error.provider.cliBusySignOut":
     "{provider} CLI가 턴을 처리하고 있습니다. 끝날 때까지 기다린 다음 연결을 해제하세요.",
-  "error.provider.opencodeKeyExpired":
-    "OpenCode API 키가 만료되었어요. OpenCode Console에서 새 키를 만들어 OpenCode 설정에 붙여넣은 후 다시 시도해 주세요.",
   "error.provider.opencodeServiceFailure":
     "로컬 서비스 오류로 OpenCode가 이 턴을 완료하지 못했어요. 다시 시도해 주세요. 오류가 계속되면 설정에서 OpenCode를 다시 연결하세요.",
-  "error.provider.opencodeUnreadableContent":
-    "이 모델은 이 채팅의 파일이나 이미지를 읽을 수 없어요. 파일을 읽을 수 있는 모델을 선택한 후 메시지를 다시 보내세요.",
   "error.provider.opencodeDatabaseNewer":
     "더 새로운 OpenCode 버전이 데이터베이스를 변경해서 OpenCode가 데이터베이스를 열 수 없었어요. OpenCode를 버전 2 이상으로 업데이트한 후 다시 시도해 주세요.",
   "error.provider.chatgptPageFailed": "Tommy가 ChatGPT 연결 페이지를 열 수 없었어요.",
@@ -159,7 +151,6 @@ export const messages = {
   "error.provider.acpSignInFailedReason": "로그인이 완료되지 않았어요: {reason}",
   "error.provider.acpSignInMethodMissing":
     "이 제공자는 이 컴퓨터에서 이 로그인 방식을 제공하지 않아요. 제공자를 업데이트한 후 다시 시도해 주세요.",
-  "error.provider.httpsSignInLinkOnly": "브라우저에서는 HTTPS 로그인 링크만 열 수 있어요.",
   "error.provider.messageTooLarge":
     "{provider}이(가) {limit}MB보다 큰 메시지를 보내서 Tommy가 {provider}을(를) 중지했어요.",
   "error.provider.off": "Tommy에서 {provider}이(가) 꺼져 있어요. 먼저 제공자 설정에서 켜세요.",
@@ -167,7 +158,6 @@ export const messages = {
     "에이전트가 {provider}을(를) 사용 중이에요. 이 제공자를 끄기 전에 에이전트의 모델을 변경하세요.",
   "error.provider.useBusy": "제공자 확인이나 로그인이 끝날 때까지 기다린 후 다시 시도해 주세요.",
   "error.provider.useSettingsReadOnly": "저장된 제공자 설정을 읽을 수 없어요. 변경하기 전에 Tommy를 업데이트하세요.",
-  "error.provider.useChangeFailed": "Tommy가 제공자 설정을 변경할 수 없었어요.",
   "error.provider.accountsUnsupported": "{provider}은(는) 계정을 하나만 둘 수 있어요.",
   "error.provider.accountNeedsConnection": "다른 계정을 추가하기 전에 {provider}을(를) 연결하세요.",
   "error.provider.usageResetUnsupported": "{provider}은(는) 사용 한도를 초기화할 수 없어요.",

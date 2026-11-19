@@ -1,31 +1,13 @@
 import { defineMessages } from "../../../message";
 
 export const messages = defineMessages("error.backend", {
-  "error.backend.eventsUnavailable": "Events are not available on this host.",
   "error.backend.databaseIntegrity": "Tommy database failed its integrity check.",
   "error.backend.webhookRouteLimit": "A host can have at most {limit} webhook routines.",
   "error.backend.webhookSettingsInvalid": "Check the webhook settings and try again.",
   "error.backend.webhookTestUnavailable":
     "The host cannot take the test event now. Make sure it is signed in, then try again.",
   "error.backend.webhookTestFailed": "The test event did not reach the routine. Try again.",
-  // Errors that the backend services send: channels, messages, routines, memories, MCP, browser and remote desktop.
-  "error.backend.browserViewRemoteOnly": "A live browser view is only for a remote host.",
-  "error.backend.browserViewUnsupported": "This remote host does not support a live browser view.",
-  "error.backend.browserViewLimit": "Too many browser views are open on this host.",
-  "error.backend.browserViewEnded": "The live view of this page ended.",
-  "error.backend.browserViewFailed": "The live view of this page failed.",
-  "error.backend.windowTemporarilyUnavailable": "The Tommy window is temporarily unavailable.",
-  "error.backend.windowUnavailable": "The Tommy window is unavailable.",
-  "error.backend.channelDeleteUnsupported": "Channel deletion is not supported by this server.",
-  "error.backend.browserNavigateUnsupported":
-    "This remote host does not support address-bar navigation in an existing tab.",
   "error.backend.browserUserControlBusy": "This browser tab waits for a secret. Answer the secret request first.",
-  "error.backend.browserUserControlUnsupported": "This remote host does not support taking control of a browser tab.",
-  "error.backend.browserSignInUnsupported": "This remote host cannot take a sign-in from this computer.",
-  "error.backend.browserSignInOpenFailed": "Tommy could not open the sign-in window.",
-  "error.backend.browserSignInReadFailed": "Tommy could not read the sign-in from the window.",
-  "error.backend.browserStopUnsupported": "This remote host cannot stop a page load.",
-  "error.backend.sharedDataLocalOnly": "Shared data is managed on the computer that runs these agents.",
   "error.backend.browserUrlProtocol": "Only HTTP(S) browser URLs are allowed.",
   "error.backend.channelLeadModelUnavailable": "The channel lead model is unavailable.",
   "error.backend.contextCompactionIneffective":
@@ -164,9 +146,6 @@ export const messages = defineMessages("error.backend", {
   "error.backend.agentWaitRoutineGone": "This agent has no routine with this id.",
   "error.backend.agentWaitNoRoutine":
     "Only a run of one of your routines wakes a wait, and you have no routine. Create one with tommy.create_routine, then open the wait.",
-  "error.backend.agentWaitRemoteUnsupported": "Open waits are only available for agents on this computer.",
-  "error.backend.markUnreadRemoteUnsupported":
-    "Marking a message unread is only available for agents on this computer.",
   "error.backend.routineFlowHandoffFailed": "The routine could not pass the work on to this agent.",
   "error.backend.mcpServerLimit": "Tommy keeps up to {limit} MCP servers.",
   "error.backend.mcpServerNameTaken": "An MCP server named {name} already exists.",
@@ -264,10 +243,7 @@ export const messages = defineMessages("error.backend", {
   "error.backend.browserTabLimit": "The browser can have up to {limit} open tabs.",
   "error.backend.browserProfileMissing":
     "The browser profile of this agent no longer exists. Choose another profile in the agent settings.",
-  "error.backend.browserProfileNotFound": "This browser profile no longer exists.",
-  "error.backend.browserProfileNameTaken": "A browser profile with this name already exists.",
   "error.backend.browserSessionInUse": "A tab still uses this browser session. Try again.",
-  "error.backend.browserProfileLimit": "You can have up to {limit} browser profiles.",
   "error.backend.browserLowMemory":
     "This server is low on memory, so the browser cannot open another tab. Close a tab, or wait for other agents to finish.",
   "error.backend.browserOpenFailed": "Unable to open {url}: {reason}",
@@ -313,10 +289,8 @@ export const messages = defineMessages("error.backend", {
   "error.backend.threadTitleRequired": "Give the thread a short title.",
   "error.backend.threadOpenLimitReached":
     "This agent has {count} open threads. Archive a thread, then start or restore another one.",
-  "error.backend.threadRemoteUnsupported": "Threads are only available for agents on this computer.",
   "error.backend.branchSourceBusy": "Stop the current turn before you branch this chat.",
   "error.backend.branchMessageNotFound": "You can branch only from a finished answer of the agent.",
-  "error.backend.branchRemoteUnsupported": "Branches are only available for agents on this computer.",
   "error.backend.threadMoveRefused": "Only a message that you sent to this agent alone can run in a new thread.",
   "error.backend.taskTitleRequired": "Give the task a short title.",
   "error.backend.taskToolInvalid": "Give the task a title of at most 120 characters and a brief that says what to do.",
@@ -332,9 +306,6 @@ export const messages = defineMessages("error.backend", {
     "The security certificate of this site is not trusted, so the page did not open.",
   "error.backend.mcpSignInAnswerUnreadable":
     "The sign-in server sent an answer that Tommy cannot read. If the service gives you an API key or a token, add it to the settings of this server, then test the connection again.",
-  "error.backend.messageDeleteBusy": "This message is part of a running turn. Delete it when the turn ends.",
-  "error.backend.messageDeleteForbidden": "You can delete only the messages that you sent.",
-  "error.backend.messageDeleteNotFound": "This message is not in the chat.",
 
   "error.backend.browserProxySavedUnreadable": "The saved browser proxy cannot be read.",
   "error.backend.browserProxyAddressInvalid": "Invalid browser profile proxy address.",

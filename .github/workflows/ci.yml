@@ -30,15 +30,11 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Lint
         run: bun run lint
-      - name: UI rules
-        run: bun run check:ui
       - name: Translations
         run: bun run i18n:check
       - name: Typecheck
         run: bun run typecheck
       - name: Build
         run: bun run build
-      - name: Preload bundle
-        run: bun run verify:preload
       - name: Tests
         run: bun run test:desktop

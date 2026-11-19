@@ -415,7 +415,7 @@ or the master password. For a host older than this capability, the phone shows B
 ## Add a Team API capability
 
 A new remote feature is a new optional capability. Do not change a shipped capability: released
-Team API adapters are permanent (see [Team API compatibility](team-api.md)). Worked example:
+Team API adapters were permanent while apps connected to the server; the server has none now. Worked example:
 `sign-in-relay-v1`, which follows `mcp-sign-in-app-v1`.
 
 1. **Frozen codec.** Add `packages/contracts/src/team-protocol/<name>-v1.ts`. Build each route with

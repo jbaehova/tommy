@@ -4,21 +4,14 @@ This guide installs Tommy from start to end. A coding agent (Claude Code, Codex 
 follow it for you; a person can follow it too. The [README](../README.md#install) has the prompt to
 give your agent.
 
-Tommy has three parts:
-
-| Part | What it is | Needed |
-| --- | --- | --- |
-| Server | The Linux service that runs the agents and keeps all data | Yes, one |
-| Mac app | The desktop client | Optional |
-| Android app | The phone client | Optional |
-
-The apps connect directly to the server over HTTPS. There is no account and no relay.
+Install one server, then connect Telegram. Telegram is the only interface: the manager bot is the
+chat of your root agent, and every other agent gets a bot of its own. Telegram stores the messages
+and media sent in its chats. The Telegram Mini App connects to the server over HTTPS.
 
 ## Rules for the agent
 
-- Ask the user which parts to install, and on which computer each part goes. Do the steps of a
-  part on that computer. If the server is another computer, connect to it over SSH only when the
-  user gives you the host and user.
+- Ask the user which computer is the server. If it is another computer, connect to it over SSH only
+  when the user gives you the host and user.
 - Ask for every value that this guide marks as **ask**. Never invent a domain name, an email address
   or a host. Use the user's answers exactly.
 - Show each command that uses `sudo` or changes the system before you run it, and say why. Stop and
@@ -37,8 +30,8 @@ The apps connect directly to the server over HTTPS. There is no account and no r
   ports 80 and 443 open from the internet. **Ask** the user for the domain name, such as
   `tommy.example.com`, and for an email address for the certificate.
 - A user with `sudo`.
-- At least one agent subscription or API key: Claude, ChatGPT (Codex), Cursor or Pi. The user signs
-  in from the app later.
+- An account or API key for a supported provider. Sign the service user in to its CLI before you
+  start work through Telegram (see [Telegram interface](#telegram-interface)).
 
 Check the domain before you continue: `getent hosts <domain>` must print the server's public IP
 address. If it does not, stop and ask the user to fix the DNS record.
@@ -64,6 +57,9 @@ Open a new shell (or add `~/.bun/bin` and `~/.local/bin` to `PATH`), then check:
 prints `1.4.2` and `node --version` prints `v24.x`.
 
 ### Build
+
+For the Telegram development version, copy the current development checkout to the VPS and run
+the install and build commands in that copy. The clone command below fetches the default branch.
 
 Build as the normal user, not as root:
 
@@ -105,8 +101,8 @@ share only the vaults that agents may read.
 
 ### HTTPS
 
-Nginx holds the certificate and forwards only the device paths to Tommy. Get the certificate first,
-then install the site:
+Nginx holds the certificate and forwards the Telegram and workflow webhook paths to Tommy.
+Get the certificate first, then install the site:
 
 ```bash
 sudo apt-get install -y nginx certbot
@@ -124,14 +120,86 @@ The hooks let certbot renew the certificate by itself. If `ufw` is active, open 
 Check: `curl -sS -o /dev/null -w '%{http_code}\n' https://<domain>/` prints `404`. Tommy answers
 only its own paths, so 404 is correct.
 
-### Pair the first device
+### Telegram interface
+
+Use this setup for one trusted owner on one VPS. Each managed bot connects to one Tommy agent.
+A fresh host selects Codex. On the VPS, install its CLI for the service account and sign in:
 
 ```bash
-sudo tommy pair
+curl -fsSL https://chatgpt.com/codex/install.sh | sudo -u tommy -H sh
+sudo -u tommy -H /var/lib/tommy/.local/bin/codex --version
+sudo -u tommy -H /var/lib/tommy/.local/bin/codex login --device-auth
+sudo -u tommy -H /var/lib/tommy/.local/bin/codex login status
 ```
 
-It prints a one-time code and a QR code. Give the code to the user for the next part. A code works
-once; run the command again for each new device.
+For Claude Code, install the CLI for the same service user with the
+[official installer](https://code.claude.com/docs/en/setup) and configure the provider as described in
+[Provider terms](provider-terms.md#risk-by-use). Set `TOMMY_CODEX_PATH` or `TOMMY_CLAUDE_PATH`
+in `/etc/tommy/server.env` if the executable is in a custom location.
+
+1. Open the official `@BotFather` account in Telegram and create a new manager with `/newbot`.
+   In its settings, enable **Bot Management Mode**. The manager needs no Main Mini App: each bot
+   opens the Tommy Mini App from a button in its own chat.
+2. Store the manager token from BotFather in a private file on the VPS. The file contains one
+   line with the token. The following commands create a directory that only root and the service
+   group can enter. Paste the token in the editor, then set the file mode and owner.
+
+   ```bash
+   sudo install -d -o root -g tommy -m 0710 /etc/tommy/telegram
+   sudoedit /etc/tommy/telegram/manager-token
+   sudo chmod 0600 /etc/tommy/telegram/manager-token
+   sudo chown tommy:tommy /etc/tommy/telegram/manager-token
+   ```
+
+   Agents with full shell access run as the service user and can read this file.
+3. Get your own numeric Telegram user ID. If you already know it, use it in the next step.
+   For a new manager, run this command on the VPS before enabling its webhook.
+   Open the link it prints in your own Telegram account and tap **Start**. If the chat shows only
+   `/start`, copy the full command from the terminal into the manager chat. The request expires
+   in 10 minutes. The terminal prints your numeric ID. The command requires Python 3.
+
+   ```bash
+   sudo -u tommy /opt/Tommy/hosted/tommy-telegram-owner-id /etc/tommy/telegram/manager-token
+   ```
+
+4. Set these values in `/etc/tommy/server.env` with `sudoedit`. Substitute your ID and HTTPS
+   origin. The owner ID belongs to your personal Telegram account.
+
+   ```text
+   TOMMY_TELEGRAM_MANAGER_TOKEN_FILE=/etc/tommy/telegram/manager-token
+   TOMMY_TELEGRAM_OWNER_ID=<your numeric user ID>
+   TOMMY_TELEGRAM_PUBLIC_URL=https://<domain>
+   ```
+
+5. For an existing install, update the nginx site from this checkout as described in [HTTPS](#https).
+   Restart Tommy with `sudo systemctl restart tommy`. Open your manager in Telegram and send
+   `/start` and choose your root agent. The root agent answers in the manager chat, like the main
+   agent of the app. Send `/connect` to give each other agent its own bot and chat: tap an agent
+   and confirm the new bot in Telegram with the suggested name. Use `/new` to create a new agent
+   with its own bot. You can chat with a new bot at once.
+6. Agents send work to each other inside Tommy, as in the app. Each agent bot's chat shows the
+   messages that its agent sent to and received from other agents. Use `/agents` in the manager
+   to find your bots. Use `/browser` in a bot's chat to see its agent's browser tabs.
+
+In an agent's private chat, use `/engine codex` or `/engine claude` to switch engines.
+Use `/name <display name>` to rename the agent. The Telegram username stays fixed.
+Use `/disconnect @username` in the manager chat and confirm with the code it returns to unlink an agent.
+Its workspace and conversation remain on the VPS. The Telegram account owner can use BotFather to delete the bot.
+
+When an agent asks for a website password or code, its bot's chat gets a message with an
+**Open Tommy** button. The card opens inside that chat, and the secret goes directly to the VPS.
+An agent that received the work from another agent asks in its own chat, or in the chat where the
+owner started the work if it has no bot. The manager's view shows every request. Messages and
+generated images sent in chat go to Telegram.
+A verified agent can send work to another verified agent by private Telegram message. Keep file contents
+and secrets out of work instructions. If the host cannot confirm manager webhook health for 24 hours,
+use BotFather as the owner to replace the child token, then repeat `/verify`.
+
+To turn off the Telegram interface, remove the three Telegram settings from
+`/etc/tommy/server.env` and restart Tommy. The agent workspaces stay on the VPS.
+
+Telegram describes [managed bot creation](https://core.telegram.org/api/bots/managed-bots) and
+[bot-to-bot messages](https://core.telegram.org/api/bots/bot-to-bot).
 
 ### Update the server later
 
@@ -143,93 +211,18 @@ bun run package:linux
 sudo bash scripts/hosting/tommy-install dist/linux-unpacked
 ```
 
-The data and the address stay. Paired devices stay paired.
-
-## 2. Mac app
-
-Requirements: macOS 13 or later on Apple Silicon.
-
-### From a release (preferred)
-
-If <https://github.com/jbaehova/tommy/releases/latest> has a `.dmg` file, download it, open it and
-drag Tommy to Applications. Release builds are signed and notarized, so they open without a
-warning.
-
-```bash
-url=$(curl -fsSL https://api.github.com/repos/jbaehova/tommy/releases/latest \
-  | grep -o '"browser_download_url": *"[^"]*arm64\.dmg"' | cut -d'"' -f4)
-curl -fL "$url" -o /tmp/Tommy.dmg
-hdiutil attach -nobrowse -quiet /tmp/Tommy.dmg -mountpoint /tmp/tommy-dmg
-ditto /tmp/tommy-dmg/Tommy.app /Applications/Tommy.app
-hdiutil detach -quiet /tmp/tommy-dmg
-```
-
-If `url` is empty, there is no release yet: build the app.
-
-### Build it
-
-Install the Xcode command line tools (`xcode-select --install`), Bun 1.4.2 and Node.js 24 as in
-[Build tools](#build-tools) (on a Mac, Homebrew is fine: `brew install node@24`). Then:
-
-```bash
-git clone https://github.com/jbaehova/tommy.git ~/tommy
-cd ~/tommy
-bun install --frozen-lockfile
-bun run package
-ditto dist/mac-arm64/Tommy.app /Applications/Tommy.app
-rm -rf dist/mac-arm64/Tommy.app
-```
-
-The last line removes the build copy, so macOS shows only one Tommy. A build on your own Mac opens
-without a warning.
-
-### Connect
-
-Open Tommy. Enter the server address (the domain, such as `tommy.example.com`) and the code from
-`sudo tommy pair`. Then open Settings › Providers and sign in to at least one agent provider.
-
-## 3. Android app
-
-Requirements: Android 7 or later on a 64-bit ARM phone (almost every phone since 2017).
-
-Download the `.apk` file from <https://github.com/jbaehova/tommy/releases/latest> on the phone and
-open it. Android asks to allow installs from the browser once. If there is no release yet, build
-the APK (next section). Then open Tommy, scan the QR code from `sudo tommy pair` or type the address
-and code.
-
-The release APK has no push notifications, because notifications need the Firebase project of the
-server owner. To get them, build the APK with your own Firebase values.
-
-### Build it (optional)
-
-Needs Bun, Node.js 24, JDK 17 and the Android SDK (`ANDROID_HOME`). Copy `.env.example` to `.env`
-and fill `TOMMY_ANDROID_KEYSTORE` (keep the same key for every build, or the phone refuses updates)
-and, for notifications, the `FIREBASE_*` values of your Firebase project. Then:
-
-```bash
-bun run mobile:android:apk
-```
-
-The APK is `apps/mobile/android/app/build/outputs/apk/release/app-release.apk`. Install it with
-`adb install -r <apk>` or copy it to the phone.
-
-## Development UI checks
-
-For CDP checks without opening windows or taking focus from another app, run
-`TOMMY_DEV_BACKGROUND=1 bun run dev`, then use `bun run dev:automation` with that instance.
-This setting applies only to development. Packaged apps ignore it.
+The data and the settings stay.
 
 ## Finish
 
 Tell the user:
 
-- The server address, and that `sudo tommy status`, `sudo tommy logs` and `sudo tommy pair` manage
-  it.
-- Which apps are installed, and that each one is paired or what is left to do.
-- That they must sign in to a provider in Settings › Providers before the first agent can work.
+- The server address, and that `sudo tommy status` and `sudo tommy logs` manage it.
+- That the owner can talk to the root agent in the manager chat, and how `/connect` gives the other
+  agents their own chats.
+- Which provider the owner has configured for the first agent.
 - That agents run with full access on the server: they can read and change files and run commands.
-- How to update: the [server steps](#update-the-server-later), and a new release or build for the
-  apps.
+- How to update: the [server steps](#update-the-server-later).
 
 If something fails, read [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
@@ -311,12 +304,7 @@ that file unchanged and refuses new setup-key writes. Restore the matching encry
 before changing those keys. Resetting the whole Vault still removes its items and needs an explicit
 user action. A corrupt keyring ciphertext never changes the encryption backend for later writes.
 
-### Realtime voice and other optional features
-
-Realtime voice uses a signed-in Codex account with the required feature. Audio goes to the provider.
-Availability, usage limits and additional costs depend on that account. Start a call explicitly;
-Stop ends it and releases the microphone. Existing dictation and read-aloud settings stay separate.
-Android needs a new CI-built APK for the WebRTC native module. No speech model download is required.
+### Other optional features
 
 Pi can use the optional host web-search tool when Codex is already enabled and signed in.
 The search uses that Codex account and its usage allowance. It does not change the agent provider,

@@ -7,33 +7,35 @@ git clone https://github.com/jbaehova/tommy.git
 cd tommy
 bun install --frozen-lockfile
 bun run check
-bun run dev
 ```
+
+Tommy runs as a Linux server. Check a change with the end-to-end scripts in `scripts/` and on a
+server; a development start on your own computer uses the agent folders in your home folder.
 
 Coding agents skip `bun run check`: see [Checks](#checks).
 
 The supported toolchain is pinned in `package.json`. Use stable Bun 1.4.2, TypeScript 7, Vite 7, and the
 existing Biome configuration. Biome is the only lint and format tool. Do not add a second linter,
-Prettier, a second state library, or a UI kit without first discussing the architectural cost.
+Prettier, or a second state library without first discussing the architectural cost.
 The Biome configuration also loads the repository-owned GritQL rules in
 `tools/biome/anti-slop/rules`. Fix these findings at the domain boundary. Do not suppress a rule or
 replace a concrete contract with a broad dictionary type.
 
 Biome's `suspicious/noImportCycles` rejects circular imports across the whole repository, so runtime
 imports point in one direction. When two modules need each other, move the shared piece into a third
-module both can import — as `features/conversation/conversation-controller-context.tsx` does for the
-conversation controller, and `features/team/team-typing.ts` for the one IPC call two differently
-scoped owners both need.
+module both can import.
 Type-only imports (`import type`) are erased by the compiler and stay allowed in both directions.
 
 ## Security-sensitive changes
 
 Preserve the following boundaries, and their tests where they exist:
 
-- Electron sandboxing, context isolation, navigation policy, and IPC sender validation.
+- Electron sandboxing of the agent browser, and the deny-all permissions of the default session.
+- The Telegram webhook secrets, the owner check, and the Mini App launch-data check with each bot's
+  own credential.
 - Attachment realpath, MIME, size, quota, and managed-protocol checks.
 - Queue serialization, idempotency, crash reconciliation, and atomic persistence.
-- The remote browser session's lack of preload and `window.tommy` access.
+- The agent browser session's lack of a preload.
 - Secret redaction and agent child-process cleanup.
 
 Full agent access is intentional today, but new privileges or network surfaces still require an
@@ -57,8 +59,7 @@ and loads a laptop, so locally run only what your change needs:
 1. In a fresh worktree, run `bun install --frozen-lockfile`.
 2. Run one check at a time: `bun run test:changed`, `bun run test:related -- <source>`, or
    `bun run test:desktop -- <path>`.
-3. Type-check one project: `bun run typecheck:node`, `bun run typecheck:renderer`, or the changed
-   package's `typecheck`.
+3. Type-check one project: `bun run typecheck:node`, or the changed package's `typecheck`.
 4. Format only the files you changed: `biome check --write --max-diagnostics=none <paths>`.
 5. The pre-commit hook runs the staged checks. Do not skip it with `--no-verify`.
 
@@ -68,12 +69,12 @@ See the [check design notes](docs/development-checks.md) before you change a che
 
 - End-to-end tests are scripts under `scripts/` that drive the real app and write their output under
   `.tommy-build/`.
-- Use Vitest only for migrations (a fixture for each released schema), the renderer-to-main trust
-  boundary, secret redaction, and lint or UI rule fixtures.
+- Use Vitest only for migrations (a fixture for each released schema), the Telegram and webhook
+  trust boundary, secret redaction, and lint rule fixtures.
 - Wait for state or events, not for time. Assert behavior and data, not markup or layout. Do not use
   `data-testid`.
-- Fix a lint error; do not add `biome-ignore`. Each GritQL rule and UI check has fixtures that it
-  must reject and fixtures that it must accept.
+- Fix a lint error; do not add `biome-ignore`. Each GritQL rule has fixtures that it must reject and
+  fixtures that it must accept.
 
 ## Terms
 

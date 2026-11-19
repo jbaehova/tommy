@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""Read the owner's numeric Telegram ID before Tommy registers the manager webhook."""
+
+import argparse
+import http.client
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import stat
+import sys
+import time
+
+
+def read_token(path):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "r", encoding="ascii") as token_file:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077:
+            sys.exit("Use a regular token file with mode 0600 or 0400.")
+        if info.st_size > 512:
+            sys.exit("The file must contain one BotFather token.")
+        token = token_file.read(513).strip()
+    if not re.fullmatch(r"[1-9][0-9]{0,15}:[A-Za-z0-9_-]{16,256}", token):
+        sys.exit("The file must contain one BotFather token.")
+    return token
+
+
+def telegram(token, method, parameters):
+    connection = http.client.HTTPSConnection("api.telegram.org", timeout=10)
+    try:
+        connection.request("POST", f"/bot{token}/{method}", json.dumps(parameters),
+                           {"Content-Type": "application/json"})
+        response = connection.getresponse()
+        if response.status != 200:
+            sys.exit(f"Telegram refused {method} (HTTP {response.status}).")
+        body = response.read(1_048_577)
+        if len(body) > 1_048_576:
+            sys.exit("The manager has too many pending updates. Use a new manager for setup.")
+        data = json.loads(body)
+        if not isinstance(data, dict) or data.get("ok") is not True:
+            sys.exit(f"Telegram refused {method}.")
+        return data["result"]
+    finally:
+        connection.close()
+
+
+def owner_from_updates(updates, command):
+    for update in updates:
+        message = update.get("message", {})
+        if message.get("text") != command or "forward_origin" in message:
+            continue
+        sender = message.get("from", {})
+        chat = message.get("chat", {})
+        if (chat.get("type") == "private" and sender.get("is_bot") is False
+                and type(sender.get("id")) is int and 0 < sender["id"] < 2**52
+                and sender["id"] == chat.get("id")):
+            return sender["id"]
+    return None
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("token_file", type=Path)
+    token = read_token(parser.parse_args().token_file)
+    if telegram(token, "getWebhookInfo", {})["url"]:
+        sys.exit("This bot already has a webhook. Use a new manager for initial setup.")
+    username = telegram(token, "getMe", {})["username"]
+    if not isinstance(username, str) or not re.fullmatch(r"[A-Za-z0-9_]{5,32}", username):
+        sys.exit("Telegram returned an invalid manager username.")
+    code = secrets.token_urlsafe(24)
+    print(f"Open https://t.me/{username}?start={code} and tap Start in your own Telegram account.\n"
+          f"If the chat shows only /start, send this line to @{username}:\n/start {code}\n"
+          "This request expires in 10 minutes.", file=sys.stderr, flush=True)
+    deadline = time.monotonic() + 600
+    while time.monotonic() < deadline:
+        # An omitted offset leaves all existing updates pending for the future webhook.
+        updates = telegram(token, "getUpdates", {"timeout": 5, "limit": 100})
+        owner = owner_from_updates(updates, f"/start {code}")
+        if owner is not None:
+            print(owner)
+            return
+        if len(updates) == 100:
+            sys.exit("The manager has a full update queue. Use a new manager for initial setup.")
+        if updates:
+            time.sleep(1)
+    sys.exit("The setup link expired. Run the command again.")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, http.client.HTTPException):
+        # Exceptions and Telegram response bodies can contain the credential-bearing request path.
+        sys.exit("Could not read the private token file or contact the Telegram API.")

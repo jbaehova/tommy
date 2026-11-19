@@ -15,7 +15,7 @@ export interface WorkflowConnectorRequest {
   url: string;
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   headers?: Readonly<Record<string, string>>;
-  body?: ConnectorJson;
+  body?: ConnectorJson | FormData;
 }
 
 /** The fetch port is injectable for local E2E checks. Production requests have fixed official API origins. */
@@ -71,10 +71,11 @@ export class WorkflowConnectorHttp {
   ) {
     return yield* Effect.tryPromise({
       try: async (signal) => {
+        const body = input.body instanceof FormData ? input.body : JSON.stringify(input.body);
         const response = await this.#fetch(input.url, {
           method: input.method ?? "GET",
-          headers: { ...input.headers, ...(input.body === undefined ? {} : { "Content-Type": "application/json" }) },
-          ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
+          headers: { ...input.headers, ...(typeof body === "string" ? { "Content-Type": "application/json" } : {}) },
+          ...(body === undefined ? {} : { body }),
           redirect: "error",
           signal: AbortSignal.any([signal, AbortSignal.timeout(API_DEADLINE_MS)]),
         });

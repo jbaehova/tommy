@@ -2,29 +2,13 @@ import type { PartialTranslation } from "../../../message";
 import type { messages as source } from "../../en/error/backend";
 
 export const messages = {
-  "error.backend.eventsUnavailable": "이 호스트에서는 이벤트를 사용할 수 없어요.",
   "error.backend.databaseIntegrity": "Tommy 데이터베이스가 무결성 검사에 실패했어요.",
   "error.backend.webhookRouteLimit": "호스트 하나에는 웹훅 루틴을 최대 {limit}개까지 둘 수 있어요.",
   "error.backend.webhookSettingsInvalid": "웹훅 설정을 확인한 후 다시 시도해 주세요.",
   "error.backend.webhookTestUnavailable":
     "호스트가 지금 테스트 이벤트를 받을 수 없어요. 로그인되어 있는지 확인한 후 다시 시도해 주세요.",
   "error.backend.webhookTestFailed": "테스트 이벤트가 루틴에 도착하지 않았어요. 다시 시도해 주세요.",
-  "error.backend.browserViewRemoteOnly": "실시간 브라우저 보기는 원격 호스트에서만 사용할 수 있어요.",
-  "error.backend.browserViewUnsupported": "이 원격 호스트는 실시간 브라우저 보기를 지원하지 않아요.",
-  "error.backend.browserViewLimit": "이 호스트에서 열린 브라우저 보기가 너무 많아요.",
-  "error.backend.browserViewEnded": "이 페이지의 실시간 보기가 종료되었어요.",
-  "error.backend.browserViewFailed": "이 페이지의 실시간 보기에 실패했어요.",
-  "error.backend.windowTemporarilyUnavailable": "Tommy 창을 일시적으로 사용할 수 없어요.",
-  "error.backend.windowUnavailable": "Tommy 창을 사용할 수 없어요.",
-  "error.backend.channelDeleteUnsupported": "이 서버는 채널 삭제를 지원하지 않아요.",
-  "error.backend.browserNavigateUnsupported": "이 원격 호스트는 기존 탭에서 주소 표시줄 이동을 지원하지 않아요.",
   "error.backend.browserUserControlBusy": "이 브라우저 탭이 비밀 값을 기다리고 있어요. 먼저 비밀 값 요청에 답하세요.",
-  "error.backend.browserUserControlUnsupported": "이 원격 호스트는 브라우저 탭 제어권 가져오기를 지원하지 않아요.",
-  "error.backend.browserSignInUnsupported": "이 원격 호스트는 이 컴퓨터에서 로그인을 받을 수 없어요.",
-  "error.backend.browserSignInOpenFailed": "Tommy가 로그인 창을 열 수 없었어요.",
-  "error.backend.browserSignInReadFailed": "Tommy가 창에서 로그인 정보를 읽을 수 없었어요.",
-  "error.backend.browserStopUnsupported": "이 원격 호스트는 페이지 로딩을 중지할 수 없어요.",
-  "error.backend.sharedDataLocalOnly": "공유 데이터는 이 에이전트를 실행하는 컴퓨터에서 관리해요.",
   "error.backend.browserUrlProtocol": "브라우저 URL은 HTTP(S)만 사용할 수 있어요.",
   "error.backend.channelLeadModelUnavailable": "채널 리더 모델을 사용할 수 없어요.",
   "error.backend.contextCompactionIneffective":
@@ -162,9 +146,6 @@ export const messages = {
   "error.backend.agentWaitRoutineGone": "이 에이전트에는 이 ID의 루틴이 없어요.",
   "error.backend.agentWaitNoRoutine":
     "대기를 깨우는 것은 내 루틴의 실행뿐인데, 루틴이 없어요. tommy.create_routine으로 루틴을 만든 후 대기를 여세요.",
-  "error.backend.agentWaitRemoteUnsupported": "열린 대기는 이 컴퓨터의 에이전트에서만 사용할 수 있어요.",
-  "error.backend.markUnreadRemoteUnsupported":
-    "메시지를 읽지 않음으로 표시하는 기능은 이 컴퓨터의 에이전트에서만 사용할 수 있어요.",
   "error.backend.routineFlowHandoffFailed": "루틴이 이 에이전트에게 작업을 넘기지 못했어요.",
   "error.backend.mcpServerLimit": "Tommy는 MCP 서버를 최대 {limit}개까지 유지해요.",
   "error.backend.mcpServerNameTaken": "{name}(이)라는 MCP 서버가 이미 있어요.",
@@ -255,10 +236,7 @@ export const messages = {
   "error.backend.browserTabLimit": "브라우저에는 탭을 최대 {limit}개까지 열 수 있어요.",
   "error.backend.browserProfileMissing":
     "이 에이전트의 브라우저 프로필이 더 이상 없어요. 에이전트 설정에서 다른 프로필을 선택하세요.",
-  "error.backend.browserProfileNotFound": "이 브라우저 프로필은 더 이상 없어요.",
-  "error.backend.browserProfileNameTaken": "같은 이름의 브라우저 프로필이 이미 있어요.",
   "error.backend.browserSessionInUse": "탭 하나가 아직 이 브라우저 세션을 사용 중이에요. 다시 시도해 주세요.",
-  "error.backend.browserProfileLimit": "브라우저 프로필은 최대 {limit}개까지 만들 수 있어요.",
   "error.backend.browserLowMemory":
     "이 서버의 메모리가 부족해서 브라우저에서 탭을 더 열 수 없어요. 탭을 닫거나 다른 에이전트가 끝날 때까지 기다리세요.",
   "error.backend.browserOpenFailed": "{url}을(를) 열 수 없어요: {reason}",
@@ -298,10 +276,8 @@ export const messages = {
   "error.backend.threadTitleRequired": "스레드에 짧은 제목을 지정하세요.",
   "error.backend.threadOpenLimitReached":
     "이 에이전트에는 열린 스레드가 {count}개 있어요. 스레드 하나를 보관한 후 다른 스레드를 시작하거나 복원하세요.",
-  "error.backend.threadRemoteUnsupported": "스레드는 이 컴퓨터의 에이전트에서만 사용할 수 있어요.",
   "error.backend.branchSourceBusy": "이 채팅을 분기하기 전에 현재 턴을 중지하세요.",
   "error.backend.branchMessageNotFound": "에이전트의 완료된 답변에서만 분기할 수 있어요.",
-  "error.backend.branchRemoteUnsupported": "분기는 이 컴퓨터의 에이전트에서만 사용할 수 있어요.",
   "error.backend.threadMoveRefused": "이 에이전트에게만 보낸 메시지만 새 스레드에서 실행할 수 있어요.",
   "error.backend.taskTitleRequired": "작업에 짧은 제목을 지정하세요.",
   "error.backend.taskToolInvalid": "작업에 120자 이하의 제목과 할 일을 설명하는 지시문을 지정하세요.",
@@ -316,9 +292,6 @@ export const messages = {
   "error.backend.browserCertificateUntrusted": "이 사이트의 보안 인증서를 신뢰할 수 없어 페이지를 열지 못했어요.",
   "error.backend.mcpSignInAnswerUnreadable":
     "로그인 서버가 Tommy가 읽을 수 없는 응답을 보냈어요. 서비스에서 API 키나 토큰을 제공한다면 이 서버의 설정에 추가한 후 다시 연결을 테스트해 주세요.",
-  "error.backend.messageDeleteBusy": "이 메시지는 실행 중인 턴의 일부예요. 턴이 끝나면 삭제하세요.",
-  "error.backend.messageDeleteForbidden": "내가 보낸 메시지만 삭제할 수 있어요.",
-  "error.backend.messageDeleteNotFound": "이 메시지는 채팅에 없어요.",
 
   "error.backend.browserProxySavedUnreadable": "저장된 브라우저 프록시를 읽을 수 없어요.",
   "error.backend.browserProxyAddressInvalid": "올바른 브라우저 프로필 프록시 주소를 입력해 주세요.",

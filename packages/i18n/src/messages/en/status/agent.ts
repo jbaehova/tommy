@@ -98,4 +98,15 @@ export const messages = defineMessages("status.agent", {
   "status.agent.compactionContinues":
     "The connection stopped while the agent compacted its context. The agent continues.",
   "status.agent.workflowDelete": "Delete the workflow {title} with its runs and versions. Its open steps stop.",
+  "status.agent.telegramEngineUsage": "To select an engine for this agent, send /engine codex or /engine claude.",
+  "status.agent.telegramEngineSet": "This agent uses {engine} with model {model}.",
+  "status.agent.telegramEngineQueued": "This agent will use {engine} with model {model} after its current work.",
+  "status.agent.telegramEngineUnavailable":
+    "Tommy could not select {engine}. Check that the provider is connected on the VPS and offers a model.",
+  "status.agent.telegramNameUsage":
+    "Send /name followed by a display name of up to 64 characters. Use one line of public text.",
+  "status.agent.telegramNameRefused": "Tommy could not update this agent’s display name.",
+  "status.agent.telegramNameRetry":
+    "Tommy saved the display name. Send the same /name command again to apply it to the Telegram profile.",
+  "status.agent.telegramNameSet": "Tommy and the default Telegram profile now use the name {name}.",
 });

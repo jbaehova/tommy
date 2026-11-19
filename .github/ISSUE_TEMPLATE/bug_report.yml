@@ -22,8 +22,7 @@ body:
       label: Where
       multiple: true
       options:
-        - Mac app
-        - Android app
+        - Telegram
         - Linux server
         - Development checkout
     validations:
