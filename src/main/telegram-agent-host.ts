@@ -73,6 +73,7 @@ export class TelegramAgentHost {
     operationId: string,
     name: string,
     initialMessage: string,
+    description?: string,
   ) {
     const displayName = name.trim().slice(0, INPUT_LIMITS.agentName);
     const { agent } = yield* this.service.saveProfile(
@@ -81,7 +82,7 @@ export class TelegramAgentHost {
         draft: {
           name: displayName,
           title: "",
-          description: displayName,
+          description: description?.trim().slice(0, INPUT_LIMITS.agentDescription) || displayName,
           avatarSeed: operationId,
           avatarHue: null,
           sectionId: null,
@@ -91,6 +92,32 @@ export class TelegramAgentHost {
       this.sidebar,
     );
     return agent.id;
+  }).bind(this);
+
+  /** Replaces the description of an agent. The other profile fields and its sidebar section stay. */
+  readonly describe = Effect.fn("TelegramAgentHost.describe")(function* (
+    this: TelegramAgentHost,
+    operationId: string,
+    agentId: string,
+    description: string,
+  ) {
+    const agent = this.service.listAgents().find((candidate) => candidate.id === agentId);
+    if (!agent) return yield* new RemoteWorkflowError({ cause: new Error(sourceText("error.agent.gone")) });
+    yield* this.service.saveProfile(
+      {
+        operationId,
+        agentId,
+        draft: {
+          name: agent.name,
+          title: agent.title,
+          description: description.trim().slice(0, INPUT_LIMITS.agentDescription),
+          avatarSeed: agent.avatarSeed,
+          avatarHue: agent.avatarHue,
+          sectionId: this.sidebar.getSnapshot().agentAssignments[agentId] ?? null,
+        },
+      },
+      this.sidebar,
+    );
   }).bind(this);
 
   readonly submit = Effect.fn("TelegramAgentHost.submit")(function* (

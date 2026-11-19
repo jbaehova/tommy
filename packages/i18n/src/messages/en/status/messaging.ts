@@ -16,7 +16,13 @@ export const messages = defineMessages("status.messaging", {
   "status.messaging.telegramInitialMessage":
     "You are ready to receive work from your owner on Telegram. Wait for their first task.",
   "status.messaging.telegramOpenChat": "Start agent chat",
-  "status.messaging.telegramCreateHelp": "Tap Create agent, choose a name and confirm the Telegram username.",
+  "status.messaging.telegramCreateHelp":
+    "Tap Create agent, choose a name and confirm the Telegram username. You can also send /new followed by what the agent does.",
+  "status.messaging.telegramInitialRole":
+    "You are ready to receive work from your owner on Telegram. Your role: {description}\n\nWait for their first task.",
+  "status.messaging.telegramAskRole": "What does {name} do? Send the answer as your next message.",
+  "status.messaging.telegramRoleSaved": "{name} now knows its role. Its answer appears in @{username}.",
+  "status.messaging.telegramRoleMessage": "Your owner set your role: {description}",
   "status.messaging.telegramCreate": "Create Telegram agent",
   "status.messaging.telegramActive": "Connected to Tommy",
   "status.messaging.telegramPending": "Waiting for verification",

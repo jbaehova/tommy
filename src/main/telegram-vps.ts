@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { sourceText, sourceTranslateFor } from "@tommy/i18n/source";
 import { Effect, Result, Schedule, Semaphore } from "effect";
@@ -22,7 +22,7 @@ interface Options {
   settings: TelegramSettings;
   directory: TelegramDirectory;
   api: TelegramApi;
-  agents: Pick<TelegramAgentHost, "ensureAgent" | "submit" | "isAvailable" | "choices">;
+  agents: Pick<TelegramAgentHost, "ensureAgent" | "describe" | "submit" | "isAvailable" | "choices">;
   ready: () => boolean;
   profile?: Pick<TelegramProfile, "handle">;
   retryChat?: (id: number) => Effect.Effect<void, Error>;
@@ -56,6 +56,10 @@ export class TelegramVps {
   #language: "en" | "ko" = "en";
   #manager = "";
   #managerCaughtUp = false;
+  /** The role that the owner gave with /new, for the next new agent. */
+  #roleForNext: string | null = null;
+  /** A new agent without a role. The owner's next plain message in the manager chat becomes its role. */
+  #askingRole: { agentId: string; botId: number; username: string; name: string } | null = null;
   #closed = false;
   #attention: ((chat: number, text: string, messageId: number) => boolean) | null = null;
 
@@ -303,7 +307,8 @@ export class TelegramVps {
         yield* this.#options.api.sendMessage(settings.token, settings.ownerId, rootReply.html, rootReply.markup, true);
       } else if (!message.text.trim().startsWith("/")) {
         if (this.#attention?.(settings.managerId, message.text, message.message_id)) return;
-        yield* this.#toRoot(updateId, message, t);
+        if (this.#askingRole) yield* this.#saveRole(updateId, message.text, t);
+        else yield* this.#toRoot(updateId, message, t);
       } else if (command === "/root") {
         yield* this.#chooseRoot(words.slice(1).join(" "), t);
       } else if (command === "/connect") {
@@ -312,6 +317,7 @@ export class TelegramVps {
         const answer = yield* this.#disconnect.handle(message.text, updateId, t);
         if (answer !== null) yield* this.#tellOwner(answer);
       } else if (command === "/new") {
+        this.#roleForNext = message.text.trim().slice(command.length).trim() || null;
         yield* this.#tellOwner(t("status.messaging.telegramCreateHelp"), {
           inline_keyboard: [[{ text: t("status.messaging.telegramCreate"), url: this.#newBotLink() }]],
         });
@@ -525,21 +531,57 @@ export class TelegramVps {
     });
   }).bind(this);
 
-  /** A new bot named like an agent without a bot gets that agent. Any other bot gets a new agent. */
+  /**
+   * A new bot named like an agent without a bot gets that agent. Any other bot gets a new agent, with the
+   * role from /new when the owner gave one. `role` is false when the new agent still needs a role.
+   */
   readonly #bindCreated = Effect.fn("TelegramVps.bindCreated")(function* (
     this: TelegramVps,
     entry: TelegramConnection,
   ) {
     const { agents, directory, ready } = this.#options;
-    if (entry.agentId) return entry.agentId;
+    if (entry.agentId) return { agentId: entry.agentId, role: true };
     if (!ready()) return yield* Effect.fail(new Error("Tommy is starting."));
     const name = entry.name.trim().toLowerCase();
     const existing = this.#unbound().find((agent) => agent.name.trim().toLowerCase() === name);
-    const agentId =
-      existing?.id ??
-      (yield* agents.ensureAgent(entry.operationId, entry.name, sourceText("status.messaging.telegramInitialMessage")));
+    if (existing) {
+      yield* directory.bindAgent(entry.id, existing.id, entry.operationId);
+      return { agentId: existing.id, role: true };
+    }
+    const role = this.#roleForNext;
+    this.#roleForNext = null;
+    const agentId = yield* agents.ensureAgent(
+      entry.operationId,
+      entry.name,
+      role
+        ? sourceText("status.messaging.telegramInitialRole", { description: role })
+        : sourceText("status.messaging.telegramInitialMessage"),
+      role ?? undefined,
+    );
     yield* directory.bindAgent(entry.id, agentId, entry.operationId);
-    return agentId;
+    return { agentId, role: role !== null };
+  }).bind(this);
+
+  /** Saves the owner's answer as the new agent's description and sends it to the agent in its own chat. */
+  readonly #saveRole = Effect.fn("TelegramVps.saveRole")(function* (
+    this: TelegramVps,
+    updateId: number,
+    text: string,
+    t: Translate,
+  ) {
+    const asking = this.#askingRole;
+    if (!asking) return;
+    this.#askingRole = null;
+    const { agents, settings } = this.#options;
+    yield* agents.describe(randomUUID(), asking.agentId, text);
+    yield* agents.submit(
+      asking.agentId,
+      asking.botId,
+      settings.ownerId,
+      updateId,
+      t("status.messaging.telegramRoleMessage", { description: text.trim() }),
+    );
+    yield* this.#tellOwner(t("status.messaging.telegramRoleSaved", { name: asking.name, username: asking.username }));
   }).bind(this);
 
   readonly #update = Effect.fn("TelegramVps.update")(function* (this: TelegramVps, id: number, update: TelegramUpdate) {
@@ -559,7 +601,7 @@ export class TelegramVps {
       } else {
         const entry = yield* directory.ensureManaged(managed.bot, update.update_id);
         if (entry?.ownerConfirmed) {
-          const agentId = yield* this.#bindCreated(entry);
+          const { agentId, role } = yield* this.#bindCreated(entry);
           yield* this.#installChild(entry.id);
           const t = sourceTranslateFor(managed.user.language_code?.startsWith("ko") ? "ko" : "en");
           const name = this.#options.agents.choices().find((agent) => agent.id === agentId)?.name ?? entry.name;
@@ -568,6 +610,10 @@ export class TelegramVps {
               [{ text: t("status.messaging.telegramOpenChat"), url: `https://t.me/${entry.username}?start=tommy` }],
             ],
           });
+          if (!role) {
+            this.#askingRole = { agentId, botId: entry.id, username: entry.username, name };
+            yield* this.#tellOwner(t("status.messaging.telegramAskRole", { name }));
+          }
         }
       }
     } else if (message) {

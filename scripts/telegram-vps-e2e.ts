@@ -21,9 +21,11 @@ const manager = { id: 41001, is_bot: true, first_name: "Manager", username: "exa
 const planner = { id: 41002, is_bot: true, first_name: "Planner", username: "example_planner_bot" };
 const builder = { id: 41003, is_bot: true, first_name: "Builder", username: "example_builder_bot" };
 const helper = { id: 41004, is_bot: true, first_name: "Helper Agent", username: "example_helper_bot" };
+const writer = { id: 41005, is_bot: true, first_name: "Writer", username: "example_writer_bot" };
+const analyst = { id: 41006, is_bot: true, first_name: "Analyst", username: "example_analyst_bot" };
 const owner = { id: 51001, is_bot: false, first_name: "Owner", language_code: "en" };
 const stranger = { id: 51002, is_bot: false, first_name: "Other" };
-const accounts = [manager, planner, builder, helper];
+const accounts = [manager, planner, builder, helper, writer, analyst];
 const tokens = new Map(
   accounts.map((account) => [account.id, `${account.id}:${randomBytes(30).toString("base64url")}`]),
 );
@@ -110,11 +112,18 @@ agentIds.set("root", rootAgentId);
 agentIds.set("helper", helperAgentId);
 const fixedAgents: string[] = [rootAgentId, helperAgentId];
 const submissions: { agentId: string; telegramId: number; ownerId: number; updateId: number; text: string }[] = [];
+const roles = new Map<string, string>();
 const agents = {
-  ensureAgent: (operationId: string) =>
+  describe: (_operationId: string, agentId: string, description: string) =>
+    Effect.sync(() => {
+      roles.set(agentId, description);
+      return undefined;
+    }),
+  ensureAgent: (operationId: string, _name: string, _initialMessage: string, description?: string) =>
     Effect.sync(() => {
       const id = agentIds.get(operationId) ?? randomUUID();
       agentIds.set(operationId, id);
+      if (description) roles.set(id, description);
       return id;
     }),
   submit: (agentId: string, telegramId: number, ownerId: number, updateId: number, text: string) =>
@@ -354,6 +363,37 @@ try {
   check(
     "The existing agent answers in its own chat at once",
     submissions.at(-1)?.agentId === helperAgentId && submissions.at(-1)?.telegramId === helper.id,
+  );
+
+  phase = "new agent role";
+  await post(manager, message(owner, "/new"));
+  const askOffset = wire.length;
+  await post(manager, managed(writer));
+  const writerId = host.directory.get(writer.id)?.agentId ?? "";
+  check(
+    "A new agent without a role makes the manager ask for one",
+    wire.slice(askOffset).some((item) => item.from === manager.id && item.text.includes("What does Writer do")),
+  );
+  const answered = submissions.length;
+  await post(manager, message(owner, "Writes release notes"));
+  check(
+    "The answer becomes the role and reaches the new agent in its own chat",
+    roles.get(writerId) === "Writes release notes" &&
+      submissions.length === answered + 1 &&
+      submissions.at(-1)?.agentId === writerId &&
+      submissions.at(-1)?.telegramId === writer.id &&
+      Boolean(submissions.at(-1)?.text.includes("Writes release notes")),
+  );
+  await post(manager, message(owner, "Back to the root agent"));
+  check("The next message goes to the root agent again", submissions.at(-1)?.agentId === rootAgentId);
+  await post(manager, message(owner, "/new Summarizes stock news"));
+  const givenOffset = wire.length;
+  await post(manager, managed(analyst));
+  const analystId = host.directory.get(analyst.id)?.agentId ?? "";
+  check(
+    "A role given with /new is saved at creation without a question",
+    roles.get(analystId) === "Summarizes stock news" &&
+      !wire.slice(givenOffset).some((item) => item.text.includes("What does Analyst do")),
   );
   passed = true;
 } finally {

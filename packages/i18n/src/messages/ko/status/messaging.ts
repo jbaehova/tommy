@@ -8,7 +8,14 @@ export const messages = {
   "status.messaging.telegramOpenApp": "Tommy 열기",
   "status.messaging.telegramInitialMessage": "텔레그램에서 사용자의 첫 작업 요청을 기다리세요.",
   "status.messaging.telegramOpenChat": "에이전트와 대화 시작",
-  "status.messaging.telegramCreateHelp": "에이전트 만들기를 누르고 이름과 텔레그램 사용자 이름을 확인하세요.",
+  "status.messaging.telegramCreateHelp":
+    "에이전트 만들기를 누르고 이름과 텔레그램 사용자 이름을 확인하세요. /new 뒤에 에이전트가 할 일을 붙여 보내도 됩니다.",
+  "status.messaging.telegramInitialRole":
+    "텔레그램에서 사용자의 작업을 받을 준비가 됐습니다. 맡은 역할: {description}\n\n사용자의 첫 작업 요청을 기다리세요.",
+  "status.messaging.telegramAskRole": "{name} 에이전트는 무슨 일을 하나요? 다음 메시지로 알려 주세요.",
+  "status.messaging.telegramRoleSaved":
+    "{name} 에이전트에 역할을 저장하고 전달했습니다. 답은 @{username} 채팅에 나옵니다.",
+  "status.messaging.telegramRoleMessage": "사용자가 정한 역할입니다: {description}",
   "status.messaging.telegramCreate": "에이전트 만들기",
   "status.messaging.telegramActive": "Tommy에 연결됨",
   "status.messaging.telegramPending": "통신 확인 대기",
