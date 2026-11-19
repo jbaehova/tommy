@@ -1875,6 +1875,8 @@ export class MailboxStore {
     answerToTurnId?: string;
     /** A request inside Tommy from another agent, sent in that agent's turn. */
     requestFrom?: { agentId: string; turnId: string };
+    /** A scheduled routine run of this agent. */
+    routineRunId?: string;
   }[] {
     const deliveries = this.#state.deliveries.filter(
       (delivery) => delivery.recipientAgentId === agentId && delivery.turnId === turnId,
@@ -1884,6 +1886,7 @@ export class MailboxStore {
     let turnIds: Map<string, string | undefined> | undefined;
     return deliveries.map((delivery) => {
       const message = messages.get(delivery.messageId);
+      if (message?.sender.kind === "routine") return { routineRunId: message.sender.runId };
       if (message?.sender.kind === "user" && message.senderMember)
         return { senderId: message.senderMember.id, messageId: message.id };
       if (message?.telegramExchange && message.sender.kind === "agent") {

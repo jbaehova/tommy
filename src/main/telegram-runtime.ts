@@ -124,12 +124,18 @@ export function createTelegramRuntime({
   const requestChat = (id: string, turnId: string) => {
     const owner = turnOwner(id, turnId);
     if (owner) return owner;
+    // A routine's browser request goes to the agent's own chat.
+    if (agents.routineTurn(id, turnId)) return chatFor(id);
     const traced = available(id) ? agents.tracedChat(id, turnId, settings.ownerId) : null;
     const origin = traced === null ? undefined : connection(traced);
     if (!chatReady(origin) || !available(origin.agentId)) return undefined;
     return connections().find((entry) => entry.agentId === id && chatReady(entry)) ?? origin;
   };
   /** The manager opens the owner's whole view. An agent bot sees the requests sent to its own chat. */
+  agents.setRoutineChat((agentId) => {
+    const chat = chatFor(agentId);
+    return chat && vps.workReady && ready() ? { telegramId: chat.id, ownerId: settings.ownerId } : null;
+  });
   const ownsTurn = (id: string, turnId: string, bot: number) => {
     const chat = requestChat(id, turnId);
     return chat !== undefined && (bot === settings.managerId || chat.id === bot);

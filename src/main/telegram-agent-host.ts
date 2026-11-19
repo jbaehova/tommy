@@ -116,8 +116,24 @@ export class TelegramAgentHost {
     );
   }).bind(this);
 
+  /** The Telegram chat of each agent, for the results of its routines. Null: the agent has none. */
+  #routineChat: (agentId: string) => { telegramId: number; ownerId: number } | null = () => null;
+
+  setRoutineChat(chat: (agentId: string) => { telegramId: number; ownerId: number } | null): void {
+    this.#routineChat = chat;
+  }
+
+  /** A turn that only a scheduled routine of this agent started. */
+  routineTurn(agentId: string, turnId: string): boolean {
+    if (!this.isAvailable(agentId)) return false;
+    const origins = this.mailbox.telegramExchangeOriginsForTurn(agentId, turnId);
+    return origins.length > 0 && origins.every((origin) => origin.routineRunId !== undefined);
+  }
+
   ownsTurn(agentId: string, turnId: string, telegramId: number, ownerId: number): boolean {
-    return this.#turnSender(agentId, turnId) === senderId(telegramId, ownerId);
+    if (this.#turnSender(agentId, turnId) === senderId(telegramId, ownerId)) return true;
+    const chat = this.routineTurn(agentId, turnId) ? this.#routineChat(agentId) : null;
+    return chat !== null && chat.telegramId === telegramId && chat.ownerId === ownerId;
   }
 
   /** Authorizes an owner's pending interaction, including work delegated by their original Telegram agent. */
@@ -195,7 +211,7 @@ export class TelegramAgentHost {
   replies(receive: (reply: TelegramAgentReply) => void) {
     let active = true;
     const observe = (event: AgentEvent) => {
-      if (event.type !== "turn-completed" || event.quiet || event.continues || event.origin === "routine") return;
+      if (event.type !== "turn-completed" || event.quiet || event.continues) return;
       void Effect.runPromise(this.#reply(event))
         .then((reply) => {
           if (active && reply && this.ownsTurn(event.agentId, event.turnId, reply.telegramId, reply.ownerId))
@@ -217,10 +233,12 @@ export class TelegramAgentHost {
   ) {
     const { agentId, threadId, turnId } = event;
     const identity = this.#turnSender(agentId, turnId)?.match(/^telegram:([1-9]\d{0,15}):([1-9]\d{0,15})$/u);
-    if (!identity) return null;
-    const telegramId = Number(identity[1]);
-    const ownerId = Number(identity[2]);
-    if (!Number.isSafeInteger(telegramId) || !Number.isSafeInteger(ownerId)) return null;
+    // A routine result goes to the agent's own chat, as it went to its chat in the app.
+    const routine = identity ? null : this.routineTurn(agentId, turnId) ? this.#routineChat(agentId) : null;
+    if (!identity && !routine) return null;
+    const telegramId = identity ? Number(identity[1]) : (routine?.telegramId ?? 0);
+    const ownerId = identity ? Number(identity[2]) : (routine?.ownerId ?? 0);
+    if (!Number.isSafeInteger(telegramId) || !Number.isSafeInteger(ownerId) || !telegramId || !ownerId) return null;
     const status = event.status === "completed" || event.status === "failed" ? event.status : "cancelled";
     return yield* this.readReply({ agentId, threadId, turnId, telegramId, ownerId, status });
   });

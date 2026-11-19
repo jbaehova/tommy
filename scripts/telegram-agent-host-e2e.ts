@@ -60,7 +60,7 @@ createInterface({input:process.stdin}).on("line", line => {
     case "turn/start": {
       const threadId = params.threadId, turnId = randomUUID();
       const input = params.input.map(item => item.text || "").join("\\n");
-      const label = Array.from(input.matchAll(/VERIFY_(SEED|OWNER|PRIVATE|AFTER|DELEGATE|WORK|SYNTH)/g)).at(-1)?.[1] || "OTHER";
+      const label = Array.from(input.matchAll(/VERIFY_(SEED|OWNER|PRIVATE|AFTER|DELEGATE|WORK|SYNTH|ROUTINE)/g)).at(-1)?.[1] || "OTHER";
       appendFileSync(${JSON.stringify(log)}, label + "\\n");
       result({turn:{id:turnId,status:"inProgress",items:[]}});
       setImmediate(() => {
@@ -256,8 +256,29 @@ async function fixture(scratch: string) {
     } finally {
       stopNotices();
     }
+    // A scheduled routine's result goes to the agent's own chat, as it did in the app.
+    current.host.setRoutineChat((id) => (id === agent ? { telegramId, ownerId } : null));
+    const routine = current.service.createRoutine({
+      agentId: agent,
+      name: "Briefing",
+      instruction: "VERIFY_ROUTINE",
+      active: true,
+      timezone: "UTC",
+      schedule: { kind: "daily", time: "03:00" },
+    });
+    const beforeRoutine = current.replies.length;
+    await runCauseEffect(current.service.testRoutine({ agentId: agent, routineId: routine.id }));
+    await current.until("the routine result in the agent's chat", () =>
+      current.replies.slice(beforeRoutine).some((reply) => reply.text === "Result ROUTINE"),
+    );
+    const routineReply = current.replies.at(-1);
+    assert.ok(routineReply && routineReply.telegramId === telegramId && routineReply.agentId === agent);
+    assert.ok(current.host.ownsTurn(agent, routineReply.turnId, telegramId, ownerId));
+    assert.ok(!current.host.ownsTurn(agent, routineReply.turnId, telegramId + 1, ownerId));
+    current.host.setRoutineChat(() => null);
+    assert.ok(!current.host.ownsTurn(agent, routineReply.turnId, telegramId, ownerId));
     const starts = readFileSync(turns, "utf8").trim().split("\n");
-    for (const label of ["SEED", "OWNER", "PRIVATE", "AFTER", "DELEGATE", "WORK", "SYNTH"]) {
+    for (const label of ["SEED", "OWNER", "PRIVATE", "AFTER", "DELEGATE", "WORK", "SYNTH", "ROUTINE"]) {
       assert.equal(
         starts.filter((start) => start === label).length,
         1,
@@ -311,6 +332,7 @@ if (process.argv[2] === "--isolated-host") {
             "root agent relays the synthesis to the owner",
             "agent message notices for bot chats",
             "delegated browser requests trace to the owner's chat",
+            "routine results go to the agent's own chat",
           ],
         },
         null,
