@@ -57,7 +57,7 @@ export class TelegramAgentHost {
     private readonly sidebar: Pick<SidebarLayoutStore, "getSnapshot" | "withProfileAssignment">,
     private readonly mailbox: Pick<
       MailboxStore,
-      "telegramOriginsForTurn" | "resolveAttachment" | "generatedImageDigest"
+      "telegramOriginsForTurn" | "deliveryForMessage" | "resolveAttachment" | "generatedImageDigest"
     >,
     private readonly database: Pick<TommyDatabase, "readTurnAssistantMessages">,
   ) {}
@@ -186,11 +186,10 @@ export class TelegramAgentHost {
       let continuing: string | null = null;
       for (;;) {
         for (let event = completed.shift(); event; event = completed.shift()) {
+          // The delivery of the question carries the turn that runs it, with or without a Telegram sender.
           const ours =
             continuing === event.threadId ||
-            this.mailbox
-              .telegramOriginsForTurn(agentId, event.turnId)
-              .some((origin) => origin.messageId === receipt.messageId);
+            this.mailbox.deliveryForMessage(receipt.messageId, agentId)?.delivery.turnId === event.turnId;
           if (!ours) continue;
           if (event.continues) {
             continuing = event.threadId;
