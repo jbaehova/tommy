@@ -1,4 +1,4 @@
-import { createHmac, randomUUID } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { sourceText, sourceTranslateFor } from "@tommy/i18n/source";
 import { Effect, Result, Schedule, Semaphore } from "effect";
@@ -22,7 +22,7 @@ interface Options {
   settings: TelegramSettings;
   directory: TelegramDirectory;
   api: TelegramApi;
-  agents: Pick<TelegramAgentHost, "ensureAgent" | "describe" | "submit" | "isAvailable" | "choices">;
+  agents: Pick<TelegramAgentHost, "ensureAgent" | "describe" | "remove" | "submit" | "isAvailable" | "choices">;
   ready: () => boolean;
   profile?: Pick<TelegramProfile, "handle">;
   retryChat?: (id: number) => Effect.Effect<void, Error>;
@@ -60,6 +60,8 @@ export class TelegramVps {
   #roleForNext: string | null = null;
   /** A new agent without a role. The owner's next plain message in the manager chat becomes its role. */
   #askingRole: { agentId: string; botId: number; username: string; name: string } | null = null;
+  /** An agent delete that waits for the owner to send its code. */
+  #deleting: { agentId: string; name: string; code: string; expires: number } | null = null;
   #closed = false;
   #attention: ((chat: number, text: string, messageId: number) => boolean) | null = null;
 
@@ -115,7 +117,7 @@ export class TelegramVps {
   readonly #commands = Effect.fn("TelegramVps.commands")(function* (this: TelegramVps, id: number, token: string) {
     const manager = id === this.#options.settings.managerId;
     const names = manager
-      ? (["connect", "new", "agents", "stop", "browser", "root", "disconnect"] as const)
+      ? (["connect", "new", "agents", "stop", "browser", "root", "disconnect", "delete"] as const)
       : (["stop", "browser", "engine", "name"] as const);
     const shared = this.#options.commands
       ? TELEGRAM_COMMAND_MENU.filter(([command]) => !(manager && command === "delete"))
@@ -130,6 +132,7 @@ export class TelegramVps {
         browser: t("status.messaging.telegramCommandBrowser"),
         root: t("status.messaging.telegramCommandRoot"),
         disconnect: t("status.messaging.telegramCommandDisconnect"),
+        delete: t("status.messaging.telegramCommandDeleteAgent"),
         engine: t("status.messaging.telegramCommandEngine"),
         name: t("status.messaging.telegramCommandName"),
       };
@@ -295,8 +298,9 @@ export class TelegramVps {
     const child = directory.get(recipient);
     if (recipient === settings.managerId) {
       const rootAgentId = directory.managerAgent()?.agentId;
+      // In this chat /delete deletes an agent without a chat, never the root agent.
       const rootReply =
-        message.text.trim().startsWith("/") && rootAgentId && this.#options.commands
+        message.text.trim().startsWith("/") && command !== "/delete" && rootAgentId && this.#options.commands
           ? yield* this.#options.commands.handle(rootAgentId, message.text, t, {
               timeZone: this.#options.timeZone?.() ?? "UTC",
               language: this.#language,
@@ -311,6 +315,8 @@ export class TelegramVps {
         else yield* this.#toRoot(updateId, message, t);
       } else if (command === "/root") {
         yield* this.#chooseRoot(words.slice(1).join(" "), t);
+      } else if (command === "/delete") {
+        yield* this.#deleteAgent(message.text.trim().slice(command.length).trim(), t);
       } else if (command === "/connect") {
         yield* this.#connect(t);
       } else if (command === "/disconnect") {
@@ -396,6 +402,66 @@ export class TelegramVps {
     const files = yield* this.#download(child.id, message, t);
     if (files === null) return;
     yield* agents.submit(child.agentId, child.id, settings.ownerId, updateId, message.text, files);
+  }).bind(this);
+
+  /**
+   * Deletes an agent that has no chat, after the owner sends the code. An agent with a chat is deleted
+   * from its own chat, and the root agent never.
+   */
+  readonly #deleteAgent = Effect.fn("TelegramVps.deleteAgent")(function* (
+    this: TelegramVps,
+    input: string,
+    t: Translate,
+  ) {
+    const { agents, directory, ready } = this.#options;
+    if (!ready()) return yield* Effect.fail(new Error("Tommy is starting."));
+    const pending = this.#deleting;
+    if (
+      pending &&
+      pending.expires > Date.now() &&
+      input.toLowerCase() === `${pending.name} ${pending.code}`.toLowerCase()
+    ) {
+      this.#deleting = null;
+      if (agents.isAvailable(pending.agentId) && this.#unbound().some((agent) => agent.id === pending.agentId)) {
+        yield* agents.remove(pending.agentId);
+        yield* this.#tellOwner(t("status.messaging.telegramDeleted", { name: pending.name }));
+      } else {
+        yield* this.#tellOwner(t("status.messaging.telegramDeleteUnknown"));
+      }
+      return;
+    }
+    const unbound = this.#unbound();
+    if (!input) {
+      yield* this.#tellOwner(
+        unbound.length
+          ? t("status.messaging.telegramDeleteUsage", { names: unbound.map((agent) => agent.name).join("\n") })
+          : t("status.messaging.telegramDeleteNone"),
+      );
+      return;
+    }
+    const wanted = input.toLowerCase();
+    const named = agents.choices().filter((agent) => agent.name.trim().toLowerCase() === wanted);
+    const target = named.length === 1 ? named[0] : undefined;
+    if (!target) {
+      yield* this.#tellOwner(
+        t(named.length ? "status.messaging.telegramDeleteAmbiguous" : "status.messaging.telegramDeleteUnknown"),
+      );
+      return;
+    }
+    if (target.id === directory.managerAgent()?.agentId) {
+      yield* this.#tellOwner(t("status.messaging.telegramDeleteRoot"));
+      return;
+    }
+    const bot = directory.list().find((entry) => entry.agentId === target.id);
+    if (bot) {
+      yield* this.#tellOwner(
+        t("status.messaging.telegramDeleteHasChat", { name: target.name, username: bot.username }),
+      );
+      return;
+    }
+    const code = randomBytes(3).toString("hex");
+    this.#deleting = { agentId: target.id, name: target.name, code, expires: Date.now() + 5 * 60_000 };
+    yield* this.#tellOwner(t("status.messaging.telegramDeleteAsk", { name: target.name, code }));
   }).bind(this);
 
   /** Agents that have neither the manager chat nor their own bot. */

@@ -101,6 +101,7 @@ describe("Telegram agent reply authorization", () => {
         {
           listAgents: () => agents,
           saveProfile: unused,
+          deleteAgent: unused,
           sendMessage: unused,
           prepareImportedAttachments: unused,
           on: unused,

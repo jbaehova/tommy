@@ -113,7 +113,14 @@ agentIds.set("helper", helperAgentId);
 const fixedAgents: string[] = [rootAgentId, helperAgentId];
 const submissions: { agentId: string; telegramId: number; ownerId: number; updateId: number; text: string }[] = [];
 const roles = new Map<string, string>();
+const spareNames = new Map<string, string>();
+const deletedAgents: string[] = [];
 const agents = {
+  remove: (agentId: string) =>
+    Effect.sync(() => {
+      deletedAgents.push(agentId);
+      spareNames.delete(agentId);
+    }),
   describe: (_operationId: string, agentId: string, description: string) =>
     Effect.sync(() => {
       roles.set(agentId, description);
@@ -131,10 +138,11 @@ const agents = {
       submissions.push({ agentId, telegramId, ownerId, updateId, text });
       return undefined;
     }),
-  isAvailable: (agentId: string) => [...agentIds.values()].includes(agentId),
+  isAvailable: (agentId: string) => [...agentIds.values()].includes(agentId) || spareNames.has(agentId),
   choices: () => [
     { id: rootAgentId, name: "Root Agent" },
     { id: helperAgentId, name: "Helper Agent" },
+    ...[...spareNames].map(([id, name]) => ({ id, name })),
   ],
 };
 
@@ -395,6 +403,37 @@ try {
     roles.get(analystId) === "Summarizes stock news" &&
       !wire.slice(givenOffset).some((item) => item.text.includes("What does Analyst do")),
   );
+
+  phase = "delete an agent without a chat";
+  const lastCode = (offset: number) =>
+    [
+      ...wire
+        .slice(offset)
+        .map((item) => item.text)
+        .join("\n")
+        .matchAll(/\/delete Spare Agent ([0-9a-f]{6})/g),
+    ].at(-1)?.[1];
+  await post(manager, message(owner, "/delete root agent"));
+  check("The root agent cannot be deleted from the manager chat", deletedAgents.length === 0);
+  const hasChatOffset = wire.length;
+  await post(manager, message(owner, "/delete helper agent"));
+  check(
+    "An agent with a chat is deleted from its own chat",
+    deletedAgents.length === 0 && wire.slice(hasChatOffset).some((item) => item.text.includes("@example_helper_bot")),
+  );
+  const spareId = randomUUID();
+  spareNames.set(spareId, "Spare Agent");
+  const deleteOffset = wire.length;
+  await post(manager, message(owner, "/delete spare agent"));
+  check(
+    "Deleting an agent without a chat asks for a code first",
+    Boolean(lastCode(deleteOffset)) && deletedAgents.length === 0,
+  );
+  await post(manager, message(owner, "/delete Spare Agent 000000"));
+  check("A wrong code does not delete the agent", deletedAgents.length === 0);
+  await post(manager, message(owner, "/delete spare agent"));
+  await post(manager, message(owner, `/delete Spare Agent ${lastCode(deleteOffset)}`));
+  check("The code deletes the agent without a chat", deletedAgents.length === 1 && deletedAgents[0] === spareId);
   passed = true;
 } finally {
   host.service.close();

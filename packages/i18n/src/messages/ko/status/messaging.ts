@@ -90,6 +90,16 @@ export const messages = {
   "status.messaging.telegramDeleteConfirm":
     "{name} 에이전트와 대화, 작업공간을 서버에서 지웁니다. 확인하려면 /delete {name}을 보내세요.",
   "status.messaging.telegramDeleted": "{name} 에이전트를 지웠어요.",
+  "status.messaging.telegramCommandDeleteAgent": "채팅이 없는 에이전트 지우기",
+  "status.messaging.telegramDeleteUsage":
+    "/delete 뒤에 지울 에이전트 이름을 붙여 보내세요. 채팅이 없는 에이전트:\n{names}",
+  "status.messaging.telegramDeleteNone":
+    "모든 에이전트에 채팅이 있어요. 지우려면 그 에이전트 채팅에서 /delete를 보내세요.",
+  "status.messaging.telegramDeleteUnknown": "그 이름의 채팅 없는 에이전트가 없어요. /delete로 목록을 보세요.",
+  "status.messaging.telegramDeleteAmbiguous": "같은 이름의 에이전트가 여러 개예요. Tommy에서 지우세요.",
+  "status.messaging.telegramDeleteHasChat": "{name} 에이전트는 채팅이 있어요. @{username} 채팅에서 /delete를 보내세요.",
+  "status.messaging.telegramDeleteAsk":
+    "{name} 에이전트와 대화, 작업공간을 서버에서 지웁니다. 되돌릴 수 없어요. 확인하려면 5분 안에 이 명령을 보내세요:\n\n/delete {name} {code}",
   "status.messaging.telegramCompacted": "대화 컨텍스트를 압축하고 있어요.",
   "status.messaging.telegramCompactRefused": "지금은 압축할 수 없어요. 에이전트가 쉬고 있을 때 다시 시도해 주세요.",
   "status.messaging.telegramQueueEmpty": "대기 중인 메시지가 없어요.",

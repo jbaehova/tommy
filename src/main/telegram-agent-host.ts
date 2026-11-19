@@ -45,7 +45,7 @@ export class TelegramAgentHost {
   constructor(
     private readonly service: Pick<
       AgentService,
-      "listAgents" | "saveProfile" | "sendMessage" | "prepareImportedAttachments" | "on" | "off"
+      "listAgents" | "saveProfile" | "deleteAgent" | "sendMessage" | "prepareImportedAttachments" | "on" | "off"
     >,
     private readonly sidebar: Pick<SidebarLayoutStore, "getSnapshot" | "withProfileAssignment">,
     private readonly mailbox: Pick<
@@ -119,6 +119,11 @@ export class TelegramAgentHost {
       this.sidebar,
     );
   }).bind(this);
+
+  /** Deletes an agent with its conversations and workspace. */
+  remove(agentId: string) {
+    return this.service.deleteAgent(agentId);
+  }
 
   readonly submit = Effect.fn("TelegramAgentHost.submit")(function* (
     this: TelegramAgentHost,

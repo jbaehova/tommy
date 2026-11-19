@@ -99,6 +99,15 @@ export const messages = defineMessages("status.messaging", {
   "status.messaging.telegramDeleteConfirm":
     "This deletes {name} with its conversation and workspace on the server. To confirm, send /delete {name}",
   "status.messaging.telegramDeleted": "Deleted {name}.",
+  "status.messaging.telegramCommandDeleteAgent": "Delete an agent without a chat",
+  "status.messaging.telegramDeleteUsage":
+    "Send /delete followed by the name of the agent. Agents without a chat:\n{names}",
+  "status.messaging.telegramDeleteNone": "Every agent has a chat. Send /delete in the agent's own chat to delete it.",
+  "status.messaging.telegramDeleteUnknown": "No agent without a chat has this name. Send /delete to see the list.",
+  "status.messaging.telegramDeleteAmbiguous": "More than one agent has this name. Delete it in Tommy.",
+  "status.messaging.telegramDeleteHasChat": "{name} has its own chat. Send /delete in @{username}.",
+  "status.messaging.telegramDeleteAsk":
+    "This deletes {name}, its conversations and its workspace from the server. You cannot undo it. To confirm, send this within 5 minutes:\n\n/delete {name} {code}",
   "status.messaging.telegramCompacted": "Compacting the conversation context.",
   "status.messaging.telegramCompactRefused": "Tommy cannot compact now. Try again when the agent is idle.",
   "status.messaging.telegramQueueEmpty": "No messages are waiting.",
