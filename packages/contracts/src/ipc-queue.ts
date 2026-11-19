@@ -17,11 +17,13 @@ export type QueueDeliveryStatus = (typeof QUEUE_DELIVERY_STATUSES)[number];
 
 /**
  * What a message sent to a busy agent does. `queue` waits behind the running turn; `steer` joins
- * that turn at the provider's next step. Idle agents start every message the same way.
+ * that turn at the provider's next step. Idle agents start every message the same way. The default
+ * is `steer`: a person who writes while the agent works means to change the work now. A provider
+ * that cannot steer still queues the message.
  */
 export const BUSY_MESSAGE_MODES = ["queue", "steer"] as const;
 export type BusyMessageMode = (typeof BUSY_MESSAGE_MODES)[number];
-export const DEFAULT_BUSY_MESSAGE_MODE: BusyMessageMode = "queue";
+export const DEFAULT_BUSY_MESSAGE_MODE: BusyMessageMode = "steer";
 
 export function isBusyMessageMode(value: unknown): value is BusyMessageMode {
   return isOneOf(BUSY_MESSAGE_MODES, value);
