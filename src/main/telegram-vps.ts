@@ -41,6 +41,13 @@ type Translate = typeof sourceText;
 const updatePath = "/tommy/telegram/update/";
 const bodyLimit = 128 * 1024;
 
+/** Puts two keyboard buttons on each row, so that a long agent list stays short. */
+const pairs = <T>(buttons: ReadonlyArray<T>): T[][] => {
+  const rows: T[][] = [];
+  for (let index = 0; index < buttons.length; index += 2) rows.push(buttons.slice(index, index + 2));
+  return rows;
+};
+
 /** Delivers private owner messages and receipts from known Telegram peers. Group updates are never owner authority. */
 export class TelegramVps {
   readonly #options: Options;
@@ -419,7 +426,7 @@ export class TelegramVps {
         ? t("status.messaging.telegramRootCurrent", { name: current.name })
         : t("status.messaging.telegramChooseRoot"),
       {
-        keyboard: choices.slice(0, 50).map((agent) => [{ text: `/root ${agent.name}`.slice(0, 120) }]),
+        keyboard: pairs(choices.slice(0, 50).map((agent) => ({ text: `/root ${agent.name}`.slice(0, 120) }))),
         resize_keyboard: true,
         one_time_keyboard: true,
       },
@@ -500,13 +507,14 @@ export class TelegramVps {
       return;
     }
     yield* this.#tellOwner(t("status.messaging.telegramConnectHelp"), {
-      keyboard: choices.map((agent, index) => [
-        {
+      keyboard: pairs(
+        choices.map((agent, index) => ({
           text: agent.name.slice(0, 120),
           request_managed_bot: { request_id: index + 2, suggested_name: agent.name.slice(0, 64) },
-        },
-      ]),
+        })),
+      ),
       resize_keyboard: true,
+      one_time_keyboard: true,
     });
   }).bind(this);
 
