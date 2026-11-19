@@ -82,8 +82,6 @@ export class TelegramVps {
   #askingRole: { agentId: string; botId: number; username: string; name: string; expires: number } | null = null;
   /** An agent delete that waits for the owner to send its code. */
   #deleting: { agentId: string; name: string; code: string; expires: number } | null = null;
-  /** True after /connect_button showed Telegram's create keyboard. The next new bot closes it. */
-  #createKeyboard = false;
   /** Bots whose token this process replaced once. A second rejection does not revoke the new token again. */
   readonly #replaced = new Set<number>();
   #closed = false;
@@ -365,8 +363,6 @@ export class TelegramVps {
         yield* this.#deleteAgent(message.text.trim().slice(command.length).trim(), t);
       } else if (command === "/connect") {
         yield* this.#connect(t);
-      } else if (command === "/connect_button") {
-        yield* this.#connectButtons(t);
       } else if (command === "/disconnect") {
         const answer = yield* this.#disconnect.handle(message.text, updateId, t);
         if (answer !== null) yield* this.#tellOwner(answer);
@@ -631,30 +627,6 @@ export class TelegramVps {
     return /^[a-z][a-z0-9_]{4,31}$/.test(username) ? `${link}/${username}${query}` : `${link}${query}`;
   }
 
-  /**
-   * Telegram's own create button for each agent without a bot, for when a create link does not finish.
-   * The keyboard closes when the new bot arrives. The new bot's name selects the agent.
-   */
-  readonly #connectButtons = Effect.fn("TelegramVps.connectButtons")(function* (this: TelegramVps, t: Translate) {
-    if (!this.#options.ready()) return yield* Effect.fail(new Error("Tommy is starting."));
-    const choices = this.#unbound().slice(0, 50);
-    if (!choices.length) {
-      yield* this.#tellOwner(t("status.messaging.telegramAllConnected"));
-      return;
-    }
-    this.#createKeyboard = true;
-    yield* this.#tellOwner(t("status.messaging.telegramConnectButtonHelp"), {
-      keyboard: pairs(
-        choices.map((agent, index) => ({
-          text: clip(agent.name, 120),
-          request_managed_bot: { request_id: index + 2, suggested_name: clip(agent.name, 64) },
-        })),
-      ),
-      resize_keyboard: true,
-      one_time_keyboard: true,
-    });
-  }).bind(this);
-
   /** One create link for each agent without a bot. The new bot's name selects the agent. */
   readonly #connect = Effect.fn("TelegramVps.connect")(function* (this: TelegramVps, t: Translate) {
     if (!this.#options.ready()) return yield* Effect.fail(new Error("Tommy is starting."));
@@ -762,24 +734,11 @@ export class TelegramVps {
           yield* this.#installChild(entry.id);
           const t = sourceTranslateFor(managed.user.language_code?.startsWith("ko") ? "ko" : "en");
           const name = this.#options.agents.choices().find((agent) => agent.id === agentId)?.name ?? entry.name;
-          // A message has one markup: after /connect_button it closes the keyboard, and @username opens the chat.
-          const closing = this.#createKeyboard;
-          this.#createKeyboard = false;
-          yield* this.#tellOwner(
-            t("status.messaging.telegramChatReady", { username: entry.username, name }),
-            closing
-              ? { remove_keyboard: true }
-              : {
-                  inline_keyboard: [
-                    [
-                      {
-                        text: t("status.messaging.telegramOpenChat"),
-                        url: `https://t.me/${entry.username}?start=tommy`,
-                      },
-                    ],
-                  ],
-                },
-          );
+          yield* this.#tellOwner(t("status.messaging.telegramChatReady", { username: entry.username, name }), {
+            inline_keyboard: [
+              [{ text: t("status.messaging.telegramOpenChat"), url: `https://t.me/${entry.username}?start=tommy` }],
+            ],
+          });
           if (!role) {
             this.#askingRole = {
               agentId,

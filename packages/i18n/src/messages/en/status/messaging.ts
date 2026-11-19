@@ -38,9 +38,7 @@ export const messages = defineMessages("status.messaging", {
   "status.messaging.telegramRootCurrent": "{name} is your root agent. Choose another agent only to replace it.",
   "status.messaging.telegramRootSelected": "{name} is now your root agent. Send it a message here.",
   "status.messaging.telegramConnectHelp":
-    "Tap an agent, then create the new bot in Telegram. Keep the suggested name so that the bot connects to that agent. You can change the username. If the create screen keeps loading, send /connect_button.",
-  "status.messaging.telegramConnectButtonHelp":
-    "Tap an agent in the keyboard below, then create the new bot. Keep the suggested name so that the bot connects to that agent.",
+    "Tap an agent, then create the new bot in Telegram. Keep the suggested name so that the bot connects to that agent. You can change the username.",
   "status.messaging.telegramAllConnected": "Every agent already has a chat. Send /new to create a new agent.",
   "status.messaging.telegramChatReady": "@{username} is ready. Open its chat to talk to {name}.",
   "status.messaging.telegramChatHelp":
