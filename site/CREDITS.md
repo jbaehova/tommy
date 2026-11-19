@@ -10,7 +10,7 @@ and are used under the [Pexels License](https://www.pexels.com/license/).
 
 | File | Example agent | Photo | Photographer |
 | --- | --- | --- | --- |
-| `avatars/travel.jpg` | Travel Planner | [Portrait Photo of Woman Smiling](https://www.pexels.com/photo/3791554/) | [Andrea Piacquadio](https://www.pexels.com/@olly/) |
+| `avatars/travel.jpg` | Travel Planner | [Woman Wearing Black Eyeglasses](https://www.pexels.com/photo/woman-wearing-black-eyeglasses-1239291/) | Daniel Xavier |
 | `avatars/finance.jpg` | Finance | [Positive senior man in eyeglasses showing thumbs up](https://www.pexels.com/photo/3824771/) | [Andrea Piacquadio](https://www.pexels.com/@olly/) |
 | `avatars/engineer.jpg` | Engineer | [Positive young black woman smiling in white studio](https://www.pexels.com/photo/6311269/) | [Monstera Production](https://www.pexels.com/@gabby-k/) |
 | `avatars/researcher.jpg` | Researcher | [Smiling Young Man in Suit Posing on White Studio Background](https://www.pexels.com/photo/17311570/) | [Tran Nhu Tuan](https://www.pexels.com/@kooldark/) |
