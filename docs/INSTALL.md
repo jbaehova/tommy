@@ -169,7 +169,11 @@ in `/etc/tommy/server.env` if the executable is in a custom location.
    TOMMY_TELEGRAM_MANAGER_TOKEN_FILE=/etc/tommy/telegram/manager-token
    TOMMY_TELEGRAM_OWNER_ID=<your numeric user ID>
    TOMMY_TELEGRAM_PUBLIC_URL=https://<domain>
+   TOMMY_TIMEZONE=<your time zone, such as Asia/Seoul>
    ```
+
+   `TOMMY_TIMEZONE` is optional. Without it, times in chat use the time zone of your routines, or
+   the server's own, which is often UTC.
 
 5. For an existing install, update the nginx site from this checkout as described in [HTTPS](#https).
    Restart Tommy with `sudo systemctl restart tommy`. Open your manager in Telegram and send

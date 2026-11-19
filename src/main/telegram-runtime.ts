@@ -91,6 +91,10 @@ export function createTelegramRuntime({
     ready,
     profile,
     retryChat: (id) => delivery.retryChat(id),
+    agentProfile: (agentId) => {
+      const agent = service.listAgents().find((entry) => entry.id === agentId);
+      return agent ? { name: agent.name, title: agent.title, description: agent.description } : null;
+    },
     stop: (agentId) =>
       Effect.gen(function* () {
         const turns = service.getRuntimeSnapshot().activeTurns.filter((turn) => turn.agentId === agentId);
@@ -289,6 +293,28 @@ export function createTelegramRuntime({
     respondToApproval: (requestId, decision) => service.respondToApproval({ requestId, decision }),
     language: () => vps.language,
   });
+  /**
+   * The owner's time zone for times in chat. The server runs in UTC, so use TOMMY_TIMEZONE, then the
+   * zone the owner gave the root agent's routines, then any routine, then the server's own.
+   */
+  const ownerTimeZone = () => {
+    const valid = (zone: string | undefined): zone is string => {
+      if (!zone) return false;
+      try {
+        new Intl.DateTimeFormat("en-US", { timeZone: zone });
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const configured = process.env.TOMMY_TIMEZONE;
+    if (valid(configured)) return configured;
+    const root = directory.managerAgent()?.agentId;
+    const agentIds = [...(root ? [root] : []), ...service.listAgents().map((agent) => agent.id)];
+    for (const agentId of agentIds)
+      for (const routine of service.listRoutines(agentId)) if (valid(routine.timezone)) return routine.timezone;
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  };
   /** Provider errors and plan limits in the agent's own chat, at most once in ten minutes each. */
   const reported = new Map<string, number>();
   const problems = (event: AgentEvent) => {
@@ -305,6 +331,7 @@ export function createTelegramRuntime({
           ? t("status.messaging.telegramLimitLater")
           : t("status.messaging.telegramLimit", {
               time: new Date(event.resetsAt * 1000).toLocaleString(vps.language === "ko" ? "ko-KR" : "en-US", {
+                timeZone: ownerTimeZone(),
                 month: "short",
                 day: "numeric",
                 hour: "2-digit",

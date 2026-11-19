@@ -178,6 +178,8 @@ export class TelegramApi {
       | "getManagedBotToken"
       | "setMyName"
       | "setMyCommands"
+      | "setMyDescription"
+      | "setMyShortDescription"
       | "sendChatAction"
       | "deleteMessage"
       | "getFile"
@@ -275,6 +277,29 @@ export class TelegramApi {
         ...(markup ? { reply_markup: markup } : {}),
       }),
       posted,
+    );
+  }).bind(this);
+
+  /** The bot's profile text: the empty chat shows the description, the profile shows the short one. */
+  readonly setMyDescriptions = Effect.fn("TelegramApi.setMyDescriptions")(function* (
+    this: TelegramApi,
+    token: string,
+    description: string,
+    shortDescription: string,
+  ): Effect.fn.Return<void, TelegramApiFailure> {
+    registerSecretValue(token);
+    const clean = (text: string, limit: number) => [...redactText(text.trim())].slice(0, limit).join("");
+    yield* this.#request(
+      token,
+      "setMyDescription",
+      () => ({ description: clean(description, 512) }),
+      Schema.Literal(true),
+    );
+    yield* this.#request(
+      token,
+      "setMyShortDescription",
+      () => ({ short_description: clean(shortDescription, 120) }),
+      Schema.Literal(true),
     );
   }).bind(this);
 

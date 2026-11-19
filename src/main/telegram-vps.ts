@@ -27,6 +27,8 @@ interface Options {
   retryChat?: (id: number) => Effect.Effect<void, Error>;
   /** Stops the agent's running turn. False when nothing runs. */
   stop?: (agentId: string) => Effect.Effect<boolean, Error>;
+  /** The agent's profile, so each bot shows who answers in it. */
+  agentProfile?: (agentId: string) => { name: string; title: string; description: string } | null;
 }
 
 type Message = NonNullable<TelegramUpdate["message"]>;
@@ -89,6 +91,18 @@ export class TelegramVps {
     if (secret)
       yield* this.#options.api.setWebhook(token, this.#options.settings.publicOrigin + updatePath + id, secret);
     yield* this.#commands(id, token).pipe(Effect.ignore);
+    yield* this.#profile(id, token).pipe(Effect.ignore);
+  }).bind(this);
+
+  /** The agent's description and title as the bot's profile text. A bot without an agent keeps its own. */
+  readonly #profile = Effect.fn("TelegramVps.profile")(function* (this: TelegramVps, id: number, token: string) {
+    const { directory, settings, agentProfile } = this.#options;
+    const agentId = id === settings.managerId ? directory.managerAgent()?.agentId : directory.get(id)?.agentId;
+    const profile = agentId && agentProfile ? agentProfile(agentId) : null;
+    if (!profile) return;
+    const description = profile.description || profile.title || profile.name;
+    const short = profile.title || profile.description.split("\n")[0] || profile.name;
+    yield* this.#options.api.setMyDescriptions(token, description, short);
   }).bind(this);
 
   /** The "/" menu of the manager (the root agent's chat) and of each agent bot, in English and Korean. */
