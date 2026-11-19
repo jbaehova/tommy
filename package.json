@@ -96,7 +96,7 @@
     "@tommy/user-errors": "workspace:*",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
-    "electron": "44.9.3",
+    "electron": "45.3.2",
     "electron-builder": "26.18.0",
     "electron-vite": "6.0.0",
     "knip": "6.42.1",
