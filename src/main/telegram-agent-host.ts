@@ -8,7 +8,7 @@ import {
 import { sourceText } from "@tommy/i18n/source";
 import { createTommyLogger, redactText } from "@tommy/logging";
 import { Effect } from "effect";
-import type { AgentService } from "../backend/agent-service";
+import type { AgentLifecycleFailed, AgentService } from "../backend/agent-service";
 import type { MailboxStore } from "../backend/mailbox-store";
 import type { SidebarLayoutStore } from "../backend/sidebar-layout-store";
 import type { TommyDatabase } from "../backend/tommy-database";
@@ -148,6 +148,78 @@ export class TelegramAgentHost {
         name: "Telegram",
       },
     );
+  }).bind(this);
+
+  /**
+   * Sends a question from another computer and waits for the turn that answers it. With a chat, the
+   * question enters it as the owner's message, so the answer also appears in that chat. Null: the time
+   * ran out first, and the agent still answers in Tommy.
+   */
+  readonly ask = Effect.fn("TelegramAgentHost.ask")(function* (
+    this: TelegramAgentHost,
+    agentId: string,
+    chat: { telegramId: number; ownerId: number } | null,
+    text: string,
+    timeoutMs: number,
+  ): Effect.fn.Return<
+    { status: "completed" | "failed" | "cancelled"; text: string } | null,
+    AgentLifecycleFailed | RemoteWorkflowError
+  > {
+    if (!this.isAvailable(agentId))
+      return yield* new RemoteWorkflowError({ cause: new Error(sourceText("error.agent.gone")) });
+    // Listen before the send, so that a fast answer is not missed.
+    const completed: AgentTurnCompletedEvent[] = [];
+    let wake: (() => void) | null = null;
+    const observe = (event: AgentEvent) => {
+      if (event.type !== "turn-completed" || event.agentId !== agentId) return;
+      completed.push(event);
+      wake?.();
+    };
+    this.service.on("event", observe);
+    return yield* Effect.gen({ self: this }, function* () {
+      const receipt = yield* this.service.sendMessage(
+        { agentId, text: redactText(text) },
+        chat ? { id: senderId(chat.telegramId, chat.ownerId), name: "Telegram" } : undefined,
+      );
+      const deadline = Date.now() + timeoutMs;
+      // A turn that ends with open plan steps continues in the next turn of the same thread.
+      let continuing: string | null = null;
+      for (;;) {
+        for (let event = completed.shift(); event; event = completed.shift()) {
+          const ours =
+            continuing === event.threadId ||
+            this.mailbox
+              .telegramOriginsForTurn(agentId, event.turnId)
+              .some((origin) => origin.messageId === receipt.messageId);
+          if (!ours) continue;
+          if (event.continues) {
+            continuing = event.threadId;
+            continue;
+          }
+          if (event.status !== "completed")
+            return { status: event.status === "failed" ? "failed" : "cancelled", text: "" } as const;
+          const answer = latestTurnAnswer(
+            this.database.readTurnAssistantMessages(agentId, event.threadId, event.turnId),
+            event.turnId,
+          );
+          return {
+            status: "completed",
+            text: answer?.status === "completed" ? redactText(answer.text.trim()) : "",
+          } as const;
+        }
+        const left = deadline - Date.now();
+        if (left <= 0) return null;
+        yield* Effect.callback<void>((resume) => {
+          const timer = setTimeout(() => resume(Effect.void), left);
+          wake = () => {
+            clearTimeout(timer);
+            resume(Effect.void);
+          };
+          return Effect.sync(() => clearTimeout(timer));
+        });
+        wake = null;
+      }
+    }).pipe(Effect.ensuring(Effect.sync(() => this.service.off("event", observe))));
   }).bind(this);
 
   /** The Telegram chat of each agent, for the results of its routines. Null: the agent has none. */

@@ -369,6 +369,14 @@ export function createTelegramRuntime({
     record:
       "[Context handoff: record only] This summary comes from a session on the user's Mac. Keep it as a record. Do not start the work or change anything. Answer with one short confirmation, and use it when the user asks about it later.",
   } as const;
+  const askHeader =
+    "[Question from another session] A coding session on the user's computer asks you this. Answer it in your reply: the session reads your reply as text. Do only the work that the question needs.";
+  const findAgent = (name: string) => {
+    const wanted = name.toLowerCase();
+    return service
+      .listAgents()
+      .find((entry) => entry.hiddenAt === undefined && (entry.id === name || entry.name.toLowerCase() === wanted));
+  };
   return {
     /** The visible agents, for a handoff from another computer. */
     agents() {
@@ -392,12 +400,7 @@ export function createTelegramRuntime({
       source: string;
       text: string;
     }) {
-      const wanted = input.agent.toLowerCase();
-      const agent = service
-        .listAgents()
-        .find(
-          (entry) => entry.hiddenAt === undefined && (entry.id === input.agent || entry.name.toLowerCase() === wanted),
-        );
+      const agent = findAgent(input.agent);
       if (!agent) return yield* Effect.fail(new Error(`No agent is called ${input.agent}.`));
       const redacted = redactText(input.text);
       const redactions =
@@ -424,6 +427,40 @@ export function createTelegramRuntime({
         chat: chat !== undefined,
         characters: message.length,
         redactions: Math.max(0, redactions),
+      };
+    }),
+    /**
+     * A question from a session on another computer. The agent answers it like an owner's message, in
+     * its Telegram chat when it has one, and the answer text goes back to the caller.
+     */
+    ask: Effect.fn("TelegramRuntime.ask")(function* (input: {
+      agent: string;
+      source: string;
+      text: string;
+      timeoutSeconds: number;
+    }) {
+      const agent = findAgent(input.agent);
+      if (!agent) return yield* Effect.fail(new Error(`No agent is called ${input.agent}.`));
+      const source = input.source || "another session";
+      const message = `${askHeader}\nSource: ${source}\n\n${redactText(input.text)}`.slice(0, 100_000);
+      const chat = vps.workReady && ready() ? chatFor(agent.id) : undefined;
+      if (chat) {
+        const t = sourceTranslateFor(vps.language);
+        yield* sendTo(chat.id, t("status.messaging.telegramAskNotice", { source }), false).pipe(Effect.ignore);
+      }
+      const timeout = Math.min(Math.max(Math.trunc(input.timeoutSeconds) || 600, 1), 1800) * 1000;
+      const answer = yield* agents.ask(
+        agent.id,
+        chat ? { telegramId: chat.id, ownerId: settings.ownerId } : null,
+        message,
+        timeout,
+      );
+      return {
+        agentId: agent.id,
+        agentName: agent.name,
+        chat: chat !== undefined,
+        status: answer ? answer.status : ("pending" as const),
+        text: answer?.text ?? "",
       };
     }),
     handle(request: IncomingMessage, response: ServerResponse) {

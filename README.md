@@ -107,6 +107,7 @@ command:
 | `sudo tommy logs` | Follow the log of the service. |
 | `sudo tommy agents` | List the agents, and which have a Telegram chat. |
 | `sudo tommy handoff --agent <name> --mode work < summary` | Give a session summary from another computer to an agent. Use `--mode record` to only keep it. The agent's chat shows the handoff and the answer. |
+| `sudo tommy ask --agent <name> "question"` | Ask one agent a question and print its answer. The agent's chat shows it too. |
 | `sudo tommy restart` | Restart the service. |
 
 The app lives in `/opt/Tommy`, the data in `/var/lib/tommy`, and the settings in

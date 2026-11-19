@@ -20,6 +20,10 @@ Usage: tommy <command>
   handoff --agent <id or name> --mode <work|record> [--source <text>] < summary
                        Give a session summary from another computer to one agent. Its Telegram
                        chat shows the handoff and the answer.
+  ask --agent <id or name> [--source <text>] [--timeout <seconds>] [question]
+                       Ask one agent a question and print its answer. Without a question argument,
+                       the question comes from standard input. The agent's Telegram chat shows it
+                       too. Waits up to --timeout seconds (default 600, at most 1800).
   logs                 Follow the log of the service.
   restart              Restart the service (sudo).
 EOF
@@ -35,7 +39,7 @@ control() {
     sleep 1
   done
   [ -S "$SOCKET" ] || fail "Tommy does not answer. Read the log with: tommy logs"
-  response=$(curl --silent --show-error --max-time 120 --unix-socket "$SOCKET" -X "$@" \
+  response=$(curl --silent --show-error --max-time "${CONTROL_MAX_TIME:-120}" --unix-socket "$SOCKET" -X "$@" \
     --write-out 'status=%{http_code}\n') || fail "Tommy does not answer. Read the log with: tommy logs"
 }
 
@@ -86,6 +90,43 @@ for a in json.loads(sys.argv[1]): print(a["id"], a["name"], a["provider"], "tele
       --data-urlencode "source=$source" --data-urlencode "text@$summary"
     check_answer
     sed '/^status=/d' <<<"$response"
+    ;;
+  ask)
+    shift
+    agent="" source="" timeout=600
+    while [ $# -gt 0 ]; do
+      case $1 in
+        --agent) agent=${2:-}; shift 2 ;;
+        --source) source=${2:-}; shift 2 ;;
+        --timeout) timeout=${2:-}; shift 2 ;;
+        --) shift; break ;;
+        -*) fail "Unknown option: $1" ;;
+        *) break ;;
+      esac
+    done
+    usage_ask="Usage: tommy ask --agent <id or name> [--source <text>] [--timeout <seconds>] [question]"
+    [ -n "$agent" ] || fail "$usage_ask"
+    [[ $timeout =~ ^[0-9]+$ ]] && [ "$timeout" -ge 1 ] && [ "$timeout" -le 1800 ] ||
+      fail "--timeout takes 1 to 1800 seconds."
+    question=$(mktemp)
+    trap 'rm -f "$question"' EXIT
+    if [ $# -gt 0 ]; then printf '%s' "$*" >"$question"; else cat >"$question"; fi
+    [ -n "$(tr -d '[:space:]' <"$question")" ] || fail "The question is empty. $usage_ask"
+    CONTROL_MAX_TIME=$((timeout + 30)) control POST http://tommy/v1/ask --data-urlencode "agent=$agent" \
+      --data-urlencode "source=$source" --data-urlencode "timeout=$timeout" --data-urlencode "text@$question"
+    check_answer
+    result=$(value result)
+    value answer | base64 -d
+    echo
+    echo "agent=$(value agent_name) result=$result chat=$(value chat)" >&2
+    case $result in
+      completed) ;;
+      pending)
+        echo "No answer after $timeout seconds. The agent continues, and its answer appears in its chat." >&2
+        exit 2
+        ;;
+      *) exit 1 ;;
+    esac
     ;;
   logs) exec journalctl --unit "$UNIT" --follow ;;
   restart)

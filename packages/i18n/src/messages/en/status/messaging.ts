@@ -146,6 +146,7 @@ export const messages = defineMessages("status.messaging", {
   "status.messaging.telegramPrivateInput":
     "{name} needs a private answer. Open Tommy to answer it. The answer does not go into this chat.",
   "status.messaging.telegramHandoffWork": "📥 Received a session from {source}. The agent continues the work.",
+  "status.messaging.telegramAskNotice": "❓ {source} asked this agent a question. The answer also goes back there.",
   "status.messaging.telegramHandoffRecord":
     "📥 Received a session record from {source}. The agent keeps it and does not act.",
   "status.messaging.telegramStopped": "Stopped the current task.",

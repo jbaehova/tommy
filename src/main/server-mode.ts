@@ -5,7 +5,7 @@
  *
  * The `tommy` terminal command (`scripts/hosting/tommy`) talks to this process over a Unix socket
  * in the runtime directory that systemd makes for the service user (mode 0700). Only that user and
- * root can connect. The socket answers one request: the status of the server.
+ * root can connect. It answers the status, the agent list, a handoff and a question to one agent.
  *
  * The protocol is HTTP with `key=value` text lines, so the command needs only `curl --unix-socket`.
  */
@@ -56,11 +56,19 @@ export interface ServerModeOptions {
     characters: number;
     redactions: number;
   }>;
+  /** Asks one agent a question and waits for its answer. `pending`: no answer before the timeout. */
+  ask?: (input: { agent: string; source: string; text: string; timeoutSeconds: number }) => Promise<{
+    agentId: string;
+    agentName: string;
+    chat: boolean;
+    status: "completed" | "failed" | "cancelled" | "pending";
+    text: string;
+  }>;
   /** Tests only. */
   uid?: number;
 }
 
-/** A handoff summary is long. Other control requests stay small. */
+/** A handoff summary or a question is long. Other control requests stay small. */
 const MAX_HANDOFF_BYTES = 512 * 1024;
 
 interface Answer {
@@ -132,7 +140,8 @@ export class ServerMode {
   async #handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     let answer: Answer;
     try {
-      const handoff = request.method === "POST" && request.url?.split("?")[0] === "/v1/handoff";
+      const path = request.url?.split("?")[0];
+      const handoff = request.method === "POST" && (path === "/v1/handoff" || path === "/v1/ask");
       const body = await readBody(request, handoff ? MAX_HANDOFF_BYTES : MAX_BODY_BYTES);
       answer = body === null ? failure(413, "too_large") : await this.#route(request.method, request.url, body);
     } catch (error) {
@@ -171,6 +180,32 @@ export class ServerMode {
             chat: result.chat ? "telegram" : "tommy",
             characters: result.characters,
             redactions: result.redactions,
+          },
+        };
+      }
+      case "POST /v1/ask": {
+        const ask = this.#options.ask;
+        if (!ask) return failure(404, "not_found");
+        const agent = body.get("agent")?.trim() ?? "";
+        const text = body.get("text") ?? "";
+        const timeoutSeconds = Number(body.get("timeout") ?? "600");
+        if (!agent || !text.trim() || !Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 1800)
+          return failure(400, "invalid");
+        const result = await ask({
+          agent,
+          source: body.get("source")?.trim().slice(0, 200) ?? "",
+          text,
+          timeoutSeconds,
+        });
+        return {
+          status: 200,
+          lines: {
+            agent_id: result.agentId,
+            agent_name: result.agentName,
+            chat: result.chat ? "telegram" : "tommy",
+            result: result.status,
+            // The answer has line breaks, and a line holds one value.
+            answer: Buffer.from(result.text, "utf8").toString("base64"),
           },
         };
       }
