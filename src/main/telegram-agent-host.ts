@@ -45,7 +45,14 @@ export class TelegramAgentHost {
   constructor(
     private readonly service: Pick<
       AgentService,
-      "listAgents" | "saveProfile" | "deleteAgent" | "sendMessage" | "prepareImportedAttachments" | "on" | "off"
+      | "listAgents"
+      | "saveProfile"
+      | "updateAgent"
+      | "deleteAgent"
+      | "sendMessage"
+      | "prepareImportedAttachments"
+      | "on"
+      | "off"
     >,
     private readonly sidebar: Pick<SidebarLayoutStore, "getSnapshot" | "withProfileAssignment">,
     private readonly mailbox: Pick<
@@ -82,7 +89,10 @@ export class TelegramAgentHost {
         draft: {
           name: displayName,
           title: "",
-          description: description?.trim().slice(0, INPUT_LIMITS.agentDescription) || displayName,
+          description:
+            Array.from(description?.trim() ?? "")
+              .slice(0, INPUT_LIMITS.agentDescription)
+              .join("") || displayName,
           avatarSeed: operationId,
           avatarHue: null,
           sectionId: null,
@@ -94,30 +104,18 @@ export class TelegramAgentHost {
     return agent.id;
   }).bind(this);
 
-  /** Replaces the description of an agent. The other profile fields and its sidebar section stay. */
+  /** Replaces only the description of an agent. Its avatar, other profile fields and section stay. */
   readonly describe = Effect.fn("TelegramAgentHost.describe")(function* (
     this: TelegramAgentHost,
-    operationId: string,
     agentId: string,
     description: string,
   ) {
-    const agent = this.service.listAgents().find((candidate) => candidate.id === agentId);
-    if (!agent) return yield* new RemoteWorkflowError({ cause: new Error(sourceText("error.agent.gone")) });
-    yield* this.service.saveProfile(
-      {
-        operationId,
-        agentId,
-        draft: {
-          name: agent.name,
-          title: agent.title,
-          description: description.trim().slice(0, INPUT_LIMITS.agentDescription),
-          avatarSeed: agent.avatarSeed,
-          avatarHue: agent.avatarHue,
-          sectionId: this.sidebar.getSnapshot().agentAssignments[agentId] ?? null,
-        },
-      },
-      this.sidebar,
-    );
+    if (!this.isAvailable(agentId))
+      return yield* new RemoteWorkflowError({ cause: new Error(sourceText("error.agent.gone")) });
+    yield* this.service.updateAgent({
+      agentId,
+      description: Array.from(description.trim()).slice(0, INPUT_LIMITS.agentDescription).join(""),
+    });
   }).bind(this);
 
   /** Deletes an agent with its conversations and workspace. */

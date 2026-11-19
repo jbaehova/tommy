@@ -60,7 +60,7 @@ The agent checks the requirements, builds the server, sets up HTTPS and connects
 - **Your choice of model.** Run Claude, Codex, Cursor and Pi side by side. Tommy downloads and pins
   each provider CLI, so every agent gets a known-good runtime.
 - **One chat per agent.** The manager bot is the chat of your root agent. `/connect` gives every
-  other agent its own bot, and `/new` creates an agent with its bot. Answers come back formatted.
+  other agent its own bot, and `/new` creates an agent with its bot and asks what it does. Answers come back formatted.
 - **Agents that work together.** Agents hand work to each other inside Tommy. Each agent's chat
   shows the messages that it sent and received.
 - **Browser and Computer Use.** Agents drive a sandboxed browser on the server. A password or code

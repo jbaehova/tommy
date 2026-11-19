@@ -17,10 +17,15 @@ export const messages = defineMessages("status.messaging", {
     "You are ready to receive work from your owner on Telegram. Wait for their first task.",
   "status.messaging.telegramOpenChat": "Start agent chat",
   "status.messaging.telegramCreateHelp":
-    "Tap Create agent, choose a name and confirm the Telegram username. You can also send /new followed by what the agent does.",
+    "Tap Create agent, choose a name and confirm the Telegram username. You can also send /new followed by what the agent does. That role goes to the next agent you create within 10 minutes.",
   "status.messaging.telegramInitialRole":
     "You are ready to receive work from your owner on Telegram. Your role: {description}\n\nWait for their first task.",
-  "status.messaging.telegramAskRole": "What does {name} do? Send the answer as your next message.",
+  "status.messaging.telegramAskRole":
+    "What does {name} do? Send the answer as your next message within 10 minutes. The role shows on the bot's profile. Send /skip to answer later in @{username}.",
+  "status.messaging.telegramAskRoleText": "Send what {name} does as text, or send /skip.",
+  "status.messaging.telegramRoleSkipped": "{name} has no role yet. Tell it what it does in @{username}.",
+  "status.messaging.telegramRoleFailed":
+    "Tommy could not save the role of {name}. Tell it what it does in @{username}.",
   "status.messaging.telegramRoleSaved": "{name} now knows its role. Its answer appears in @{username}.",
   "status.messaging.telegramRoleMessage": "Your owner set your role: {description}",
   "status.messaging.telegramCreate": "Create Telegram agent",
@@ -28,7 +33,7 @@ export const messages = defineMessages("status.messaging", {
   "status.messaging.telegramPending": "Waiting for verification",
   "status.messaging.telegramNoAgents": "You have no Telegram agents yet. Send /new to create one.",
   "status.messaging.telegramManagerHelp":
-    "Send a message here to talk to your root agent. Use /connect to give your other agents their own chats, /new to create a new agent, and /agents to see your agent bots. Use /disconnect @username to unlink an agent bot. Use /browser to see the browser and /stop to stop the current task. Messages between agents appear in each agent's chat. Open Tommy for private browser requests.",
+    "Send a message here to talk to your root agent. Use /connect to give your other agents their own chats, /new to create a new agent, and /agents to see your agent bots. Use /disconnect @username to unlink an agent bot, and /delete to delete an agent without a chat. Use /browser to see the browser and /stop to stop the current task. Messages between agents appear in each agent's chat. Open Tommy for private browser requests.",
   "status.messaging.telegramChooseRoot": "Choose your root agent. It answers in this chat and leads your other agents.",
   "status.messaging.telegramRootCurrent": "{name} is your root agent. Choose another agent only to replace it.",
   "status.messaging.telegramRootSelected": "{name} is now your root agent. Send it a message here.",

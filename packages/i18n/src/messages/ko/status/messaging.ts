@@ -9,10 +9,16 @@ export const messages = {
   "status.messaging.telegramInitialMessage": "텔레그램에서 사용자의 첫 작업 요청을 기다리세요.",
   "status.messaging.telegramOpenChat": "에이전트와 대화 시작",
   "status.messaging.telegramCreateHelp":
-    "에이전트 만들기를 누르고 이름과 텔레그램 사용자 이름을 확인하세요. /new 뒤에 에이전트가 할 일을 붙여 보내도 됩니다.",
+    "에이전트 만들기를 누르고 이름과 텔레그램 사용자 이름을 확인하세요. /new 뒤에 에이전트가 할 일을 붙여 보내도 됩니다. 그 역할은 10분 안에 만드는 다음 에이전트에 들어갑니다.",
   "status.messaging.telegramInitialRole":
     "텔레그램에서 사용자의 작업을 받을 준비가 됐습니다. 맡은 역할: {description}\n\n사용자의 첫 작업 요청을 기다리세요.",
-  "status.messaging.telegramAskRole": "{name} 에이전트는 무슨 일을 하나요? 다음 메시지로 알려 주세요.",
+  "status.messaging.telegramAskRole":
+    "{name} 에이전트는 무슨 일을 하나요? 10분 안에 다음 메시지로 알려 주세요. 역할은 봇 프로필에 보입니다. 나중에 @{username} 채팅에서 알려 주려면 /skip을 보내세요.",
+  "status.messaging.telegramAskRoleText": "{name} 에이전트가 할 일을 글로 보내 주세요. 건너뛰려면 /skip을 보내세요.",
+  "status.messaging.telegramRoleSkipped":
+    "{name} 에이전트에는 아직 역할이 없습니다. @{username} 채팅에서 할 일을 알려 주세요.",
+  "status.messaging.telegramRoleFailed":
+    "{name} 에이전트의 역할을 저장하지 못했습니다. @{username} 채팅에서 할 일을 알려 주세요.",
   "status.messaging.telegramRoleSaved":
     "{name} 에이전트에 역할을 저장하고 전달했습니다. 답은 @{username} 채팅에 나옵니다.",
   "status.messaging.telegramRoleMessage": "사용자가 정한 역할입니다: {description}",
@@ -21,7 +27,7 @@ export const messages = {
   "status.messaging.telegramPending": "통신 확인 대기",
   "status.messaging.telegramNoAgents": "아직 텔레그램 에이전트가 없습니다. /new로 만드세요.",
   "status.messaging.telegramManagerHelp":
-    "여기에 메시지를 보내면 루트 에이전트가 답합니다. /connect로 다른 에이전트마다 채팅을 만들고, /new로 새 에이전트를 만들고, /agents로 에이전트 봇 목록을 보세요. /disconnect @사용자이름으로 연결을 해제하세요. /browser로 브라우저를 보고, /stop으로 진행 중인 작업을 멈출 수 있습니다. 에이전트끼리 주고받은 메시지는 각 에이전트 채팅에 표시됩니다. 브라우저 입력 요청은 Tommy 열기에서 확인하세요.",
+    "여기에 메시지를 보내면 루트 에이전트가 답합니다. /connect로 다른 에이전트마다 채팅을 만들고, /new로 새 에이전트를 만들고, /agents로 에이전트 봇 목록을 보세요. /disconnect @사용자이름으로 연결을 해제하고, /delete로 채팅이 없는 에이전트를 지우세요. /browser로 브라우저를 보고, /stop으로 진행 중인 작업을 멈출 수 있습니다. 에이전트끼리 주고받은 메시지는 각 에이전트 채팅에 표시됩니다. 브라우저 입력 요청은 Tommy 열기에서 확인하세요.",
   "status.messaging.telegramChooseRoot": "루트 에이전트를 고르세요. 이 채팅에서 답하고 다른 에이전트를 이끕니다.",
   "status.messaging.telegramRootCurrent": "지금 루트 에이전트는 {name}입니다. 바꿀 때만 다른 에이전트를 고르세요.",
   "status.messaging.telegramRootSelected": "이제 {name} 에이전트가 루트입니다. 여기에 메시지를 보내세요.",

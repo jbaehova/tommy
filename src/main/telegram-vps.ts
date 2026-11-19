@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, randomUUID } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { sourceText, sourceTranslateFor } from "@tommy/i18n/source";
 import { Effect, Result, Schedule, Semaphore } from "effect";
@@ -41,6 +41,12 @@ type Translate = typeof sourceText;
 const updatePath = "/tommy/telegram/update/";
 const bodyLimit = 128 * 1024;
 
+/** How long a role from /new and a role question stay valid. */
+const ownerReplyWindow = 10 * 60_000;
+
+/** The first `size` characters, without splitting an emoji or another character in two. */
+const clip = (text: string, size: number) => Array.from(text).slice(0, size).join("");
+
 /** Puts two keyboard buttons on each row, so that a long agent list stays short. */
 const pairs = <T>(buttons: ReadonlyArray<T>): T[][] => {
   const rows: T[][] = [];
@@ -56,10 +62,13 @@ export class TelegramVps {
   #language: "en" | "ko" = "en";
   #manager = "";
   #managerCaughtUp = false;
-  /** The role that the owner gave with /new, for the next new agent. */
-  #roleForNext: string | null = null;
-  /** A new agent without a role. The owner's next plain message in the manager chat becomes its role. */
-  #askingRole: { agentId: string; botId: number; username: string; name: string } | null = null;
+  /** The role that the owner gave with /new, for the next new agent within the reply window. */
+  #roleForNext: { role: string; expires: number } | null = null;
+  /**
+   * A new agent without a role. Within the reply window, the owner's next plain text in the manager chat
+   * becomes its role. /skip ends the question.
+   */
+  #askingRole: { agentId: string; botId: number; username: string; name: string; expires: number } | null = null;
   /** An agent delete that waits for the owner to send its code. */
   #deleting: { agentId: string; name: string; code: string; expires: number } | null = null;
   #closed = false;
@@ -311,8 +320,16 @@ export class TelegramVps {
         yield* this.#options.api.sendMessage(settings.token, settings.ownerId, rootReply.html, rootReply.markup, true);
       } else if (!message.text.trim().startsWith("/")) {
         if (this.#attention?.(settings.managerId, message.text, message.message_id)) return;
+        if (this.#askingRole && this.#askingRole.expires <= Date.now()) this.#askingRole = null;
         if (this.#askingRole) yield* this.#saveRole(updateId, message.text, t);
         else yield* this.#toRoot(updateId, message, t);
+      } else if (command === "/skip") {
+        const asking = this.#askingRole;
+        this.#askingRole = null;
+        if (asking && asking.expires > Date.now())
+          yield* this.#tellOwner(
+            t("status.messaging.telegramRoleSkipped", { name: asking.name, username: asking.username }),
+          );
       } else if (command === "/root") {
         yield* this.#chooseRoot(words.slice(1).join(" "), t);
       } else if (command === "/delete") {
@@ -323,7 +340,8 @@ export class TelegramVps {
         const answer = yield* this.#disconnect.handle(message.text, updateId, t);
         if (answer !== null) yield* this.#tellOwner(answer);
       } else if (command === "/new") {
-        this.#roleForNext = message.text.trim().slice(command.length).trim() || null;
+        const role = message.text.trim().slice(command.length).trim();
+        this.#roleForNext = role ? { role, expires: Date.now() + ownerReplyWindow } : null;
         yield* this.#tellOwner(t("status.messaging.telegramCreateHelp"), {
           inline_keyboard: [[{ text: t("status.messaging.telegramCreate"), url: this.#newBotLink() }]],
         });
@@ -496,7 +514,7 @@ export class TelegramVps {
         ? t("status.messaging.telegramRootCurrent", { name: current.name })
         : t("status.messaging.telegramChooseRoot"),
       {
-        keyboard: pairs(choices.slice(0, 50).map((agent) => ({ text: `/root ${agent.name}`.slice(0, 120) }))),
+        keyboard: pairs(choices.slice(0, 50).map((agent) => ({ text: clip(`/root ${agent.name}`, 120) }))),
         resize_keyboard: true,
         one_time_keyboard: true,
       },
@@ -578,7 +596,7 @@ export class TelegramVps {
       .replace(/^_+|_+$/g, "");
     const username = `${base}_tommy_bot`;
     // encodeURIComponent writes a space as %20.
-    const query = `?name=${encodeURIComponent(name.slice(0, 64))}`;
+    const query = `?name=${encodeURIComponent(clip(name, 64))}`;
     return /^[a-z][a-z0-9_]{4,31}$/.test(username) ? `${link}/${username}${query}` : `${link}${query}`;
   }
 
@@ -592,7 +610,7 @@ export class TelegramVps {
     }
     yield* this.#tellOwner(t("status.messaging.telegramConnectHelp"), {
       inline_keyboard: pairs(
-        choices.map((agent) => ({ text: agent.name.slice(0, 120), url: this.#newBotLink(agent.name) })),
+        choices.map((agent) => ({ text: clip(agent.name, 120), url: this.#newBotLink(agent.name) })),
       ),
     });
   }).bind(this);
@@ -614,7 +632,7 @@ export class TelegramVps {
       yield* directory.bindAgent(entry.id, existing.id, entry.operationId);
       return { agentId: existing.id, role: true };
     }
-    const role = this.#roleForNext;
+    const role = this.#roleForNext && this.#roleForNext.expires > Date.now() ? this.#roleForNext.role : null;
     this.#roleForNext = null;
     const agentId = yield* agents.ensureAgent(
       entry.operationId,
@@ -628,7 +646,10 @@ export class TelegramVps {
     return { agentId, role: role !== null };
   }).bind(this);
 
-  /** Saves the owner's answer as the new agent's description and sends it to the agent in its own chat. */
+  /**
+   * Saves the owner's answer as the new agent's description, shows it on the bot's profile and sends it
+   * to the agent in its own chat. A message without text keeps the question open.
+   */
   readonly #saveRole = Effect.fn("TelegramVps.saveRole")(function* (
     this: TelegramVps,
     updateId: number,
@@ -637,15 +658,30 @@ export class TelegramVps {
   ) {
     const asking = this.#askingRole;
     if (!asking) return;
+    const role = text.trim();
+    if (!role) {
+      yield* this.#tellOwner(t("status.messaging.telegramAskRoleText", { name: asking.name }));
+      return;
+    }
     this.#askingRole = null;
-    const { agents, settings } = this.#options;
-    yield* agents.describe(randomUUID(), asking.agentId, text);
+    const { agents, api, settings } = this.#options;
+    const saved = yield* Effect.result(agents.describe(asking.agentId, role));
+    if (Result.isFailure(saved)) {
+      yield* this.#tellOwner(
+        t("status.messaging.telegramRoleFailed", { name: asking.name, username: asking.username }),
+      );
+      return;
+    }
+    yield* api.getManagedBotToken(settings.token, asking.botId).pipe(
+      Effect.flatMap((token) => this.#profile(asking.botId, token)),
+      Effect.ignore,
+    );
     yield* agents.submit(
       asking.agentId,
       asking.botId,
       settings.ownerId,
       updateId,
-      t("status.messaging.telegramRoleMessage", { description: text.trim() }),
+      t("status.messaging.telegramRoleMessage", { description: role }),
     );
     yield* this.#tellOwner(t("status.messaging.telegramRoleSaved", { name: asking.name, username: asking.username }));
   }).bind(this);
@@ -677,8 +713,14 @@ export class TelegramVps {
             ],
           });
           if (!role) {
-            this.#askingRole = { agentId, botId: entry.id, username: entry.username, name };
-            yield* this.#tellOwner(t("status.messaging.telegramAskRole", { name }));
+            this.#askingRole = {
+              agentId,
+              botId: entry.id,
+              username: entry.username,
+              name,
+              expires: Date.now() + ownerReplyWindow,
+            };
+            yield* this.#tellOwner(t("status.messaging.telegramAskRole", { name, username: entry.username }));
           }
         }
       }

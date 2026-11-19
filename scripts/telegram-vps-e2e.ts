@@ -25,7 +25,8 @@ const writer = { id: 41005, is_bot: true, first_name: "Writer", username: "examp
 const analyst = { id: 41006, is_bot: true, first_name: "Analyst", username: "example_analyst_bot" };
 const owner = { id: 51001, is_bot: false, first_name: "Owner", language_code: "en" };
 const stranger = { id: 51002, is_bot: false, first_name: "Other" };
-const accounts = [manager, planner, builder, helper, writer, analyst];
+const skipper = { id: 41007, is_bot: true, first_name: "Skipper", username: "example_skipper_bot" };
+const accounts = [manager, planner, builder, helper, writer, analyst, skipper];
 const tokens = new Map(
   accounts.map((account) => [account.id, `${account.id}:${randomBytes(30).toString("base64url")}`]),
 );
@@ -121,7 +122,7 @@ const agents = {
       deletedAgents.push(agentId);
       spareNames.delete(agentId);
     }),
-  describe: (_operationId: string, agentId: string, description: string) =>
+  describe: (agentId: string, description: string) =>
     Effect.sync(() => {
       roles.set(agentId, description);
       return undefined;
@@ -394,6 +395,15 @@ try {
   );
   await post(manager, message(owner, "Back to the root agent"));
   check("The next message goes to the root agent again", submissions.at(-1)?.agentId === rootAgentId);
+  await post(manager, message(owner, "/new"));
+  await post(manager, managed(skipper));
+  const skipperId = host.directory.get(skipper.id)?.agentId ?? "";
+  await post(manager, message(owner, "/skip"));
+  await post(manager, message(owner, "After skip"));
+  check(
+    "/skip ends the role question and the next message goes to the root agent",
+    !roles.has(skipperId) && submissions.at(-1)?.agentId === rootAgentId && submissions.at(-1)?.text === "After skip",
+  );
   await post(manager, message(owner, "/new Summarizes stock news"));
   const givenOffset = wire.length;
   await post(manager, managed(analyst));

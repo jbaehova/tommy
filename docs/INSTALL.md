@@ -179,8 +179,10 @@ in `/etc/tommy/server.env` if the executable is in a custom location.
    Restart Tommy with `sudo systemctl restart tommy`. Open your manager in Telegram and send
    `/start` and choose your root agent. The root agent answers in the manager chat, like the main
    agent of the app. Send `/connect` to give each other agent its own bot and chat: tap an agent
-   and confirm the new bot in Telegram with the suggested name. Use `/new` to create a new agent
-   with its own bot. You can chat with a new bot at once.
+   and create the new bot in Telegram with the suggested name. Use `/new` to create a new agent
+   with its own bot. The manager then asks what the agent does: the answer becomes the agent's
+   description and its first instruction. Send `/new <what the agent does>` to give the role at once,
+   or `/skip` to give it later in the agent's chat. You can chat with a new bot at once.
 6. Agents send work to each other inside Tommy, as in the app. Each agent bot's chat shows the
    messages that its agent sent to and received from other agents. Use `/agents` in the manager
    to find your bots. Use `/browser` in a bot's chat to see its agent's browser tabs.
@@ -189,6 +191,9 @@ In an agent's private chat, use `/engine codex` or `/engine claude` to switch en
 Use `/name <display name>` to rename the agent. The Telegram username stays fixed.
 Use `/disconnect @username` in the manager chat and confirm with the code it returns to unlink an agent.
 Its workspace and conversation remain on the VPS. The Telegram account owner can use BotFather to delete the bot.
+To delete an agent with its conversations and workspace, send `/delete` in its own chat. For an agent without a
+bot, send `/delete <agent name>` in the manager chat and confirm with the code it returns. The root agent
+cannot be deleted. Delete an agent before you disconnect its bot: an agent without a bot appears in `/connect` again.
 
 When an agent asks for a website password or code, its bot's chat gets a message with an
 **Open Tommy** button. The card opens inside that chat, and the secret goes directly to the VPS.
