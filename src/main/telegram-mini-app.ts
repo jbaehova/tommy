@@ -1,6 +1,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
+  type AgentPromptQuestion,
   type BrowserTakeoverRequest,
   isBrowserSecretRequest,
   type LocalBrowserSecretResponse,
@@ -36,8 +37,35 @@ interface MiniAppOptions {
   browser?: Pick<BrowserHost, "capturePreview" | "listTabs">;
   agents: Pick<AgentService, "respondToBrowserSecret"> & {
     getRuntimeSnapshot(): { pendingBrowserTakeovers: BrowserTakeoverRequest[] };
+    /** Prompts that need private input. The chat never asks them; this view does. */
+    privatePrompts?(): readonly TelegramPrivatePrompt[];
+    respondToPrompt?(input: {
+      requestId: string | number;
+      answers: Record<string, string[]>;
+    }): Effect.Effect<void, unknown>;
+    listAgents?(): readonly { id: string; name: string }[];
   };
 }
+
+export interface TelegramPrivatePrompt {
+  requestId: string | number;
+  agentId: string;
+  threadId: string;
+  turnId: string;
+  questions: readonly AgentPromptQuestion[];
+  form: "vault" | "api-key" | null;
+}
+
+const answerValue = Schema.String.check(Schema.isBetweenLength(1, 4096));
+const decodePromptAnswer = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({
+      handle: Schema.String.check(Schema.isBetweenLength(1, 128)),
+      decision: Schema.Literals(["submit", "skip"]),
+      answers: Schema.optional(Schema.Record(Schema.String, Schema.Array(answerValue))),
+    }),
+  ),
+);
 
 const decodeAnswer = Schema.decodeUnknownOption(
   Schema.fromJsonString(
@@ -136,6 +164,42 @@ export class TelegramMiniApp {
     return { bot, token };
   }).bind(this);
 
+  /** Private prompts in this bot's scope, with a handle that names the bot, so another view cannot answer them. */
+  #promptsFor(bot: number) {
+    const prompts = this.#options.agents.privatePrompts?.() ?? [];
+    return prompts
+      .filter((prompt) => this.#options.ownsTurn(prompt.agentId, prompt.turnId, bot))
+      .map((prompt) => ({
+        prompt,
+        handle: createHmac("sha256", this.#requestKey)
+          .update(
+            JSON.stringify([
+              this.#options.ownerId,
+              bot,
+              prompt.agentId,
+              prompt.threadId,
+              prompt.turnId,
+              prompt.requestId,
+              "prompt",
+            ]),
+          )
+          .digest("base64url"),
+      }));
+  }
+
+  /** The answers the prompt's questions allow, or null. Only the ids it asks; one value unless it takes several. */
+  #validAnswers(questions: readonly AgentPromptQuestion[], answers: Readonly<Record<string, readonly string[]>>) {
+    const result: Record<string, string[]> = {};
+    for (const [id, values] of Object.entries(answers)) {
+      const question = questions.find((candidate) => candidate.id === id);
+      if (!question) return null;
+      const limit = question.multiSelect ? Math.max(1, question.options?.length ?? 1) : 1;
+      if (values.length > limit) return null;
+      if (values.length) result[id] = [...values];
+    }
+    return result;
+  }
+
   /** The agent's own tabs, in the chat of its bot. The handle names no page, so it survives navigation. */
   #tabHandle(bot: number, agentId: string, tabId: string) {
     return createHmac("sha256", this.#requestKey)
@@ -203,7 +267,8 @@ export class TelegramMiniApp {
       path !== TELEGRAM_MINI_APP_PATH &&
       path !== `${TELEGRAM_MINI_APP_PATH}/state` &&
       path !== `${TELEGRAM_MINI_APP_PATH}/secret` &&
-      path !== `${TELEGRAM_MINI_APP_PATH}/preview`
+      path !== `${TELEGRAM_MINI_APP_PATH}/preview` &&
+      path !== `${TELEGRAM_MINI_APP_PATH}/answer`
     )
       return false;
     response.setHeader("Cache-Control", "no-store");
@@ -291,6 +356,31 @@ export class TelegramMiniApp {
       response.writeHead(200, { "Content-Type": "image/jpeg" }).end(jpeg);
       return true;
     }
+    if (path === `${TELEGRAM_MINI_APP_PATH}/answer`) {
+      const parsed = decodePromptAnswer(body.success.toString("utf8"));
+      const respond = this.#options.agents.respondToPrompt;
+      if (Option.isNone(parsed) || !respond) {
+        response.writeHead(400).end();
+        return true;
+      }
+      // Read the prompts again after the body: the turn can have ended or moved to another chat.
+      const current = this.#promptsFor(bot).find((item) => item.handle === parsed.value.handle);
+      if (!current) {
+        response.writeHead(409).end();
+        return true;
+      }
+      const answers =
+        parsed.value.decision === "skip"
+          ? {}
+          : this.#validAnswers(current.prompt.questions, parsed.value.answers ?? {});
+      if (!answers) {
+        response.writeHead(400).end();
+        return true;
+      }
+      const answered = yield* Effect.result(respond({ requestId: current.prompt.requestId, answers }));
+      response.writeHead(answered._tag === "Success" ? 204 : 409).end();
+      return true;
+    }
     const activeIds = new Set(agents.filter((agent) => agent.active && agent.agentId).map((agent) => agent.agentId));
     const requests = takeovers.filter(
       (item) =>
@@ -316,6 +406,20 @@ export class TelegramMiniApp {
         JSON.stringify({
           agents: agents.map(({ agentId, name, username, active }) => ({ agentId, name, username, active })),
           requests: pending,
+          prompts: this.#promptsFor(bot).map(({ prompt, handle }) => ({
+            handle,
+            agentId: prompt.agentId,
+            agentName: this.#options.agents.listAgents?.().find((agent) => agent.id === prompt.agentId)?.name ?? "",
+            form: prompt.form,
+            questions: prompt.questions.map(({ id, header, question, isSecret, options, multiSelect }) => ({
+              id,
+              header,
+              question,
+              isSecret,
+              options: options?.map(({ label, description }) => ({ label, description })) ?? null,
+              multiSelect: multiSelect === true,
+            })),
+          })),
           previews: this.#previews(bot, agents, takeovers).map(({ handle, origin, agentId }) => ({
             handle,
             origin,

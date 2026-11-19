@@ -130,6 +130,8 @@ export const messages = defineMessages("status.messaging", {
   "status.messaging.telegramCommandRoutines": "Show or change routines",
   "status.messaging.telegramCommandHistory": "Show recent messages",
   "status.messaging.telegramCommandDelete": "Delete this agent",
+  "status.messaging.telegramPrivateInput":
+    "{name} needs a private answer. Open Tommy to answer it. The answer does not go into this chat.",
   "status.messaging.telegramStopped": "Stopped the current task.",
   "status.messaging.telegramLimit": "The engine plan reached its usage limit. Work continues at {time}.",
   "status.messaging.telegramLimitLater": "The engine plan reached its usage limit. Work continues when it resets.",

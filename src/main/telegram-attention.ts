@@ -23,7 +23,14 @@ interface Approval {
   agentId: string;
 }
 
-type Pending = Prompt | Approval;
+/** A prompt that needs private input. The Mini App answers it; the chat only points there. */
+interface Private {
+  kind: "private";
+  requestId: string | number;
+  agentId: string;
+}
+
+type Pending = Prompt | Approval | Private;
 
 interface Options {
   /** The bot chat that shows this turn's requests, or null when the owner did not start it in Telegram. */
@@ -31,6 +38,13 @@ interface Options {
   agentName: (agentId: string) => string;
   send: (chat: number, html: string, markup?: TelegramReplyMarkup) => Effect.Effect<void, Error>;
   deleteMessage: (chat: number, messageId: number) => Effect.Effect<void, Error>;
+  /**
+   * The button that opens this chat's Mini App. With it, a secret question or a Vault or API key
+   * form is answered there and never typed into the chat.
+   */
+  appButton?: (chat: number) => TelegramReplyMarkup;
+  /** A Vault or API key form, which needs the Mini App even without a secret question. */
+  isPrivate?: (requestId: string | number) => boolean;
   respondToPrompt: (requestId: string | number, answers: Record<string, string[]>) => Effect.Effect<void, Error>;
   respondToApproval: (requestId: string | number, decision: "accept" | "decline") => Effect.Effect<void, Error>;
   language: () => "en" | "ko";
@@ -53,6 +67,12 @@ export class TelegramAttention {
     if (event.type === "prompt") {
       const chat = this.#options.chatFor(event.agentId, event.turnId);
       if (chat === null || event.questions.length === 0) return;
+      const hidden =
+        event.questions.some((question) => question.isSecret) || this.#options.isPrivate?.(event.requestId) === true;
+      if (hidden && this.#options.appButton) {
+        this.#enqueue(chat, { kind: "private", requestId: event.requestId, agentId: event.agentId });
+        return;
+      }
       this.#enqueue(chat, {
         kind: "prompt",
         requestId: event.requestId,
@@ -133,6 +153,11 @@ export class TelegramAttention {
   #show(chat: number, item: Pending) {
     const t = this.#t();
     const name = escapeTelegramHtml(this.#options.agentName(item.agentId));
+    if (item.kind === "private") {
+      const text = t("status.messaging.telegramPrivateInput", { name: this.#options.agentName(item.agentId) });
+      this.#post(chat, escapeTelegramHtml(text), this.#options.appButton?.(chat));
+      return;
+    }
     if (item.kind === "approval") {
       const approval = this.#approvals.get(item.requestId);
       const lines = [
@@ -172,7 +197,8 @@ export class TelegramAttention {
   /** Takes the owner's message as the answer when a request waits in this chat. */
   take(chat: number, text: string, messageId: number): boolean {
     const item = this.#active.get(chat);
-    if (!item) return false;
+    // The Mini App answers a private prompt. A chat message goes to the agent as usual.
+    if (!item || item.kind === "private") return false;
     const t = this.#t();
     const value = text.trim();
     if (item.kind === "approval") {

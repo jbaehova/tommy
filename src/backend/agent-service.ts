@@ -151,6 +151,7 @@ import {
   type ApprovalResponder,
   AttentionRegistry,
   type LocalAttentionResponse,
+  type PrivatePrompt,
   type PromptResponder,
 } from "./agent/attention-registry";
 import { backgroundModel, withBackgroundEffort } from "./agent/background-model";
@@ -5272,6 +5273,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     }
     yield* Effect.all(requests, { concurrency: "unbounded", discard: true });
   }, Effect.uninterruptible).bind(this);
+
+  /** Pending prompts that need private input, in full. Only the owner's Telegram Mini App reads them. */
+  privatePrompts(): PrivatePrompt[] {
+    return this.#attention.privatePrompts();
+  }
 
   /** `responder` is absent for the person at this computer; the Team API gives the member who answers. */
   respondToPrompt(input: RespondToPromptInput, responder?: PromptResponder): Effect.Effect<void, AgentLifecycleFailed> {

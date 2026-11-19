@@ -8,6 +8,10 @@ export function telegramMiniAppPage(nonce: string, language: string): string {
     agents: t("sidebar.view.agents"),
     empty: t("sidebar.empty.noAgents"),
     retry: t("browser.telegram.refresh"),
+    skip: t("browser.telegram.skip"),
+    promptTitle: t("browser.telegram.promptTitle"),
+    vaultTitle: t("browser.telegram.vaultTitle"),
+    apiKeyTitle: t("browser.telegram.apiKeyTitle"),
     reopen: t("browser.telegram.openFromManager"),
     ready: t("browser.telegram.ready"),
     viewSnapshot: t("browser.telegram.viewSnapshot"),
@@ -96,6 +100,14 @@ button:disabled{opacity:.5;cursor:default}
 .shimmer,.shot.loading{background:linear-gradient(90deg,var(--skeleton) 0,var(--subtle) 50%,var(--skeleton) 100%);background-size:200% 100%;animation:shimmer 1.2s ease-in-out infinite}
 @keyframes shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
 .ghost{height:96px;border-radius:12px;margin-bottom:12px}
+.question{margin-top:14px}.question>label{margin-top:0}
+.kind-label{display:block;margin-bottom:4px;font-size:12px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.ask{margin:0 0 8px;font-size:13px;font-weight:500}
+.choices{display:grid;gap:8px}
+.choice{display:flex;align-items:flex-start;gap:10px;margin:0;padding:10px 12px;border:1px solid var(--border-strong);border-radius:8px;font-weight:400;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+.choice input{flex:none;display:inline-block;width:16px;height:16px;margin:2px 0 0;padding:0;box-shadow:none;accent-color:var(--fg)}
+.choice strong{display:block;font-weight:500;overflow-wrap:anywhere}.choice small{display:block;margin-top:2px;color:var(--muted);font-size:12px}
+.choice:has(input:checked){border-color:var(--fg);box-shadow:0 0 0 3px var(--ring)}
 .error{margin:10px 0 0;font-size:13px;color:var(--bad)}.error:empty{display:none}
 .panel{display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;padding:56px 24px}
 .panel .glyph{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--border);background:var(--subtle);color:var(--muted)}
@@ -232,6 +244,77 @@ function requestForm(request) {
   form.append(failure, actions);
   return form;
 }
+/** A prompt that needs private input: a secret answer, or a Vault or API key form. */
+function promptForm(prompt) {
+  const form = element("form", undefined, "block");
+  const title = prompt.form === "vault" ? words.vaultTitle : prompt.form === "api-key" ? words.apiKeyTitle : words.promptTitle;
+  form.append(element("p", title, "title"), element("p", words.privacy, "note"));
+  const fields = [];
+  for (const question of prompt.questions) {
+    const group = element("div", undefined, "question");
+    if (question.header) group.append(element("span", question.header, "kind-label"));
+    if (question.options && question.options.length) {
+      group.append(element("p", question.question, "ask"));
+      const list = element("div", undefined, "choices");
+      for (const option of question.options) {
+        const choice = element("label", undefined, "choice");
+        const input = element("input");
+        input.type = question.multiSelect ? "checkbox" : "radio";
+        input.name = "q-" + question.id;
+        input.value = option.label;
+        const text = element("span");
+        text.append(element("strong", option.label));
+        if (option.description) text.append(element("small", option.description));
+        choice.append(input, text);
+        list.append(choice);
+      }
+      group.append(list);
+      fields.push({ id: question.id, read: () => Array.from(list.querySelectorAll("input:checked"), (input) => input.value), clear: () => {} });
+    } else {
+      const label = element("label", question.question);
+      const input = element("input");
+      input.type = question.isSecret ? "password" : "text";
+      input.autocomplete = "off";
+      input.maxLength = 4096;
+      label.append(input);
+      group.append(label);
+      fields.push({ id: question.id, read: () => (input.value ? [input.value] : []), clear: () => { input.value = ""; } });
+    }
+    form.append(group);
+  }
+  const failure = element("p", "", "error");
+  failure.setAttribute("role", "alert");
+  const actions = element("div", undefined, "actions");
+  const submit = element("button", words.confirm, "primary");
+  submit.type = "submit";
+  const skip = element("button", words.skip);
+  skip.type = "button";
+  async function answer(decision) {
+    if (submit.disabled) return;
+    failure.textContent = "";
+    submit.disabled = skip.disabled = true;
+    if (decision === "submit") submit.textContent = words.submitting;
+    const answers = {};
+    if (decision === "submit") for (const field of fields) { const values = field.read(); if (values.length) answers[field.id] = values; }
+    for (const field of fields) field.clear();
+    try {
+      await post("answer", { handle: prompt.handle, decision, answers });
+      form.remove();
+      await load();
+    } catch (error) {
+      if (error.message === words.reopen) showPanel("expired");
+      else failure.textContent = words.failure;
+    } finally {
+      submit.disabled = skip.disabled = false;
+      submit.textContent = words.confirm;
+    }
+  }
+  form.addEventListener("submit", event => { event.preventDefault(); void answer("submit"); });
+  skip.addEventListener("click", () => void answer("skip"));
+  actions.append(skip, submit);
+  form.append(failure, actions);
+  return form;
+}
 let frameEpoch = 0;
 function clearFrames() {
   frameEpoch++;
@@ -313,8 +396,15 @@ async function load() {
     const state = await (await post("state", {})).json();
     const rows = document.createDocumentFragment();
     rows.append(element("p", words.agents, "label"));
-    if (!state.agents.length) return showPanel("empty");
-    for (const agent of state.agents) {
+    const prompts = state.prompts || [];
+    if (!state.agents.length && !prompts.length) return showPanel("empty");
+    // An agent without its own chat can still ask in work that the owner started here.
+    const listed = new Set(state.agents.map((agent) => agent.agentId));
+    const others = [];
+    for (const prompt of prompts)
+      if (!listed.has(prompt.agentId) && !others.some((agent) => agent.agentId === prompt.agentId))
+        others.push({ agentId: prompt.agentId, name: prompt.agentName || "Tommy", username: "", active: true });
+    for (const agent of [...state.agents, ...others]) {
       const card = element("article", undefined, "card");
       const head = element("div", undefined, "head");
       const who = element("div", undefined, "who");
@@ -329,6 +419,7 @@ async function load() {
       head.append(avatar(agent.name), who, element("span", agent.active ? words.ready : words.pending, agent.active ? "badge ok" : "badge"));
       card.append(head);
       for (const req of state.requests) if (agent.agentId === req.agentId) card.append(requestForm(req));
+      for (const prompt of prompts) if (agent.agentId === prompt.agentId) card.append(promptForm(prompt));
       for (const preview of state.previews) if (agent.agentId === preview.agentId) card.append(previewCard(preview));
       rows.append(card);
     }
