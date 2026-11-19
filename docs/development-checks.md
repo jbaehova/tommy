@@ -173,8 +173,7 @@ turns off the built-in rules and enables only that plugin, and subtract the time
   with type arguments, so it was rejected.
 - Do not merge rules into one `or { ... }` file. A merged file of the 8 global rules cost 71
   CPU-seconds, against 24 for the separate files.
-- Scope a plugin only to where its pattern can mean something. `no-collections-in-stores` and
-  `no-cleanup-in-effect-callbacks` run on the SolidJS code only. The type rules stay global,
+- Scope a plugin only to where its pattern can mean something. The type rules stay global,
   because they apply to scripts and tests too.
 
 Before you change a pattern for speed, show that the old and the new rule report the same
