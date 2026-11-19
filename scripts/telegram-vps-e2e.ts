@@ -3,7 +3,7 @@
 // runner are stand-ins. The report contains check names and counts only.
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
-import { EventEmitter, once } from "node:events";
+import { once } from "node:events";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -12,7 +12,6 @@ import { isDynamicRecord } from "@tommy/contracts/runtime-values";
 import { Effect, Schema } from "effect";
 import { TelegramApi } from "../src/main/telegram-api";
 import { TelegramDirectory } from "../src/main/telegram-directory";
-import { TelegramExchange } from "../src/main/telegram-exchange";
 import { TelegramVps } from "../src/main/telegram-vps";
 import type { WorkflowConnectorFetch } from "../src/main/workflow-connector-http";
 
@@ -30,7 +29,6 @@ const tokens = new Map(
 );
 const webhooks = new Map<number, string>();
 const wire: { from: number; to: number | string; text: string }[] = [];
-const wireEvents = new EventEmitter();
 const checks: string[] = [];
 let phase = "setup";
 let updateId = 100;
@@ -99,7 +97,6 @@ const telegramHttp: WorkflowConnectorFetch = async (url, init) => {
         "Missing Telegram recipient or message",
       );
       wire.push({ from: account.id, to: body.chat_id, text: body.text });
-      wireEvents.emit("send");
       return Response.json({ ok: true, result: { message_id: wire.length } });
     default:
       throw new Error("Unexpected Telegram API call");
@@ -142,16 +139,7 @@ function openHost() {
     agents,
     ready: () => ready,
   });
-  const exchange = new TelegramExchange({
-    ownerId: owner.id,
-    bindingForAgent: (agentId) => {
-      const entry = directory.list().find((candidate) => candidate.agentId === agentId);
-      return entry ? { id: entry.id, username: entry.username, active: entry.verified } : null;
-    },
-    send: (senderId, chatId, text) => service.sendFromAgent(senderId, chatId, text),
-  });
-  service.setExchangeReceiver((...args) => exchange.receive(...args));
-  return { directory, service, exchange };
+  return { directory, service };
 }
 
 let host = openHost();
@@ -190,16 +178,7 @@ async function post(
   return response.status;
 }
 
-function sent(from: Account, to: Account, since: number) {
-  const outgoing = wire
-    .slice(since)
-    .find((item) => item.from === from.id && (item.to === to.id || item.to === `@${to.username}`));
-  assert.ok(outgoing, "Missing Telegram bot-to-bot message");
-  return outgoing.text;
-}
-
 async function restartHost() {
-  host.exchange.close();
   host.service.close();
   host = openHost();
   await Effect.runPromise(host.service.start());
@@ -211,9 +190,9 @@ async function register(bot: Account) {
   assert.equal(await post(manager, creation), 200);
   assert.equal(await post(manager, creation), 200);
   check(
-    `${bot.first_name} received one pending binding`,
+    `${bot.first_name} received one binding`,
     host.directory.list().filter((entry) => entry.id === bot.id).length === 1 &&
-      host.directory.get(bot.id)?.verified === false,
+      host.directory.get(bot.id)?.ownerConfirmed === true,
   );
   check(
     `${bot.first_name} registered a distinct webhook credential`,
@@ -229,19 +208,9 @@ async function register(bot: Account) {
       !fixedAgents.includes(submissions[before]?.agentId ?? ""),
   );
   submissions.splice(before);
-  const offset = wire.length;
-  await post(manager, message(owner, `/verify @${bot.username}`));
-  const challenge = sent(manager, bot, offset);
-  await post(bot, message({ ...stranger, is_bot: true }, challenge));
-  check(`${bot.first_name} rejects a challenge from another bot`, !host.directory.get(bot.id)?.verified);
-  const proofOffset = wire.length;
-  await post(bot, message(manager, challenge));
-  const proof = sent(bot, manager, proofOffset);
-  await post(manager, message(owner, proof));
-  check(`${bot.first_name} waits for the expected sender`, !host.directory.get(bot.id)?.verified);
-  await post(manager, message(bot, proof));
-  await post(bot, message(owner, "/start"));
-  check(`${bot.first_name} activated after two Telegram deliveries`, host.directory.get(bot.id)?.verified === true);
+  await post(bot, message({ ...stranger, is_bot: true }, "Peer request"));
+  await post(bot, message(manager, "Manager request"));
+  check(`${bot.first_name} ignores messages from bots`, submissions.length === before);
 }
 
 let passed = false;
@@ -292,45 +261,10 @@ try {
       first.text === ownerTurn.message.text,
   );
 
-  phase = "bot-to-bot task delivery";
-  assert.ok(plannerId && builderId);
-  const relayOffset = wire.length;
-  const outgoing = once(wireEvents, "send", { signal: AbortSignal.timeout(5000) });
-  let delivered = false;
-  const confirmation = Effect.runPromise(
-    host.exchange.authorize(
-      plannerId,
-      [builderId],
-      [{ senderId: `telegram:${planner.id}:${owner.id}`, messageId: "test-owner-request" }],
-      "Check the status page",
-    ),
-  ).then((receipt) => {
-    delivered = true;
-    return receipt;
-  });
-  // A failed transport can settle before it emits an outgoing event.
-  await Promise.race([outgoing, confirmation]);
-  const introduction = sent(planner, builder, relayOffset);
-  check("A changed username receives no task data", !introduction.includes("Check the status page"));
-  await post(builder, message(manager, introduction));
-  await post(planner, message(builder, introduction));
-  await post(builder, message({ ...stranger, is_bot: true }, introduction));
-  check("Other senders and swapped peers cannot release a task", !delivered && wire.length === relayOffset + 1);
-  const contentSent = once(wireEvents, "send", { signal: AbortSignal.timeout(5000) });
-  await post(builder, message(planner, introduction));
-  await Promise.race([contentSent, confirmation]);
-  const content = wire[relayOffset + 1];
-  assert.ok(content);
-  check(
-    "Only the stable numeric peer receives the requested work",
-    content.to === builder.id && content.text.includes("Check the status page"),
-  );
-  const reference = content.text;
-  await post(builder, message(planner, reference));
-  const receipt = await confirmation;
-  check("Only the intended bot can release the task", receipt.ownerId === owner.id && receipt.depth === 1);
-  await post(builder, message(planner, reference));
-  check("A repeated peer receipt cannot start a user turn", submissions.length === 1);
+  phase = "messages from bots";
+  await post(builder, message(planner, "Check the status page"));
+  await post(manager, message(builder, "Check the status page"));
+  check("A bot cannot start a turn for another agent", submissions.length === 1);
 
   phase = "restart and transfer";
   pendingManagerUpdates = 1;
@@ -347,8 +281,8 @@ try {
     "The same two agents are available after a server restart",
     host.directory.get(planner.id)?.agentId === plannerId &&
       host.directory.get(builder.id)?.agentId === builderId &&
-      host.directory.get(planner.id)?.verified === true &&
-      host.directory.get(builder.id)?.verified === true,
+      host.directory.get(planner.id)?.ownerConfirmed === true &&
+      host.directory.get(builder.id)?.ownerConfirmed === true,
   );
   await post(planner, ownerTurn);
   check("Old updates cannot submit twice after restart", submissions.length === 1);
@@ -424,7 +358,6 @@ try {
   passed = true;
 } finally {
   host.service.close();
-  host.exchange.close();
   server.closeAllConnections();
   await new Promise<void>((success) => server.close(() => success()));
   await rm(profile, { recursive: true, force: true });

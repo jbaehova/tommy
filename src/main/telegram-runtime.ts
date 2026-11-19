@@ -15,7 +15,6 @@ import { TelegramAttention } from "./telegram-attention";
 import { TelegramCommands } from "./telegram-commands";
 import { TelegramDelivery } from "./telegram-delivery";
 import { chatReady, type TelegramConnection, TelegramDirectory } from "./telegram-directory";
-import { TelegramExchange } from "./telegram-exchange";
 import { escapeTelegramHtml, maskEmails, telegramHtml } from "./telegram-format";
 import { TelegramMiniApp } from "./telegram-mini-app";
 import { TelegramProfile } from "./telegram-profile";
@@ -105,16 +104,7 @@ export function createTelegramRuntime({
         return turns.length > 0;
       }),
   });
-  const bindingForAgent = (id: string) => directory.list().find((entry) => entry.agentId === id);
   const available = (id: string | null) => Boolean(id && vps.workReady && ready() && agents.isAvailable(id));
-  const exchange = new TelegramExchange({
-    ownerId: settings.ownerId,
-    bindingForAgent: (id) => {
-      const entry = bindingForAgent(id);
-      return entry ? { id: entry.id, username: entry.username, active: entry.verified && available(id) } : null;
-    },
-    send: (id, chatId, text) => vps.sendFromAgent(id, chatId, text),
-  });
   const activeAgentForBot = (telegramId: number) => {
     const entry = connection(telegramId);
     return chatReady(entry) && available(entry.agentId) ? entry.agentId : null;
@@ -203,8 +193,6 @@ export function createTelegramRuntime({
       logger.warn("Telegram could not notify the owner of a browser request."),
     );
   };
-  vps.setExchangeReceiver((...args) => exchange.receive(...args));
-  service.setTelegramExchange(exchange.authorize);
   /** Agents talk inside Tommy. Each agent's own chat shows what it sent and what it received. */
   const chatFor = (agentId: string) => connections().find((entry) => entry.agentId === agentId && chatReady(entry));
   const sendTo = (id: number, text: string, html: boolean): Effect.Effect<void, Error> =>
@@ -421,8 +409,6 @@ export function createTelegramRuntime({
       attention.close();
       for (const key of [...typing.keys()]) stopTyping(key);
       tokens.clear();
-      service.setTelegramExchange(null);
-      exchange.close();
       vps.close();
       yield* delivery.stop();
       yield* vps.awaitPending();

@@ -3,19 +3,13 @@ import type { messages as source } from "../../en/status/messaging";
 
 export const messages = {
   "status.messaging.integrationsSection": "연동",
-  "status.messaging.telegramRefreshOwner":
-    "@{username}의 소유권을 다시 확인해야 합니다. 소유자 계정으로 BotFather에서 해당 봇의 토큰을 갱신한 뒤 다시 확인하세요.",
   "status.messaging.telegramTaskFailed": "에이전트가 요청한 작업을 완료하지 못했습니다.",
   "status.messaging.telegramTaskCancelled": "에이전트가 작업을 중단했습니다.",
   "status.messaging.telegramOpenApp": "Tommy 열기",
-  "status.messaging.telegramVerifyHelp":
-    "BotFather에서 관리 봇과 @{username}의 Bot-to-Bot Communication Mode를 켜세요. 이 채팅에서 /verify @{username}을 보내거나 해당 에이전트 채팅에서 /verify를 보내세요.",
   "status.messaging.telegramInitialMessage": "텔레그램에서 사용자의 첫 작업 요청을 기다리세요.",
-  "status.messaging.telegramReady": "@{username}의 봇 간 통신을 확인했습니다. 개인 채팅을 열어 작업을 요청하세요.",
   "status.messaging.telegramOpenChat": "에이전트와 대화 시작",
   "status.messaging.telegramCreateHelp": "에이전트 만들기를 누르고 이름과 텔레그램 사용자 이름을 확인하세요.",
   "status.messaging.telegramCreate": "에이전트 만들기",
-  "status.messaging.telegramVerifyUsage": "/agents에서 에이전트를 확인한 뒤 /verify @사용자이름을 보내세요.",
   "status.messaging.telegramActive": "Tommy에 연결됨",
   "status.messaging.telegramPending": "통신 확인 대기",
   "status.messaging.telegramNoAgents": "아직 텔레그램 에이전트가 없습니다. /new로 만드세요.",

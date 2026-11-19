@@ -33,7 +33,7 @@ function agent(id: string): AgentSummary {
 }
 
 describe("Telegram agent reply authorization", () => {
-  it("identifies only the original agent's requested reply across restart and preserves mixed turn provenance", async () => {
+  it("gives a turn to the owner's chat only through the owner's message, its own requests, or a routine", async () => {
     const directory = await mkdtemp(join(tmpdir(), "tommy-telegram-owner-"));
     const database = new TommyDatabase(directory);
     let mailbox = new MailboxStore(directory, join(directory, "shared"), database);
@@ -51,49 +51,45 @@ describe("Telegram agent reply authorization", () => {
       const senderMember = { id: "telegram:10:20", name: "Telegram" };
       const human = { sender: { kind: "user" as const }, senderMember, text: "Ask for help", recipientAgentIds: ["a"] };
       const rootMessageId = await deliver(human, "user-turn");
-      const unrelated = await deliver(human, "other-turn");
-      const telegramExchange = { ownerId: 20, rootTelegramId: 10, rootMessageId, depth: 1 };
+      const local = { ...human, senderMember: { id: "local", name: "Local" } };
+      await deliver(local, "local-turn");
+      // A request that agent a sent in its owner turn, as send_message keys it.
       const request = {
         sender: { kind: "agent" as const, agentId: "a" },
         recipientAgentIds: ["b"],
         text: "Help",
-        telegramExchange,
+        idempotencyKey: "send_message:thread-a:user-turn:call-1",
       };
       const requestId = await deliver(request, "peer-turn");
-      await deliver({ ...request, expectsReply: false }, "pending-task", false);
-      const local = { ...human, senderMember: { id: "local", name: "Local" } };
-      const localMessageId = await deliver(local, "local-root");
-      const wrongRecipient = await deliver({ ...human, recipientAgentIds: ["c"] }, "wrong-recipient");
-      const mixedRoot = await deliver(human, "mixed-root");
-      await deliver(local, "mixed-root");
-      for (const [id, turnId] of [
-        [localMessageId, "forged-owner"],
-        [wrongRecipient, "forged-recipient"],
-        [mixedRoot, "foreign-root-input"],
-      ] as const) {
-        await deliver({ ...request, telegramExchange: { ...telegramExchange, rootMessageId: id } }, turnId);
-      }
-      await deliver({ ...request, sender: { kind: "agent", agentId: "c" } }, "forged-delegator");
-      await deliver({ ...request, replyToMessageId: unrelated }, "unrelated-request");
-      await deliver(request, "mixed-private");
-      await deliver({ ...local, recipientAgentIds: ["b"] }, "mixed-private");
-      await deliver(request, "mixed-roots");
-      await deliver({ ...request, telegramExchange: { ...telegramExchange, rootMessageId: unrelated } }, "mixed-roots");
+      await deliver(
+        { ...request, idempotencyKey: "send_message:thread-a:local-turn:call-2", text: "Private help" },
+        "private-peer-turn",
+      );
       const answer = {
         sender: { kind: "agent" as const, agentId: "b" },
         recipientAgentIds: ["a"],
         text: "Done",
         replyToMessageId: requestId,
         expectsReply: false,
-        telegramExchange: { ...telegramExchange, depth: 2 },
       };
       await deliver(answer, "synthesis");
-      await deliver({ ...answer, telegramExchange: { ...answer.telegramExchange, rootMessageId: unrelated } }, "stale");
-      await deliver({ ...answer, sender: { kind: "agent", agentId: "c" } }, "foreign");
-      await deliver({ ...answer, recipientAgentIds: ["a", "c"] }, "broadcast");
-      await deliver({ ...answer, replyToMessageId: null }, "unsolicited");
-      await deliver(answer, "mixed");
-      await deliver({ ...human, senderMember: { id: "local", name: "Local" } }, "mixed");
+      await deliver({ ...answer, idempotencyKey: "relay:mixed" }, "mixed");
+      await deliver({ ...local, text: "Also this" }, "mixed");
+      await deliver({ ...answer, sender: { kind: "agent", agentId: "c" }, idempotencyKey: "relay:foreign" }, "foreign");
+      await deliver(
+        {
+          sender: {
+            kind: "routine",
+            routineId: "routine-1",
+            runId: "run-1",
+            routineName: "Briefing",
+            scheduledFor: "2026-11-19T10:00:00.000Z",
+          },
+          recipientAgentIds: ["a"],
+          text: "Write the briefing",
+        },
+        "routine-turn",
+      );
       database.close();
       mailbox = new MailboxStore(directory, join(directory, "shared"), database);
       await runCauseEffect(mailbox.initialize());
@@ -121,13 +117,39 @@ describe("Telegram agent reply authorization", () => {
       const binding = (id: number) => active.get(id) ?? null;
       const inspect = (agentId: string, turnId: string, telegramId: number, ownerId = 20) =>
         host.canInspectTurn(agentId, turnId, telegramId, ownerId, binding);
+
+      expect(mailbox.telegramOriginsForTurn("a", "user-turn")).toEqual([
+        { senderId: senderMember.id, messageId: rootMessageId },
+      ]);
       expect(inspect("a", "user-turn", 10)).toBe(true);
-      expect(inspect("a", "synthesis", 10)).toBe(true);
-      expect(inspect("b", "peer-turn", 11)).toBe(true);
-      expect(inspect("b", "pending-task", 11)).toBe(true);
+      expect(inspect("a", "user-turn", 10, 21)).toBe(false);
+      expect(inspect("a", "user-turn", 11)).toBe(false);
+      expect(host.ownsTurn("a", "user-turn", 10, 20)).toBe(true);
+      expect(host.ownsTurn("a", "local-turn", 10, 20)).toBe(false);
+
+      // The answer to a's own request belongs to the turn that asked, so its result reaches the owner.
+      expect(mailbox.telegramOriginsForTurn("a", "synthesis")).toEqual([{ answerToTurnId: "user-turn" }]);
       expect(host.ownsTurn("a", "synthesis", 10, 20)).toBe(true);
+      expect(inspect("a", "synthesis", 10)).toBe(true);
+      // Any teammate's answer to a's request counts; a turn that also reads a local message does not.
+      expect(host.ownsTurn("a", "foreign", 10, 20)).toBe(true);
+      for (const turnId of ["mixed", "unknown"]) {
+        expect(host.ownsTurn("a", turnId, 10, 20), turnId).toBe(false);
+        expect(inspect("a", turnId, 10), turnId).toBe(false);
+      }
+
+      // Work delegated inside Tommy is traced to the owner's chat for browser requests only. Its answer
+      // goes back to agent a, never straight to Telegram.
+      expect(mailbox.telegramOriginsForTurn("b", "peer-turn")).toEqual([
+        { requestFrom: { agentId: "a", turnId: "user-turn" } },
+      ]);
+      expect(host.tracedChat("b", "peer-turn", 20)).toBe(10);
+      expect(host.tracedChat("b", "peer-turn", 21)).toBeNull();
+      expect(host.tracedChat("b", "private-peer-turn", 20)).toBeNull();
+      expect(host.ownsTurn("b", "peer-turn", 10, 20)).toBe(false);
       expect(host.ownsTurn("b", "peer-turn", 11, 20)).toBe(false);
-      const privateResult = await runCauseEffect(
+      expect(inspect("b", "peer-turn", 11)).toBe(false);
+      const peerResult = await runCauseEffect(
         host.readReply({
           agentId: "b",
           turnId: "peer-turn",
@@ -137,52 +159,24 @@ describe("Telegram agent reply authorization", () => {
           status: "failed",
         }),
       );
-      expect(privateResult).toBeNull();
-      for (const turnId of [
-        "forged-owner",
-        "forged-recipient",
-        "foreign-root-input",
-        "forged-delegator",
-        "unrelated-request",
-        "mixed-private",
-        "mixed-roots",
-        "unknown",
-      ]) {
-        expect(inspect("b", turnId, 11), turnId).toBe(false);
-      }
-      expect(inspect("b", "peer-turn", 11, 21)).toBe(false);
-      expect(inspect("b", "peer-turn", 10)).toBe(false);
-      for (const turnId of ["stale", "foreign", "broadcast", "unsolicited", "mixed", "mixed-root"])
-        expect(inspect("a", turnId, 10), turnId).toBe(false);
+      expect(peerResult).toBeNull();
+
+      // A routine result goes to the agent's own chat, and only while the agent has one.
+      expect(host.routineTurn("a", "routine-turn")).toBe(true);
+      expect(host.routineTurn("a", "user-turn")).toBe(false);
+      expect(host.ownsTurn("a", "routine-turn", 10, 20)).toBe(false);
+      host.setRoutineChat((id) => (id === "a" ? { telegramId: 10, ownerId: 20 } : null));
+      expect(host.ownsTurn("a", "routine-turn", 10, 20)).toBe(true);
+      expect(host.ownsTurn("a", "routine-turn", 11, 20)).toBe(false);
+      host.setRoutineChat(() => null);
+      expect(host.ownsTurn("a", "routine-turn", 10, 20)).toBe(false);
+
       active.delete(10);
       expect(inspect("a", "user-turn", 10)).toBe(false);
-      expect(inspect("b", "peer-turn", 11)).toBe(false);
-      active.set(10, "c");
-      expect(inspect("b", "peer-turn", 11)).toBe(false);
       active.set(10, "a");
-      active.delete(11);
-      expect(inspect("b", "peer-turn", 11)).toBe(false);
-      active.set(11, "b");
       agents.splice(0, 1);
-      expect(inspect("b", "peer-turn", 11)).toBe(false);
-      expect(mailbox.telegramExchangeOriginsForTurn("a", "user-turn")).toEqual([
-        { senderId: senderMember.id, messageId: rootMessageId },
-      ]);
-      expect(mailbox.telegramExchangeOriginsForTurn("a", "synthesis")).toEqual([
-        { exchange: answer.telegramExchange, replyToOwnRequest: true },
-      ]);
-      for (const turnId of ["stale", "foreign", "broadcast", "unsolicited"]) {
-        expect(mailbox.telegramExchangeOriginsForTurn("a", turnId)).not.toContainEqual(
-          expect.objectContaining({ replyToOwnRequest: true }),
-        );
-      }
-      expect(mailbox.telegramExchangeOriginsForTurn("b", "peer-turn")).toEqual([
-        { exchange: telegramExchange, delegatedByRootAgentId: "a" },
-      ]);
-      expect(mailbox.telegramExchangeOriginsForTurn("a", "mixed")).toHaveLength(2);
-      expect(mailbox.telegramExchangeOriginsForTurn("a", "mixed")).toContainEqual(
-        expect.objectContaining({ senderId: "local" }),
-      );
+      expect(inspect("a", "user-turn", 10)).toBe(false);
+      expect(host.ownsTurn("a", "user-turn", 10, 20)).toBe(false);
     } finally {
       database.close();
       await rm(directory, { recursive: true, force: true });

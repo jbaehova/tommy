@@ -74,7 +74,6 @@ import {
   stopRunningSubagents,
   subagentsFromNotification,
 } from "./subagent-updates";
-import type { AgentTelegramExchange } from "./telegram-exchange-gate";
 import { ThreadFileHistory } from "./thread-file-history";
 import {
   isNonActionableCodexWarning,
@@ -155,7 +154,6 @@ export interface AgentBrowserHost extends AttentionBrowserHost, BrowserUploadTar
 }
 
 export interface TurnHooks {
-  answerFailedRequest(agentId: string, deliveryId: string): Effect.Effect<void>;
   emitFailure?(failure: FailureSignal): void;
   emit(event: AgentEvent): void;
   emitError(code: string, error: unknown, agentId?: string, context?: FailureContext): void;
@@ -233,7 +231,6 @@ export interface TurnHooks {
 }
 
 export interface TurnLifecycleOptions {
-  telegramExchange: AgentTelegramExchange;
   store: AgentStore;
   mailbox: MailboxStore;
   mailboxSync: MailboxSync;
@@ -261,7 +258,6 @@ export interface TurnLifecycleOptions {
  * arms context compaction or schedules the next drain via hooks.
  */
 export class TurnLifecycle {
-  readonly #telegramExchange: AgentTelegramExchange;
   readonly #store: AgentStore;
   readonly #mailbox: MailboxStore;
   readonly #mailboxSync: MailboxSync;
@@ -354,7 +350,6 @@ export class TurnLifecycle {
   readonly #lastEventAt = new Map<string, number>();
 
   constructor(options: TurnLifecycleOptions) {
-    this.#telegramExchange = options.telegramExchange;
     this.#store = options.store;
     this.#mailbox = options.mailbox;
     this.#mailboxSync = options.mailboxSync;
@@ -1506,7 +1501,7 @@ export class TurnLifecycle {
         }
         // A failed turn sends no result, so the agent that asked gets the failure as its answer.
         if (!continuation && terminal === "failed") {
-          for (const { delivery } of deliveries) yield* this.#hooks.answerFailedRequest(agentId, delivery.id);
+          for (const { delivery } of deliveries) yield* this.#answerFailedRequest(agentId, delivery.id);
         }
         // The requester holds the answers of the other teammates until each request has ended, so
         // this end can release them, and the failure note above.
@@ -1819,6 +1814,24 @@ export class TurnLifecycle {
     );
   }, Effect.uninterruptible);
 
+  /** Sends the agent that asked the note that its request failed. A failed note does not stop the turn's end. */
+  #answerFailedRequest(agentId: string, deliveryId: string): Effect.Effect<void> {
+    return this.#mailbox
+      .answerFailedRequest(
+        deliveryId,
+        (taskId) => this.#hooks.taskOpen(taskId),
+        (id) => this.#store.list().some((agent) => agent.id === id),
+      )
+      .pipe(
+        Effect.match({
+          onFailure: (failure) => this.#hooks.emitError("failed_request_answer_failed", failure.cause, agentId),
+          onSuccess: (requesterId) => {
+            if (requesterId) this.#mailboxSync.emitQueue(requesterId);
+          },
+        }),
+      );
+  }
+
   readonly #relayAgentResult = Effect.fn("TurnLifecycle.relayAgentResult")(function* (
     this: TurnLifecycle,
     agentId: string,
@@ -1860,29 +1873,19 @@ export class TurnLifecycle {
     // A result for a request from a side thread runs in that thread, as an answer with send_message does.
     const answerTaskId = this.#mailbox.answerTaskId(agentId, messageId, [recipientAgentId]);
     const taskId = answerTaskId && this.#hooks.taskOpen(answerTaskId) ? answerTaskId : undefined;
-    const note = text ?? NO_RESULT_NOTE;
-    const key = `auto-result:${turnId}:${messageId}`;
-    const confirmed = yield* Effect.result(
-      this.#telegramExchange.confirm(agentId, turnId, [recipientAgentId], () => this.#hooks.redactMcp(note), key),
-    );
-    if (confirmed._tag === "Failure") {
-      this.#hooks.emitError("telegram_peer_delivery_failed", confirmed.failure.cause, agentId);
-      return;
-    }
     const receipt = yield* this.#mailbox
       .enqueue({
         sender: { kind: "agent", agentId },
         recipientAgentIds: [recipientAgentId],
-        ...(confirmed.success ? { telegramExchange: confirmed.success } : {}),
         // A turn that ended with no answer still answers, so the agent that asked does not wait for a
         // result that never comes (#6044).
-        text: note,
+        text: text ?? NO_RESULT_NOTE,
         replyToMessageId: messageId,
         ...(taskId ? { taskId } : {}),
         // The requested result, not a new request. The chain-origin guard above already stops a
         // second relay; this is what tells the recipient it owes no acknowledgement for one.
         expectsReply: false,
-        idempotencyKey: key,
+        idempotencyKey: `auto-result:${turnId}:${messageId}`,
       })
       .pipe(toTurnOperationFailed);
     const senderSnapshot = this.#conversation.snapshotToUpdate(agentId);

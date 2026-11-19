@@ -2,7 +2,6 @@ import type { PartialTranslation } from "../../../message";
 import type { messages as source } from "../../en/status/host";
 
 export const messages = {
-  "status.host.starting": "서버를 시작하는 중…",
   "status.host.telegramDisconnectUsage": "이 관리 봇 채팅에서 /disconnect @사용자이름을 보내세요.",
   "status.host.telegramDisconnectAmbiguous":
     "여러 연결에 @{username}이 지정되어 있습니다. BotFather에서 현재 사용자 이름을 확인하세요.",

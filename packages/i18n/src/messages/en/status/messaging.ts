@@ -10,21 +10,14 @@ export const messages = defineMessages("status.messaging", {
   // The page a development Slack install ends on.
   // Text that Tommy posts in a Telegram chat, and the Telegram Orchestrator agent. Telegram users
   // read the posts. The user can rename the agent.
-  "status.messaging.telegramRefreshOwner":
-    "Tommy needs current ownership information for @{username}. Replace its token in BotFather from your owner account, then verify it again.",
   "status.messaging.telegramTaskFailed": "Your Telegram agent could not finish this task.",
   "status.messaging.telegramTaskCancelled": "Your Telegram agent stopped this task.",
   "status.messaging.telegramOpenApp": "Open Tommy",
-  "status.messaging.telegramVerifyHelp":
-    "Enable Bot-to-Bot Communication Mode in BotFather for the manager and @{username}. Then send /verify @{username} here, or /verify in that agent’s chat.",
   "status.messaging.telegramInitialMessage":
     "You are ready to receive work from your owner on Telegram. Wait for their first task.",
-  "status.messaging.telegramReady":
-    "@{username} can now exchange messages with other Tommy agents. Start a private chat to give it a task.",
   "status.messaging.telegramOpenChat": "Start agent chat",
   "status.messaging.telegramCreateHelp": "Tap Create agent, choose a name and confirm the Telegram username.",
   "status.messaging.telegramCreate": "Create Telegram agent",
-  "status.messaging.telegramVerifyUsage": "Send /verify @username using an agent shown in /agents.",
   "status.messaging.telegramActive": "Connected to Tommy",
   "status.messaging.telegramPending": "Waiting for verification",
   "status.messaging.telegramNoAgents": "You have no Telegram agents yet. Send /new to create one.",
