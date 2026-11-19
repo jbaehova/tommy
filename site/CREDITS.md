@@ -17,5 +17,15 @@ and are used under the [Pexels License](https://www.pexels.com/license/).
 | `avatars/designer.jpg` | Designer | [Smiling Indian woman touching face](https://www.pexels.com/photo/6977987/) | [Monstera Production](https://www.pexels.com/@gabby-k/) |
 | `avatars/writer.jpg` | Writer | [Smiling Man in Black Polo Portrait](https://www.pexels.com/photo/28494857/) | [Moisés Sánchez](https://www.pexels.com/@moises-sanchez-1849845482/) |
 
-`avatars/tommy.png`, the picture of the root agent, is the logo of this project. The hotel page in the
-browser example is invented.
+`avatars/tommy.png`, the picture of the root agent, is the logo of this project.
+
+## Browser example
+
+`browser.jpg` is a picture of an invented hotel site, made from `docs/assets/browser-example/`. The
+hotel does not exist. Its photos also come from Pexels and are used under the Pexels License.
+
+| File | Photo | Photographer |
+| --- | --- | --- |
+| `room.jpg` | [Black Laptop Placed on Table](https://www.pexels.com/photo/black-laptop-placed-on-table-271618/) | [Pixabay](https://www.pexels.com/@pixabay/) |
+| `bed.jpg` | [Black and Grey Bedspread on Bed and Pillow](https://www.pexels.com/photo/black-and-grey-bedspread-on-bed-and-pillow-164595/) | [Pixabay](https://www.pexels.com/@pixabay/) |
+| `pool.jpg` | [Black Outdoor Lounge Chair in Between Blue Swimming Pool Under White Cloudy Blue Sky](https://www.pexels.com/photo/black-outdoor-lounge-chair-in-between-blue-swimming-pool-under-white-cloudy-blue-sky-189296/) | Donald Tong |

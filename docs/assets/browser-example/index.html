@@ -1,0 +1,394 @@
+<!doctype html>
+<!-- Source of site/browser.jpg, the page that the example agent has open. The hotel is invented.
+Render it with a headless browser at 1280x660 with a device scale factor of 1. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Norivo Asakusa: sign in</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      body {
+        background: #fff;
+        color: #1a1a1a;
+        font:
+          14px / 1.4 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          "Helvetica Neue",
+          Arial,
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .bar {
+        display: flex;
+        align-items: center;
+        gap: 28px;
+        height: 64px;
+        padding: 0 40px;
+        background: #0f3d3e;
+        color: #fff;
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+      }
+
+      .logo i {
+        width: 22px;
+        height: 22px;
+        border-radius: 7px 7px 7px 2px;
+        background: #ffb347;
+      }
+
+      .bar nav {
+        display: flex;
+        gap: 6px;
+        font-weight: 500;
+      }
+
+      .tab {
+        padding: 8px 14px;
+        border-radius: 20px;
+      }
+
+      .tab.on {
+        background: rgb(255 255 255 / 0.14);
+        box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.7);
+      }
+
+      .bar .right {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        margin-left: auto;
+        font-weight: 500;
+      }
+
+      .signin {
+        padding: 8px 14px;
+        border-radius: 6px;
+        background: #fff;
+        color: #0f3d3e;
+        font-weight: 600;
+      }
+
+      .wrap {
+        width: 1120px;
+        margin: 0 auto;
+      }
+
+      .crumbs {
+        padding: 14px 0 12px;
+        color: #0b6b6d;
+        font-size: 12.5px;
+      }
+
+      .crumbs span {
+        color: #6b6b6b;
+      }
+
+      .head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+      }
+
+      .tag {
+        display: inline-block;
+        margin-right: 6px;
+        padding: 2px 7px;
+        border-radius: 4px;
+        background: #e7f3f1;
+        color: #0b6b6d;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .stars {
+        color: #f5a623;
+        letter-spacing: 1px;
+      }
+
+      h1 {
+        margin: 6px 0 4px;
+        font-size: 26px;
+        letter-spacing: -0.02em;
+      }
+
+      .where {
+        color: #4a4a4a;
+        font-size: 13px;
+      }
+
+      .where u {
+        color: #0b6b6d;
+        text-decoration: none;
+      }
+
+      .score {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        text-align: right;
+      }
+
+      .score small {
+        display: block;
+        color: #6b6b6b;
+        font-size: 12px;
+      }
+
+      .score strong {
+        font-size: 15px;
+      }
+
+      .score b {
+        display: grid;
+        place-items: center;
+        width: 38px;
+        height: 38px;
+        border-radius: 8px 8px 8px 0;
+        background: #0f3d3e;
+        color: #fff;
+        font-size: 15px;
+      }
+
+      .photos {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        grid-template-rows: 1fr 1fr;
+        gap: 8px;
+        height: 380px;
+        margin-top: 14px;
+      }
+
+      .photos div {
+        border-radius: 10px;
+        background: center / cover;
+      }
+
+      .photos div:first-child {
+        grid-row: span 2;
+        background-image: url("room.jpg");
+      }
+
+      .photos div:nth-child(2) {
+        background-image: url("bed.jpg");
+      }
+
+      .photos div:nth-child(3) {
+        position: relative;
+        background-image: url("pool.jpg");
+      }
+
+      .photos em {
+        position: absolute;
+        right: 10px;
+        bottom: 10px;
+        padding: 6px 10px;
+        border-radius: 6px;
+        background: rgb(0 0 0 / 0.6);
+        color: #fff;
+        font-size: 12.5px;
+        font-style: normal;
+        font-weight: 600;
+      }
+
+      /* The sign-in dialog */
+
+      .shade {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: rgb(12 24 28 / 0.44);
+      }
+
+      .dialog {
+        position: relative;
+        width: 404px;
+        padding: 30px 32px 26px;
+        border-radius: 14px;
+        background: #fff;
+        box-shadow: 0 30px 70px -20px rgb(0 0 0 / 0.55);
+      }
+
+      .logo-small {
+        color: #0f3d3e;
+        font-size: 19px;
+      }
+
+      .mark-small {
+        width: 19px;
+        height: 19px;
+      }
+
+      .close {
+        position: absolute;
+        top: 18px;
+        right: 20px;
+        color: #8a8a8a;
+        font-size: 24px;
+        line-height: 1;
+      }
+
+      h2 {
+        margin: 18px 0 4px;
+        font-size: 21px;
+        letter-spacing: -0.02em;
+      }
+
+      .dialog p {
+        margin: 0 0 16px;
+        color: #5a5a5a;
+        font-size: 13.5px;
+      }
+
+      .stay {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 18px;
+        padding: 10px;
+        border-radius: 10px;
+        background: #f3f7f6;
+      }
+
+      .stay i {
+        flex: none;
+        width: 54px;
+        height: 54px;
+        border-radius: 7px;
+        background: url("room.jpg") center / cover;
+      }
+
+      .stay strong {
+        display: block;
+        font-size: 13.5px;
+      }
+
+      .stay small {
+        color: #5a5a5a;
+        font-size: 12.5px;
+      }
+
+      .stay b {
+        margin-left: auto;
+        font-size: 15px;
+      }
+
+      .label {
+        display: block;
+        margin-bottom: 5px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .input {
+        display: flex;
+        align-items: center;
+        height: 42px;
+        margin-bottom: 12px;
+        padding: 0 12px;
+        border: 1px solid #b9c2c1;
+        border-radius: 7px;
+        color: #9aa3a2;
+      }
+
+      .input.on {
+        border-color: #0b6b6d;
+        box-shadow: 0 0 0 3px rgb(11 107 109 / 0.18);
+      }
+
+      .input.on::before {
+        width: 1.5px;
+        height: 18px;
+        background: #1a1a1a;
+        content: "";
+      }
+
+      .go {
+        display: grid;
+        place-items: center;
+        height: 44px;
+        margin-top: 4px;
+        border-radius: 7px;
+        background: #0b6b6d;
+        color: #fff;
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .links {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 14px;
+        color: #0b6b6d;
+        font-size: 13px;
+        font-weight: 500;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="bar">
+      <span class="logo"><i></i>norivo</span>
+      <nav><span class="tab on">Stays</span><span class="tab">Flights</span><span class="tab">Trains</span><span class="tab">Things to do</span></nav>
+      <div class="right"><span>USD</span><span>Help</span><span>Trips</span><b class="signin">Sign in</b></div>
+    </div>
+    <div class="wrap">
+      <div class="crumbs">Japan <span>/</span> Tokyo <span>/</span> Taito <span>/ Norivo Asakusa</span></div>
+      <div class="head">
+        <div>
+          <span class="tag">Hotel</span><span class="stars">★★★★</span>
+          <h1>Norivo Asakusa</h1>
+          <div class="where">2 Chome Kaminarimon, Taito City, Tokyo. <u>Show on map</u></div>
+        </div>
+        <div class="score">
+          <span><strong>Fabulous</strong><small>2,418 reviews</small></span>
+          <b>8.9</b>
+        </div>
+      </div>
+      <div class="photos">
+        <div></div>
+        <div></div>
+        <div><em>+38 photos</em></div>
+      </div>
+    </div>
+
+    <div class="shade">
+      <div class="dialog">
+        <span class="logo logo-small"><i class="mark-small"></i>norivo</span>
+        <span class="close">×</span>
+        <h2>Sign in to finish your booking</h2>
+        <p>Your room is held for 14 minutes.</p>
+        <div class="stay">
+          <i></i>
+          <span><strong>Deluxe Twin Room</strong><small>Apr 3 to Apr 8, 2 guests</small></span>
+          <b>$900</b>
+        </div>
+        <span class="label">Email address</span>
+        <div class="input on"></div>
+        <span class="label">Password</span>
+        <div class="input"></div>
+        <div class="go">Sign in</div>
+        <div class="links"><span>Forgot your password?</span><span>Create an account</span></div>
+      </div>
+    </div>
+  </body>
+</html>

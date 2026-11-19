@@ -99,5 +99,8 @@ both with a device scale factor of 2. The banner uses `site/style.css`, so rende
 change to the Telegram window. The example avatars and their licenses are listed in
 [site/CREDITS.md](../site/CREDITS.md).
 
+`site/browser.jpg`, the page in the agent's browser, is a screenshot of
+`docs/assets/browser-example/index.html` at 1280x660 with a device scale factor of 1.
+
 `docs/assets/logo.png` is the logo: the black mark on a white circle. `site/avatars/tommy.png` is the
 same picture at 256 pixels.
