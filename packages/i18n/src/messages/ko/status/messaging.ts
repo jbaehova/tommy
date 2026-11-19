@@ -32,7 +32,9 @@ export const messages = {
   "status.messaging.telegramRootCurrent": "지금 루트 에이전트는 {name}입니다. 바꿀 때만 다른 에이전트를 고르세요.",
   "status.messaging.telegramRootSelected": "이제 {name} 에이전트가 루트입니다. 여기에 메시지를 보내세요.",
   "status.messaging.telegramConnectHelp":
-    "에이전트를 누르고 텔레그램에서 새 봇을 만드세요. 제안된 이름을 그대로 두어야 그 에이전트에 연결됩니다. 사용자 이름은 바꿔도 됩니다.",
+    "에이전트를 누르고 텔레그램에서 새 봇을 만드세요. 제안된 이름을 그대로 두어야 그 에이전트에 연결됩니다. 사용자 이름은 바꿔도 됩니다. 만들기 화면이 계속 로딩되면 /connect_button을 보내세요.",
+  "status.messaging.telegramConnectButtonHelp":
+    "아래 키보드에서 에이전트를 누르고 새 봇을 만드세요. 제안된 이름을 그대로 두어야 그 에이전트에 연결됩니다.",
   "status.messaging.telegramAllConnected": "모든 에이전트에 이미 채팅이 있습니다. 새 에이전트는 /new로 만드세요.",
   "status.messaging.telegramChatReady": "@{username} 준비가 끝났습니다. 채팅을 열어 {name} 에이전트와 대화하세요.",
   "status.messaging.telegramChatHelp":
