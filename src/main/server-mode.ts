@@ -57,7 +57,14 @@ export interface ServerModeOptions {
     redactions: number;
   }>;
   /** Asks one agent a question and waits for its answer. `pending`: no answer before the timeout. */
-  ask?: (input: { agent: string; source: string; text: string; timeoutSeconds: number }) => Promise<{
+  ask?: (input: {
+    agent: string;
+    source: string;
+    text: string;
+    timeoutSeconds: number;
+    /** Aborts when the caller closes the connection, so the wait stops. */
+    signal: AbortSignal;
+  }) => Promise<{
     agentId: string;
     agentName: string;
     chat: boolean;
@@ -139,12 +146,20 @@ export class ServerMode {
 
   async #handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     let answer: Answer;
+    // A caller that stops waiting, such as an interrupted `tommy ask`, closes the connection early.
+    const closed = new AbortController();
+    response.once("close", () => {
+      if (!response.writableEnded) closed.abort();
+    });
     try {
       const path = request.url?.split("?")[0];
       const handoff = request.method === "POST" && (path === "/v1/handoff" || path === "/v1/ask");
       const body = await readBody(request, handoff ? MAX_HANDOFF_BYTES : MAX_BODY_BYTES);
-      answer = body === null ? failure(413, "too_large") : await this.#route(request.method, request.url, body);
+      answer =
+        body === null ? failure(413, "too_large") : await this.#route(request.method, request.url, body, closed.signal);
     } catch (error) {
+      // The caller left, so nothing reads the answer and the stop is not an error.
+      if (closed.signal.aborted) return;
       this.#options.onError("A server control request failed.", error);
       // The status lines name no secret.
       answer = failure(400, "failed", error instanceof Error ? error.message : null);
@@ -154,7 +169,12 @@ export class ServerMode {
       .end(formatLines(answer.lines));
   }
 
-  async #route(method: string | undefined, url: string | undefined, body: URLSearchParams): Promise<Answer> {
+  async #route(
+    method: string | undefined,
+    url: string | undefined,
+    body: URLSearchParams,
+    signal: AbortSignal,
+  ): Promise<Answer> {
     const path = url?.split("?")[0] ?? "";
     const route = `${method ?? ""} ${path}`;
     switch (route) {
@@ -196,6 +216,7 @@ export class ServerMode {
           source: body.get("source")?.trim().slice(0, 200) ?? "",
           text,
           timeoutSeconds,
+          signal,
         });
         return {
           status: 200,

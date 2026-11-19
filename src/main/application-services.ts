@@ -837,9 +837,9 @@ export async function createApplicationServices({
         telegram
           ? Effect.runPromise(telegram.handoff(input))
           : Promise.reject(new Error("Telegram is not set up on this server.")),
-      ask: (input) =>
+      ask: ({ signal, ...input }) =>
         telegram
-          ? Effect.runPromise(telegram.ask(input))
+          ? Effect.runPromise(telegram.ask(input), { signal })
           : Promise.reject(new Error("Telegram is not set up on this server.")),
     });
     // Without the socket the server still runs, and the log says why.

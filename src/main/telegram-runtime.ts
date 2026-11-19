@@ -444,16 +444,21 @@ export function createTelegramRuntime({
       const source = input.source || "another session";
       const message = `${askHeader}\nSource: ${source}\n\n${redactText(input.text)}`.slice(0, 100_000);
       const chat = vps.workReady && ready() ? chatFor(agent.id) : undefined;
-      if (chat) {
-        const t = sourceTranslateFor(vps.language);
-        yield* sendTo(chat.id, t("status.messaging.telegramAskNotice", { source }), false).pipe(Effect.ignore);
-      }
+      // The notice follows the queued question, so a failed send leaves no notice in the chat.
+      const notice = chat
+        ? sendTo(
+            chat.id,
+            sourceTranslateFor(vps.language)("status.messaging.telegramAskNotice", { source }),
+            false,
+          ).pipe(Effect.ignore)
+        : Effect.void;
       const timeout = Math.min(Math.max(Math.trunc(input.timeoutSeconds) || 600, 1), 1800) * 1000;
       const answer = yield* agents.ask(
         agent.id,
         chat ? { telegramId: chat.id, ownerId: settings.ownerId } : null,
         message,
         timeout,
+        notice,
       );
       return {
         agentId: agent.id,

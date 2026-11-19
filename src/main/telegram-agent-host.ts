@@ -152,8 +152,9 @@ export class TelegramAgentHost {
 
   /**
    * Sends a question from another computer and waits for the turn that answers it. With a chat, the
-   * question enters it as the owner's message, so the answer also appears in that chat. Null: the time
-   * ran out first, and the agent still answers in Tommy.
+   * question enters it as the owner's message, so the answer also appears in that chat. `afterSend`
+   * runs once Tommy has queued the question. Null: the time ran out first, and the agent still answers
+   * in Tommy. An interrupted wait stops listening at once.
    */
   readonly ask = Effect.fn("TelegramAgentHost.ask")(function* (
     this: TelegramAgentHost,
@@ -161,6 +162,7 @@ export class TelegramAgentHost {
     chat: { telegramId: number; ownerId: number } | null,
     text: string,
     timeoutMs: number,
+    afterSend: Effect.Effect<void> = Effect.void,
   ): Effect.fn.Return<
     { status: "completed" | "failed" | "cancelled"; text: string } | null,
     AgentLifecycleFailed | RemoteWorkflowError
@@ -181,20 +183,17 @@ export class TelegramAgentHost {
         { agentId, text: redactText(text) },
         chat ? { id: senderId(chat.telegramId, chat.ownerId), name: "Telegram" } : undefined,
       );
+      yield* afterSend;
       const deadline = Date.now() + timeoutMs;
-      // A turn that ends with open plan steps continues in the next turn of the same thread.
-      let continuing: string | null = null;
       for (;;) {
         for (let event = completed.shift(); event; event = completed.shift()) {
-          // The delivery of the question carries the turn that runs it, with or without a Telegram sender.
+          // The delivery of the question names the turn that runs it, and each turn that continues its
+          // open plan steps. Another message that runs in the same thread is not the answer.
+          const context = this.mailbox.deliveryForMessage(receipt.messageId, agentId);
           const ours =
-            continuing === event.threadId ||
-            this.mailbox.deliveryForMessage(receipt.messageId, agentId)?.delivery.turnId === event.turnId;
-          if (!ours) continue;
-          if (event.continues) {
-            continuing = event.threadId;
-            continue;
-          }
+            context !== null &&
+            (context.delivery.turnId === event.turnId || context.planContinuation?.turnIds.includes(event.turnId));
+          if (!ours || event.continues) continue;
           if (event.status !== "completed")
             return { status: event.status === "failed" ? "failed" : "cancelled", text: "" } as const;
           const answer = latestTurnAnswer(
