@@ -16,10 +16,7 @@ interface Confirmation {
 export class TelegramDisconnect {
   #confirmation: Confirmation | null = null;
 
-  constructor(
-    private readonly directory: Pick<TelegramDirectory, "get" | "list" | "revoke">,
-    private readonly clearVerification: (id: number) => void,
-  ) {}
+  constructor(private readonly directory: Pick<TelegramDirectory, "get" | "list" | "revoke">) {}
 
   readonly handle = Effect.fn("TelegramDisconnect.handle")(function* (
     this: TelegramDisconnect,
@@ -71,7 +68,6 @@ export class TelegramDisconnect {
     }
     if (this.directory.get(binding.id)) return t("status.host.telegramDisconnectExpired", { username });
     this.#confirmation = null;
-    this.clearVerification(binding.id);
     return t("status.host.telegramDisconnected", { username });
   }).bind(this);
 }

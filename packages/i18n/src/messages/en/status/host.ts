@@ -1,7 +1,6 @@
 import { defineMessages } from "../../../message";
 
 export const messages = defineMessages("status.host", {
-  "status.host.starting": "Starting the server…",
   "status.host.telegramDisconnectUsage": "Send /disconnect @username in this manager chat.",
   "status.host.telegramDisconnectAmbiguous":
     "Multiple connections use @{username}. Check the current username in BotFather before disconnecting.",

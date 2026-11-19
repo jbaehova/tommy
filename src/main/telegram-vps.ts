@@ -1,4 +1,4 @@
-import { createHmac, randomUUID } from "node:crypto";
+import { createHmac } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { sourceText, sourceTranslateFor } from "@tommy/i18n/source";
 import { Effect, Result, Schedule, Semaphore } from "effect";
@@ -32,30 +32,22 @@ interface Options {
 type Message = NonNullable<TelegramUpdate["message"]>;
 type Translate = typeof sourceText;
 const updatePath = "/tommy/telegram/update/";
-const verifyPrefix = "Tommy verify ";
-const replyPrefix = "Tommy verified ";
 const bodyLimit = 128 * 1024;
 
 /** Delivers private owner messages and receipts from known Telegram peers. Group updates are never owner authority. */
 export class TelegramVps {
   readonly #options: Options;
   readonly #updates = Semaphore.makeUnsafe(1);
-  readonly #probes = new Map<number, { nonce: string; expires: number; operation: string }>();
   readonly #disconnect: TelegramDisconnect;
   #language: "en" | "ko" = "en";
   #manager = "";
   #managerCaughtUp = false;
   #closed = false;
-  #receiveExchange: ((recipient: number, sender: number, chat: number, text: string) => boolean) | null = null;
   #attention: ((chat: number, text: string, messageId: number) => boolean) | null = null;
 
   constructor(options: Options) {
     this.#options = options;
-    this.#disconnect = new TelegramDisconnect(options.directory, (id) => this.#probes.delete(id));
-  }
-
-  setExchangeReceiver(receive: (recipient: number, sender: number, chat: number, text: string) => boolean): void {
-    this.#receiveExchange = receive;
+    this.#disconnect = new TelegramDisconnect(options.directory);
   }
 
   /** A waiting agent question or approval takes the owner's next plain message in that chat. */
@@ -71,8 +63,6 @@ export class TelegramVps {
     this.#closed = true;
     this.#attention = null;
     this.#manager = "";
-    this.#probes.clear();
-    this.#receiveExchange = null;
   }
 
   #secret(id: number) {
@@ -142,8 +132,7 @@ export class TelegramVps {
     for (const child of directory.list()) {
       // A deleted child can no longer return a token. Its sibling webhooks still need to be installed.
       if (!child.ownerConfirmed) continue;
-      const restored = yield* Effect.result(this.#installChild(child.id));
-      if (Result.isFailure(restored)) yield* directory.setVerified(child.id, false, child.operationId);
+      yield* Effect.result(this.#installChild(child.id));
     }
     this.#manager = manager.username;
     this.#managerCaughtUp = !restoring;
@@ -246,74 +235,6 @@ export class TelegramVps {
     };
   }
 
-  readonly #verify = Effect.fn("TelegramVps.verify")(function* (
-    this: TelegramVps,
-    child: TelegramConnection,
-    t: Translate,
-  ) {
-    if (!this.workReady) {
-      yield* this.#tellOwner(t("status.host.starting"));
-      return;
-    }
-    if (!child.ownerConfirmed) {
-      yield* this.#tellOwner(t("status.messaging.telegramRefreshOwner", { username: child.username }));
-      return;
-    }
-    const probe = { nonce: randomUUID(), expires: Date.now() + 5 * 60_000, operation: child.operationId };
-    this.#probes.set(child.id, probe);
-    const sent = yield* Effect.result(
-      Effect.gen({ self: this }, function* () {
-        yield* this.#installChild(child.id);
-        yield* this.#options.api.sendMessage(
-          this.#options.settings.token,
-          `@${child.username}`,
-          verifyPrefix + probe.nonce,
-        );
-      }),
-    );
-    if (Result.isFailure(sent))
-      yield* this.#tellOwner(t("status.messaging.telegramVerifyHelp", { username: child.username }));
-  }).bind(this);
-
-  readonly #fromPeer = Effect.fn("TelegramVps.fromPeer")(function* (
-    this: TelegramVps,
-    recipient: number,
-    message: Message,
-  ) {
-    const { directory, settings, agents, ready } = this.#options;
-    const fromManager = message.from.id === settings.managerId;
-    const child = directory.get(fromManager ? recipient : message.from.id);
-    if (!child?.ownerConfirmed) return;
-    const probe = this.#probes.get(child.id);
-    if (!probe || probe.operation !== child.operationId || probe.expires <= Date.now()) return;
-    if (fromManager && recipient === child.id && message.text === verifyPrefix + probe.nonce) {
-      yield* this.sendFromAgent(child.id, `@${this.#manager}`, replyPrefix + probe.nonce);
-    } else if (recipient === settings.managerId && message.text === replyPrefix + probe.nonce) {
-      if (!ready()) return yield* Effect.fail(new Error("Tommy is starting."));
-      const agentId =
-        child.agentId ??
-        (yield* agents.ensureAgent(
-          child.operationId,
-          child.name,
-          sourceText("status.messaging.telegramInitialMessage"),
-        ));
-      yield* directory.bindAgent(child.id, agentId, child.operationId);
-      yield* directory.setVerified(child.id, true, child.operationId);
-      const t = sourceTranslateFor(this.#language);
-      yield* this.#tellOwner(t("status.messaging.telegramReady", { username: child.username }), {
-        inline_keyboard: [
-          [
-            {
-              text: t("status.messaging.telegramOpenChat"),
-              url: `https://t.me/${child.username}?start=tommy`,
-            },
-          ],
-        ],
-      });
-      this.#probes.delete(child.id);
-    }
-  }).bind(this);
-
   readonly #owner = Effect.fn("TelegramVps.owner")(function* (
     this: TelegramVps,
     recipient: number,
@@ -353,11 +274,6 @@ export class TelegramVps {
           resize_keyboard: true,
           one_time_keyboard: true,
         });
-      } else if (command === "/verify") {
-        const username = words[1]?.replace(/^@/, "").toLowerCase();
-        const target = directory.list().find((entry) => entry.username.toLowerCase() === username);
-        if (target) yield* this.#verify(target, t);
-        else yield* this.#tellOwner(t("status.messaging.telegramVerifyUsage"));
       } else if (command === "/agents") {
         const names = directory
           .list()
@@ -381,10 +297,6 @@ export class TelegramVps {
     }
     if (!child) return;
     if (!child.ownerConfirmed) return;
-    if (command === "/verify") {
-      yield* this.#verify(child, t);
-      return;
-    }
     if (!chatReady(child)) {
       yield* this.sendFromAgent(child.id, settings.ownerId, t("status.messaging.telegramUnavailable"));
       return;
@@ -574,14 +486,13 @@ export class TelegramVps {
     const message = update.message;
     if (managed && id !== settings.managerId) return;
     if (message && (message.chat.type !== "private" || message.chat.id !== message.from.id)) return;
-    if (message && !message.from.is_bot && message.from.id !== settings.ownerId) return;
-    if (message?.from.is_bot && message.from.id !== settings.managerId && !directory.get(message.from.id)) return;
+    // Only the owner's private messages count. Other people and bots never reach an agent.
+    if (message && (message.from.is_bot || message.from.id !== settings.ownerId)) return;
     if (directory.seen(id, update.update_id)) return;
     if (managed) {
       if (managed.bot.id === settings.managerId || managed.bot.id === settings.ownerId) return;
       if (managed.user.id !== settings.ownerId) {
         yield* directory.revoke(managed.bot.id, update.update_id);
-        this.#probes.delete(managed.bot.id);
         return;
       } else {
         const entry = yield* directory.ensureManaged(managed.bot, update.update_id);
@@ -597,10 +508,6 @@ export class TelegramVps {
           });
         }
       }
-    } else if (message?.from.is_bot) {
-      // An exchange receipt never starts a provider turn by itself.
-      if (!this.#receiveExchange?.(id, message.from.id, message.chat.id, message.text))
-        yield* this.#fromPeer(id, message);
     } else if (message) {
       yield* this.#owner(id, update.update_id, message);
     }

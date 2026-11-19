@@ -9,7 +9,7 @@ import { sourceText } from "@tommy/i18n/source";
 import { createTommyLogger, redactText } from "@tommy/logging";
 import { Effect } from "effect";
 import type { AgentService } from "../backend/agent-service";
-import { type MailboxStore, TELEGRAM_EXCHANGE_DEPTH_LIMIT } from "../backend/mailbox-store";
+import type { MailboxStore } from "../backend/mailbox-store";
 import type { SidebarLayoutStore } from "../backend/sidebar-layout-store";
 import type { TommyDatabase } from "../backend/tommy-database";
 import { RemoteWorkflowError } from "./remote-service-effects";
@@ -33,6 +33,9 @@ export interface TelegramAgentReply extends TelegramReplyRef {
   files: TelegramFile[];
 }
 
+/** How many requests between agents a turn is traced back through to the owner's message. */
+const TRACE_DEPTH_LIMIT = 8;
+
 function senderId(telegramId: number, ownerId: number): string {
   return `telegram:${telegramId}:${ownerId}`;
 }
@@ -47,7 +50,7 @@ export class TelegramAgentHost {
     private readonly sidebar: Pick<SidebarLayoutStore, "getSnapshot" | "withProfileAssignment">,
     private readonly mailbox: Pick<
       MailboxStore,
-      "telegramExchangeOriginsForTurn" | "resolveAttachment" | "generatedImageDigest"
+      "telegramOriginsForTurn" | "resolveAttachment" | "generatedImageDigest"
     >,
     private readonly database: Pick<TommyDatabase, "readTurnAssistantMessages">,
   ) {}
@@ -127,7 +130,7 @@ export class TelegramAgentHost {
   /** A turn that only a scheduled routine of this agent started. */
   routineTurn(agentId: string, turnId: string): boolean {
     if (!this.isAvailable(agentId)) return false;
-    const origins = this.mailbox.telegramExchangeOriginsForTurn(agentId, turnId);
+    const origins = this.mailbox.telegramOriginsForTurn(agentId, turnId);
     return origins.length > 0 && origins.every((origin) => origin.routineRunId !== undefined);
   }
 
@@ -137,7 +140,7 @@ export class TelegramAgentHost {
     return chat !== null && chat.telegramId === telegramId && chat.ownerId === ownerId;
   }
 
-  /** Authorizes an owner's pending interaction, including work delegated by their original Telegram agent. */
+  /** Authorizes an owner's pending interaction in the chat of the bot whose agent runs the turn. */
   canInspectTurn(
     agentId: string,
     turnId: string,
@@ -146,34 +149,16 @@ export class TelegramAgentHost {
     rootAgentForBot: (rootTelegramId: number) => string | null,
   ): boolean {
     if (rootAgentForBot(telegramId) !== agentId || !this.isAvailable(agentId)) return false;
-    const origins = this.mailbox.telegramExchangeOriginsForTurn(agentId, turnId);
-    const first = origins[0];
-    if (!first) return false;
-    const root = first.exchange;
-    if (!root) return this.#turnSender(agentId, turnId) === senderId(telegramId, ownerId);
-    if (root.ownerId !== ownerId) return false;
-    const rootAgentId = rootAgentForBot(root.rootTelegramId);
-    if (!rootAgentId || !this.isAvailable(rootAgentId)) return false;
-    return origins.every(
-      (origin) =>
-        origin.exchange?.rootMessageId === root.rootMessageId &&
-        origin.exchange.rootTelegramId === root.rootTelegramId &&
-        origin.exchange.ownerId === ownerId &&
-        (agentId === rootAgentId ? origin.replyToOwnRequest === true : origin.delegatedByRootAgentId === rootAgentId),
-    );
+    return this.#turnSender(agentId, turnId) === senderId(telegramId, ownerId);
   }
 
   /** A turn that only reads teammates' answers inside Tommy belongs to the turn that asked them. */
   #turnSender(agentId: string, turnId: string, depth = 0): string | undefined {
     if (!this.isAvailable(agentId)) return;
-    const origins = this.mailbox.telegramExchangeOriginsForTurn(agentId, turnId);
+    const origins = this.mailbox.telegramOriginsForTurn(agentId, turnId);
     const senders = origins.map((origin) => {
-      if (origin.replyToOwnRequest && origin.exchange)
-        return senderId(origin.exchange.rootTelegramId, origin.exchange.ownerId);
-      if (origin.answerToTurnId && !origin.exchange)
-        return depth < TELEGRAM_EXCHANGE_DEPTH_LIMIT
-          ? this.#turnSender(agentId, origin.answerToTurnId, depth + 1)
-          : undefined;
+      if (origin.answerToTurnId)
+        return depth < TRACE_DEPTH_LIMIT ? this.#turnSender(agentId, origin.answerToTurnId, depth + 1) : undefined;
       return origin.senderId;
     });
     const first = senders[0];
@@ -186,10 +171,10 @@ export class TelegramAgentHost {
    */
   tracedChat(agentId: string, turnId: string, ownerId: number, depth = 0): number | null {
     if (!this.isAvailable(agentId)) return null;
-    const origins = this.mailbox.telegramExchangeOriginsForTurn(agentId, turnId);
+    const origins = this.mailbox.telegramOriginsForTurn(agentId, turnId);
     const chats = origins.map((origin) => {
-      if (origin.requestFrom && !origin.exchange)
-        return depth < TELEGRAM_EXCHANGE_DEPTH_LIMIT
+      if (origin.requestFrom)
+        return depth < TRACE_DEPTH_LIMIT
           ? this.tracedChat(origin.requestFrom.agentId, origin.requestFrom.turnId, ownerId, depth + 1)
           : null;
       const sender = this.#turnSender(agentId, turnId)?.match(/^telegram:([1-9]\d{0,15}):([1-9]\d{0,15})$/u);

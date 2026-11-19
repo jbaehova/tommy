@@ -16,15 +16,13 @@ describe("Telegram disconnect confirmation", () => {
   let directory: TelegramDirectory;
   let disconnect: TelegramDisconnect;
   let root: string;
-  const clear = vi.fn();
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "tommy-disconnect-"));
     directory = new TelegramDirectory(join(root, "directory.json"), manager, owner);
     await Effect.runPromise(directory.load());
     await Effect.runPromise(directory.ensureManaged(child, 5));
-    clear.mockReset();
-    disconnect = new TelegramDisconnect(directory, clear);
+    disconnect = new TelegramDisconnect(directory);
   });
 
   afterEach(async () => {
@@ -50,15 +48,12 @@ describe("Telegram disconnect confirmation", () => {
     await Effect.runPromise(directory.revoke(child.id, 11));
     await Effect.runPromise(directory.ensureManaged(child, 12));
     await dispatch(original, 13);
-    expect(clear).not.toHaveBeenCalled();
     expect(directory.get(child.id)).toBeDefined();
 
     const command = await prompt(14);
     await dispatch(command, 15);
     expect(directory.get(child.id)).toBeUndefined();
-    expect(clear).toHaveBeenCalledExactlyOnceWith(child.id);
     await dispatch(command, 15);
-    expect(clear).toHaveBeenCalledTimes(1);
   });
 
   it("rejects an expired code and a confirmation for another bot", async () => {
@@ -71,6 +66,5 @@ describe("Telegram disconnect confirmation", () => {
     clock.mockReturnValue(now + 5 * 60_000);
     await dispatch(command, 13);
     expect(directory.list()).toHaveLength(2);
-    expect(clear).not.toHaveBeenCalled();
   });
 });

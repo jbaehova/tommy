@@ -72,15 +72,6 @@ export interface MessagingOrigin {
   replyTo?: { authorName: string; text: string; sentAt: string };
 }
 
-export interface TelegramExchangeOrigin {
-  ownerId: number;
-  depth: number;
-  rootTelegramId: number;
-  rootMessageId: string;
-}
-
-export const TELEGRAM_EXCHANGE_DEPTH_LIMIT = 8;
-
 interface StoredMessage {
   channelId?: string | undefined;
   messaging?: MessagingOrigin;
@@ -109,8 +100,6 @@ interface StoredMessage {
    * because `sender` is also the queue's and the transfer manifest's. Absent on older messages.
    */
   senderMember?: ConversationMessageSender;
-  /** Present only on an authenticated Telegram delivery between this host's agents. */
-  telegramExchange?: TelegramExchangeOrigin;
   text: string;
   attachments: StoredAttachment[];
   /**
@@ -206,7 +195,6 @@ interface EnqueueInput {
   senderTaskId?: string;
   sender: StoredMessage["sender"];
   senderMember?: ConversationMessageSender;
-  telegramExchange?: TelegramExchangeOrigin;
   recipientAgentIds: string[];
   text: string;
   replyToMessageId?: string | null;
@@ -639,9 +627,6 @@ export class MailboxStore {
         id: messageId,
         sender: input.sender,
         ...(input.sender.kind === "user" && input.senderMember ? { senderMember: input.senderMember } : {}),
-        ...(input.sender.kind === "agent" && isTelegramExchangeOrigin(input.telegramExchange)
-          ? { telegramExchange: { ...input.telegramExchange } }
-          : {}),
         text: rewriteAttachmentReferences(text, (reference) => {
           const attachment = committedByDraftId.get(reference.attachmentId);
           return attachment ? { attachmentId: attachment.id, name: attachment.name } : null;
@@ -1861,16 +1846,16 @@ export class MailboxStore {
     return () => this.#agentMessageObservers.delete(observe);
   }
 
-  /** Include every contributing delivery, even a steer or a delivery that has already settled. */
-  telegramExchangeOriginsForTurn(
+  /**
+   * Where each delivery of a turn came from, for the Telegram chat that shows its answer. Include every
+   * contributing delivery, even a steer or a delivery that has already settled.
+   */
+  telegramOriginsForTurn(
     agentId: string,
     turnId: string,
   ): {
     senderId?: string;
     messageId?: string;
-    exchange?: TelegramExchangeOrigin;
-    replyToOwnRequest?: true;
-    delegatedByRootAgentId?: string;
     /** An answer inside Tommy to a request that this agent sent in that turn. */
     answerToTurnId?: string;
     /** A request inside Tommy from another agent, sent in that agent's turn. */
@@ -1889,54 +1874,6 @@ export class MailboxStore {
       if (message?.sender.kind === "routine") return { routineRunId: message.sender.runId };
       if (message?.sender.kind === "user" && message.senderMember)
         return { senderId: message.senderMember.id, messageId: message.id };
-      if (message?.telegramExchange && message.sender.kind === "agent") {
-        const exchange = { ...message.telegramExchange };
-        const request = message.replyToMessageId ? messages.get(message.replyToMessageId) : undefined;
-        const root = messages.get(exchange.rootMessageId);
-        if (
-          exchange.depth === 1 &&
-          message.sender.agentId !== agentId &&
-          !isAnswer(message) &&
-          root &&
-          isChatMessageFromPerson(root) &&
-          root.senderMember?.id === `telegram:${exchange.rootTelegramId}:${exchange.ownerId}` &&
-          (message.replyToMessageId === null || message.replyToMessageId === root.id)
-        ) {
-          const rootDeliveries = this.#state.deliveries.filter((candidate) => candidate.messageId === root.id);
-          const rootDelivery = rootDeliveries[0];
-          if (
-            rootDeliveries.length === 1 &&
-            rootDelivery?.recipientAgentId === message.sender.agentId &&
-            rootDelivery.turnId &&
-            this.#state.deliveries.every((candidate) => {
-              if (
-                candidate.recipientAgentId !== rootDelivery.recipientAgentId ||
-                candidate.turnId !== rootDelivery.turnId
-              )
-                return true;
-              const input = messages.get(candidate.messageId);
-              return input && isChatMessageFromPerson(input) && input.senderMember?.id === root.senderMember?.id;
-            })
-          )
-            return { exchange, delegatedByRootAgentId: message.sender.agentId };
-        }
-        if (
-          isAnswer(message) &&
-          request?.sender.kind === "agent" &&
-          request.sender.agentId === agentId &&
-          request.expectsReply !== false &&
-          request.telegramExchange?.rootMessageId === exchange.rootMessageId &&
-          request.telegramExchange.rootTelegramId === exchange.rootTelegramId &&
-          request.telegramExchange.ownerId === exchange.ownerId &&
-          root?.sender.kind === "user" &&
-          root.senderMember?.id === `telegram:${exchange.rootTelegramId}:${exchange.ownerId}` &&
-          this.deliveryForMessage(root.id, agentId) &&
-          this.deliveryForMessage(request.id, message.sender.agentId) &&
-          this.#state.deliveries.filter((candidate) => candidate.messageId === message.id).length === 1
-        )
-          return { exchange, replyToOwnRequest: true };
-        return { exchange };
-      }
       if (message && isAnswer(message) && message.sender.agentId !== agentId) {
         const request = messages.get(message.replyToMessageId);
         if (request?.sender.kind === "agent" && request.sender.agentId === agentId) {
@@ -2140,16 +2077,6 @@ export class MailboxStore {
     );
   }
 
-  hasTelegramExchangeForDelivery(deliveryId: string): boolean {
-    const delivery = this.#state.deliveries.find((candidate) => candidate.id === deliveryId);
-    return (
-      delivery !== undefined &&
-      this.#state.messages.some(
-        (message) => message.id === delivery.messageId && message.telegramExchange !== undefined,
-      )
-    );
-  }
-
   /**
    * Answers a teammate request whose delivery failed, so the agent that asked does not wait for a
    * result that never comes. The note goes where a result would go, as a reply from the teammate in
@@ -2161,12 +2088,6 @@ export class MailboxStore {
     deliveryId: string,
     taskOpen: (taskId: string) => boolean,
     agentExists: (agentId: string) => boolean,
-    confirmTelegram?: (
-      sender: string,
-      recipient: string,
-      origin: TelegramExchangeOrigin,
-      text: string,
-    ) => Effect.Effect<TelegramExchangeOrigin, StoredStateFailure>,
   ): Effect.fn.Return<string | null, StoredStateFailure> {
     const delivery = this.#state.deliveries.find((candidate) => candidate.id === deliveryId);
     const request = delivery && this.#state.messages.find((message) => message.id === delivery.messageId);
@@ -2184,34 +2105,17 @@ export class MailboxStore {
       this.hasReplyFrom(teammateId, request.id)
     )
       return null;
-    let exchange: TelegramExchangeOrigin | undefined;
-    const failureNotice = sourceText("error.messaging.telegramPeerTaskFailed");
-    if (request.telegramExchange) {
-      if (!confirmTelegram) return null;
-      const validate = this.prepareDelivery([teammateId, requesterId]);
-      exchange = yield* confirmTelegram(teammateId, requesterId, request.telegramExchange, failureNotice);
-      yield* storedSync(validate);
-      if (
-        !this.#state.deliveries.some((item) => item.id === deliveryId && item.status === "failed") ||
-        !agentExists(requesterId) ||
-        this.hasReplyFrom(teammateId, request.id)
-      )
-        return null;
-    }
     const answerTaskId = this.answerTaskId(teammateId, request.id, [requesterId]);
     const taskId = answerTaskId && taskOpen(answerTaskId) ? answerTaskId : undefined;
     yield* this.enqueue({
       sender: { kind: "agent", agentId: teammateId },
       recipientAgentIds: [requesterId],
-      ...(exchange ? { telegramExchange: exchange } : {}),
-      text: exchange
-        ? failureNotice
-        : [
-            "Status: blocked",
-            `Result: Tommy note, not written by this teammate: the request failed before the teammate answered. ${(delivery.error ?? "The provider gave no reason.").slice(0, FAILED_REQUEST_REASON_LIMIT)}`,
-            "Evidence: none",
-            "Unblock: The user must fix the cause, then ask for the request again.",
-          ].join("\n"),
+      text: [
+        "Status: blocked",
+        `Result: Tommy note, not written by this teammate: the request failed before the teammate answered. ${(delivery.error ?? "The provider gave no reason.").slice(0, FAILED_REQUEST_REASON_LIMIT)}`,
+        "Evidence: none",
+        "Unblock: The user must fix the cause, then ask for the request again.",
+      ].join("\n"),
       replyToMessageId: request.id,
       ...(taskId ? { taskId } : {}),
       expectsReply: false,
@@ -3618,16 +3522,15 @@ function setSenderMember(message: StoredMessage, sender: ConversationMessageSend
 
 function toCurrentMailboxMessage(value: unknown): DynamicRecord | null {
   if (!isRecord(value)) return null;
-  const { senderMember, telegramExchange, ...message } = value;
+  // `telegramExchange` marked deliveries of the removed Telegram bot-to-bot path. Drop it on load, so
+  // a stored message that still has it reads as an ordinary message between agents.
+  const { senderMember, telegramExchange: _removedTelegramExchange, ...message } = value;
   // A sender that does not decode only loses the name on its message; it must not stop the whole
   // mailbox from loading.
   return {
     ...message,
     sender: toCurrentMailboxActor(value.sender),
     ...(isConversationMessageSender(senderMember) ? { senderMember } : {}),
-    ...(isRecord(value.sender) && value.sender.kind === "agent" && isTelegramExchangeOrigin(telegramExchange)
-      ? { telegramExchange }
-      : {}),
     // Released builds kept an agent's `replyToMessageId: ""`, which refers to no message, and every
     // conversation that showed the message then failed to read.
     ...(message.replyToMessageId === "" ? { replyToMessageId: null } : {}),
@@ -3719,25 +3622,6 @@ function isStoredDraft(value: unknown): value is StoredDraft {
   );
 }
 
-function isTelegramExchangeOrigin(value: unknown): value is TelegramExchangeOrigin {
-  return (
-    isRecord(value) &&
-    isNumber(value.ownerId) &&
-    Number.isSafeInteger(value.ownerId) &&
-    value.ownerId > 0 &&
-    isNumber(value.rootTelegramId) &&
-    Number.isSafeInteger(value.rootTelegramId) &&
-    value.rootTelegramId > 0 &&
-    isString(value.rootMessageId) &&
-    value.rootMessageId.length > 0 &&
-    value.rootMessageId.length <= INPUT_LIMITS.identifier &&
-    isNumber(value.depth) &&
-    Number.isInteger(value.depth) &&
-    value.depth >= 1 &&
-    value.depth <= TELEGRAM_EXCHANGE_DEPTH_LIMIT
-  );
-}
-
 function isMessagingOrigin(value: unknown): value is MessagingOrigin {
   return (
     isRecord(value) &&
@@ -3773,8 +3657,6 @@ function isStoredMessage(value: unknown): value is StoredMessage {
     (value.senderTaskId === undefined || isString(value.senderTaskId)) &&
     isString(value.id) &&
     isRecord(value.sender) &&
-    (value.telegramExchange === undefined ||
-      (value.sender.kind === "agent" && isTelegramExchangeOrigin(value.telegramExchange))) &&
     (value.sender.kind === "user" ||
       (value.sender.kind === "agent" && isString(value.sender.agentId)) ||
       (value.sender.kind === "routine" &&

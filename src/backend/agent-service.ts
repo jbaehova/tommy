@@ -210,7 +210,6 @@ import { SIDE_QUESTION_CHAT_MESSAGES, sideQuestionPrompt } from "./agent/side-qu
 import type { AgentSidebar } from "./agent/sidebar-tools";
 import type { SkillLearner } from "./agent/skill-learning";
 import type { LocalSkillTools } from "./agent/skill-tools";
-import { AgentTelegramExchange, type TelegramExchangeGate } from "./agent/telegram-exchange-gate";
 import {
   agentProviderAccount,
   isRequestTimeout,
@@ -496,8 +495,6 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   readonly #duplication: DuplicationGate;
   readonly #removal: AgentRemoval;
   readonly #tools: TommyToolRouter;
-  readonly #telegramExchange: AgentTelegramExchange;
-  readonly #pendingTelegramFailures = new Set<string>();
   readonly #sidebarLayout: AgentSidebar | null;
   readonly #localSkillTools: (() => LocalSkillTools) | undefined;
   readonly #routineFlowTools: (() => RoutineFlowTools) | undefined;
@@ -582,7 +579,6 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         ),
     });
     this.#mailbox = mailbox;
-    this.#telegramExchange = new AgentTelegramExchange(mailbox);
     this.#browser = browser;
     this.#prepareAgentWorkspace = prepareAgentWorkspace;
     this.#conversation = new ConversationRuntime(
@@ -1345,7 +1341,6 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       planContinuation: this.#planContinuation,
       tasks: this.#tasks,
       hooks: {
-        answerFailedRequest: (agentId, deliveryId) => this.#answerFailedRequest(agentId, deliveryId),
         emitError: (code, error, agentId) => this.#emitError(code, error, agentId),
         redactMcp: (text) => this.#mcp.redact(text),
         tagReferences: (agentId, threadId) => this.#tagReferences(agentId, threadId),
@@ -1483,7 +1478,6 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       },
     });
     this.#turn = new TurnLifecycle({
-      telegramExchange: this.#telegramExchange,
       store,
       mailbox,
       mailboxSync: this.#mailboxSync,
@@ -1499,7 +1493,6 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       usageLimits: this.#usageLimits,
       planContinuation: this.#planContinuation,
       hooks: {
-        answerFailedRequest: (agentId, deliveryId) => this.#answerFailedRequest(agentId, deliveryId),
         emitFailure: (failure) => this.emit("failure", failure),
         emit: (event) => this.#emit(event),
         emitError: (code, error, agentId, context) => this.#emitError(code, error, agentId, context),
@@ -1609,7 +1602,6 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       redact: (text) => this.#mcp.redact(text),
     });
     this.#tools = new TommyToolRouter({
-      telegramExchange: this.#telegramExchange,
       capturedSteps: (session) => this.#threads.capturedWorkSteps(session).pipe(toToolOperationFailed),
       store,
       mailbox,
@@ -2223,45 +2215,6 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
    */
   setComputerUseCapability(state: CapabilityState): void {
     this.#providers.setComputerUseCapability(state);
-  }
-
-  /** A failed provider can answer through its Telegram connection before it has a turn id.
-   * Release the provider slot while the private peer receipt is in transit. */
-  readonly #answerFailedRequest = Effect.fn("AgentService.answerFailedRequest")(function* (
-    this: AgentService,
-    agentId: string,
-    deliveryId: string,
-  ) {
-    const telegram = this.#mailbox.hasTelegramExchangeForDelivery(deliveryId);
-    if (this.#pendingTelegramFailures.has(deliveryId)) return;
-    const send = this.#mailbox
-      .answerFailedRequest(
-        deliveryId,
-        (taskId) => this.#tasks.threadId(taskId) !== null,
-        (id) => this.#store.list().some((agent) => agent.id === id),
-        this.#telegramExchange.confirmFailure,
-      )
-      .pipe(
-        Effect.match({
-          onFailure: (failure) => this.#emitError("failed_request_answer_failed", failure.cause, agentId),
-          onSuccess: (requesterId) => {
-            if (!requesterId) return;
-            this.#mailboxSync.emitQueue(requesterId);
-            if (telegram) this.#drain.scheduleDrain(requesterId);
-          },
-        }),
-      );
-    if (!telegram) return yield* send;
-    this.#pendingTelegramFailures.add(deliveryId);
-    yield* send.pipe(
-      Effect.ensuring(Effect.sync(() => this.#pendingTelegramFailures.delete(deliveryId))),
-      Effect.forkIn(this.#scope, { startImmediately: true }),
-    );
-  }).bind(this);
-
-  /** The VPS host supplies the Telegram transport after it loads the owner and agent bindings. */
-  setTelegramExchange(gate: TelegramExchangeGate | null): void {
-    this.#telegramExchange.gate = gate;
   }
 
   /**

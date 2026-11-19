@@ -191,15 +191,16 @@ When an agent asks for a website password or code, its bot's chat gets a message
 An agent that received the work from another agent asks in its own chat, or in the chat where the
 owner started the work if it has no bot. The manager's view shows every request. Messages and
 generated images sent in chat go to Telegram.
-A verified agent can send work to another verified agent by private Telegram message. Keep file contents
-and secrets out of work instructions. If the host cannot confirm manager webhook health for 24 hours,
-use BotFather as the owner to replace the child token, then repeat `/verify`.
+Agents send work to each other inside Tommy, never as Telegram messages between bots. Telegram
+accepts only your own private messages; messages from other people and from bots never reach an
+agent. If the host cannot confirm manager webhook health for 24 hours, an agent bot stops taking
+work until you replace its token in BotFather from your owner account. Tommy then confirms the
+bot again.
 
 To turn off the Telegram interface, remove the three Telegram settings from
 `/etc/tommy/server.env` and restart Tommy. The agent workspaces stay on the VPS.
 
-Telegram describes [managed bot creation](https://core.telegram.org/api/bots/managed-bots) and
-[bot-to-bot messages](https://core.telegram.org/api/bots/bot-to-bot).
+Telegram describes [managed bot creation](https://core.telegram.org/api/bots/managed-bots).
 
 ### Update the server later
 
