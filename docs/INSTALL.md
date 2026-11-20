@@ -327,6 +327,12 @@ that file unchanged and refuses new setup-key writes. Restore the matching encry
 before changing those keys. Resetting the whole Vault still removes its items and needs an explicit
 user action. A corrupt keyring ciphertext never changes the encryption backend for later writes.
 
+### T3 Code
+
+Agents can use T3 Code on another computer, and T3 Code sessions can ask Tommy agents. Both are
+off until the owner sets them up. Follow [T3 Code](t3-code.md) only when the user asks for it: it
+needs a pairing code from `t3 pair` on the other computer, and SSH access for the other direction.
+
 ### Other optional features
 
 Pi can use the optional host web-search tool when Codex is already enabled and signed in.

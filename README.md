@@ -120,7 +120,11 @@ Manage the server with the `tommy` command:
 | `sudo tommy agents` | List the agents, and which have a Telegram chat. |
 | `sudo tommy handoff --agent <name> --mode work < summary` | Give a session summary from another computer to an agent. Use `--mode record` to only keep it. The agent's chat shows the handoff and the answer. |
 | `sudo tommy ask --agent <name> "question"` | Ask one agent a question and print its answer. The agent's chat shows it too. |
+| `sudo tommy t3 link --name <name> <address>` | Link T3 Code on another computer, so agents can start, read and message its sessions. `sudo tommy t3` lists the links. See [T3 Code](docs/t3-code.md). |
 | `sudo tommy restart` | Restart the service. |
+
+A coding agent on another computer, such as a T3 Code session, can ask an agent or hand off its
+session with `scripts/remote/install` ([T3 Code](docs/t3-code.md#t3-code-to-tommy)).
 
 The app lives in `/opt/Tommy`, the data in `/var/lib/tommy`, and the settings in
 `/etc/tommy/server.env`. To update, pull, build and run `tommy-install` again

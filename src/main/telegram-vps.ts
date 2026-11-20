@@ -299,6 +299,16 @@ export class TelegramVps {
     return this.#updates.withPermit(Effect.void);
   }
 
+  /** A notice in the manager chat, in the owner's language. False before the owner can get one. */
+  readonly tellOwner = Effect.fn("TelegramVps.tellOwner")(function* (
+    this: TelegramVps,
+    text: (t: Translate) => string,
+  ) {
+    if (!this.workReady) return false;
+    yield* this.#tellOwner(text(sourceTranslateFor(this.#language)));
+    return true;
+  }).bind(this);
+
   readonly #tellOwner = (text: string, markup?: TelegramReplyMarkup) =>
     this.#options.api.sendMessage(this.#options.settings.token, this.#options.settings.ownerId, text, markup);
 

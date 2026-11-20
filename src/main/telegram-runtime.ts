@@ -369,9 +369,9 @@ export function createTelegramRuntime({
   let stopReplies = () => {};
   let heartbeat: NodeJS.Timeout | null = null;
   const handoffHeaders = {
-    work: "[Context handoff] This summary comes from a session on the user's Mac. Treat it as the context of that session and continue from its next step. You run on another computer: paths in it are on the Mac, and you cannot read that session.",
+    work: "[Context handoff] This summary comes from a session on another computer of the user. Treat it as the context of that session and continue from its next step. Paths in it are on that computer, and you cannot read that session.",
     record:
-      "[Context handoff: record only] This summary comes from a session on the user's Mac. Keep it as a record. Do not start the work or change anything. Answer with one short confirmation, and use it when the user asks about it later.",
+      "[Context handoff: record only] This summary comes from a session on another computer of the user. Keep it as a record. Do not start the work or change anything. Answer with one short confirmation, and use it when the user asks about it later.",
   } as const;
   const askHeader =
     "[Question from another session] A coding session on the user's computer asks you this. Answer it in your reply: the session reads your reply as text. Do only the work that the question needs.";
@@ -382,6 +382,8 @@ export function createTelegramRuntime({
       .find((entry) => entry.hiddenAt === undefined && (entry.id === name || entry.name.toLowerCase() === wanted));
   };
   return {
+    /** A notice for the owner in the manager chat. False when Telegram cannot send it now. */
+    tellOwner: vps.tellOwner,
     /** The visible agents, for a handoff from another computer. */
     agents() {
       return service

@@ -96,6 +96,7 @@ import { ServerTimezonePreferenceStore } from "./server-timezone-preference-stor
 import { readSetupState } from "./setup-store";
 import { SkillLearningService } from "./skill-learning-service";
 import { SkillMarketplaceService } from "./skill-marketplace-service";
+import { T3LinkService } from "./t3-code-link";
 import type { TeardownRegistry } from "./teardown-registry";
 import { createTelegramRuntime } from "./telegram-runtime";
 import { readTelegramSettings } from "./telegram-settings";
@@ -124,6 +125,7 @@ const PROVIDER_CREDENTIAL_FILE = "tommy-provider-credentials-v1.json";
 /** The MCP sign-ins. Separate from the keys above: a key is typed by the user, a token is not. */
 const MCP_OAUTH_FILE = "tommy-mcp-oauth-v1.json";
 const MCP_OAUTH_PROXY_FILE = "tommy-mcp-oauth-proxy-v1.json";
+const T3_LINKS_FILE = "tommy-t3-links-v1.json";
 /** The logins, payment cards and contact info of the Vault, with the same cipher. */
 const VAULT_FILE = "tommy-vault-v1.json";
 /** The owner of a server. Webhook routes keep this id, so the routes saved before stay valid. */
@@ -143,6 +145,8 @@ const TEARDOWN_ORDER = {
   resourceMonitor: 9,
   serverMemory: 16,
   serverMode: 17,
+  // With the control socket that changes the links.
+  t3Links: 18,
   // Before the browser, so no request opens a tab while it stops.
   publicHttp: 25,
   browser: 30,
@@ -818,6 +822,33 @@ export async function createApplicationServices({
     await Effect.runPromise(publicHttp.stop());
   });
   if (serverModeEnvironment) {
+    // The T3 Code environments that the agents reach through an MCP server row each.
+    const t3Links = new T3LinkService({
+      path: join(userData, T3_LINKS_FILE),
+      clientName: "Tommy",
+      mcp: {
+        list: () => service.listMcpServers(),
+        save: (config) => service.saveMcpServer({ config }),
+        remove: (mcpServerId) => service.removeMcpServer({ mcpServerId }),
+      },
+    });
+    await runCauseEffect(t3Links.load()).catch((error) =>
+      logger.warn("Tommy could not read the T3 Code links. They were left unchanged.", toLogValue(error)),
+    );
+    t3Links.watch((link) =>
+      telegram
+        ? telegram
+            .tellOwner((t) =>
+              t("status.messaging.telegramT3LinkExpiring", {
+                name: link.name,
+                origin: link.origin,
+                date: `${link.expiresAt.slice(0, 16).replace("T", " ")} UTC`,
+              }),
+            )
+            .pipe(Effect.orElseSucceed(() => false))
+        : Effect.succeed(false),
+    );
+    teardown.push(TEARDOWN_ORDER.t3Links, "the T3 Code link check", () => t3Links.stop());
     const serverMode = new ServerMode({
       environment: serverModeEnvironment,
       version: app.getVersion(),
@@ -841,6 +872,11 @@ export async function createApplicationServices({
         telegram
           ? Effect.runPromise(telegram.ask(input), { signal })
           : Promise.reject(new Error("Telegram is not set up on this server.")),
+      t3: {
+        list: () => t3Links.list(),
+        link: (input) => Effect.runPromise(t3Links.link(input)),
+        unlink: (name) => Effect.runPromise(t3Links.unlink(name)),
+      },
     });
     // Without the socket the server still runs, and the log says why.
     await runCauseEffect(serverMode.listen()).catch((error) =>

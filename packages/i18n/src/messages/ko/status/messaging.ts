@@ -151,4 +151,6 @@ export const messages = {
   "status.messaging.telegramSignInExpired":
     "⚠️ 이 에이전트의 엔진 로그인이 만료돼서 일할 수 없어요. Tommy 서버에서 엔진에 다시 로그인해 주세요.",
   "status.messaging.telegramFileFailed": "파일을 읽지 못했어요. 20MB 이하 파일만 보낼 수 있어요.",
+  "status.messaging.telegramT3LinkExpiring":
+    "⏳ T3 Code {name}({origin}) 연결이 {date}에 끝나요. 그 뒤에는 에이전트가 그곳의 T3 Code를 쓸 수 없어요. 계속 쓰려면 그 컴퓨터에서 t3 pair를 실행하고, Tommy 서버에서 sudo tommy t3 link --name {name} {origin} 을 실행해 주세요.",
 } as const satisfies PartialTranslation<typeof source>;

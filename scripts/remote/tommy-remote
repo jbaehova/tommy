@@ -1,0 +1,60 @@
+#!/bin/bash
+# Reaches the agents of a Tommy server from a coding agent on another computer, such as a T3 Code
+# session. It runs the `tommy` command of the server over SSH, with sudo. On the server itself, it
+# runs that command directly. Settings: ~/.config/tommy-remote/connection (see `install`).
+set -euo pipefail
+
+config="${TOMMY_REMOTE_CONFIG:-$HOME/.config/tommy-remote/connection}"
+TOMMY_REMOTE_HOST="" TOMMY_REMOTE_USER="" TOMMY_REMOTE_IDENTITY="" TOMMY_REMOTE_SOURCE=""
+if [ -r "$config" ]; then
+  # shellcheck disable=SC1090
+  . "$config"
+fi
+
+remote() {
+  if [ -z "$TOMMY_REMOTE_HOST" ]; then
+    command -v tommy >/dev/null || {
+      echo "tommy-remote: set TOMMY_REMOTE_HOST in $config, or run this on the Tommy server." >&2
+      exit 1
+    }
+    exec sudo -n tommy "$@"
+  fi
+  local command="" arg target=$TOMMY_REMOTE_HOST
+  for arg in "$@"; do command+=" $(printf '%q' "$arg")"; done
+  [ -n "$TOMMY_REMOTE_USER" ] && target="$TOMMY_REMOTE_USER@$TOMMY_REMOTE_HOST"
+  local options=(-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=30)
+  [ -n "$TOMMY_REMOTE_IDENTITY" ] && options+=(-i "$TOMMY_REMOTE_IDENTITY")
+  exec ssh "${options[@]}" "$target" "sudo -n tommy${command}"
+}
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  tommy-remote agents [--json]
+  tommy-remote send --agent <id or name> --mode <work|record> [--source <text>] < summary
+      Gives a session summary to one agent. Only a receipt comes back.
+  tommy-remote ask --agent <id or name> [--source <text>] [--timeout <seconds>] [question]
+      Asks one agent and prints its answer. Without a question argument, it reads standard input.
+      Exit 0: answered. Exit 2: no answer before the timeout (default 600 s).
+USAGE
+}
+
+source_option() {
+  local arg
+  for arg in "$@"; do [ "$arg" = --source ] && return 1; done
+  [ -n "$TOMMY_REMOTE_SOURCE" ] || return 1
+}
+
+case ${1:-} in
+  agents) shift; remote agents "$@" ;;
+  send)
+    shift
+    if source_option "$@"; then remote handoff --source "$TOMMY_REMOTE_SOURCE" "$@"; else remote handoff "$@"; fi
+    ;;
+  ask)
+    shift
+    if source_option "$@"; then remote ask --source "$TOMMY_REMOTE_SOURCE" "$@"; else remote ask "$@"; fi
+    ;;
+  -h | --help | help) usage ;;
+  *) usage >&2; exit 1 ;;
+esac

@@ -24,6 +24,14 @@ Usage: tommy <command>
                        Ask one agent a question and print its answer. Without a question argument,
                        the question comes from standard input. The agent's Telegram chat shows it
                        too. Waits up to --timeout seconds (default 600, at most 1800).
+  t3 [list] [--json]   List the T3 Code links: the computers where agents can use T3 Code.
+  t3 link --name <name> [--access <mode>] <address or pairing URL>
+                       Link T3 Code on another computer. Run `t3 pair` there first. Give the
+                       pairing URL it shows, or its address and then the code when asked.
+                       --access: read-only, approval-required (default), auto-accept-edits, auto
+                       or full-access. Agents get the tools of T3 Code from their next turn.
+                       A link lasts 30 days. Telegram tells you 3 days before it ends.
+  t3 unlink <name>     Remove a T3 Code link. Revoke it in T3 Code too, under Sharing & access.
   logs                 Follow the log of the service.
   restart              Restart the service (sudo).
 EOF
@@ -126,6 +134,67 @@ for a in json.loads(sys.argv[1]): print(a["id"], a["name"], a["provider"], "tele
         exit 2
         ;;
       *) exit 1 ;;
+    esac
+    ;;
+  t3)
+    usage_link="Usage: tommy t3 link --name <name> [--access <mode>] <address or pairing URL>"
+    case ${2:-list} in
+      list | --json)
+        control GET http://tommy/v1/t3
+        check_answer
+        links=$(value links)
+        if [ "${2:-}" = --json ] || [ "${3:-}" = --json ]; then
+          printf '%s\n' "$links"
+        else
+          python3 -c 'import json,sys
+links = json.loads(sys.argv[1])
+if not links: print("No T3 Code links. Add one with: sudo tommy t3 link --name <name> <address>")
+for l in links: print(l["name"], l["origin"], l["access"], "until " + l["expiresAt"], "mcp " + l["mcp"], sep="\t")' "$links"
+        fi
+        ;;
+      link)
+        shift 2
+        name="" access=approval-required address=""
+        while [ $# -gt 0 ]; do
+          case $1 in
+            --name) name=${2:-}; shift 2 ;;
+            --access) access=${2:-}; shift 2 ;;
+            -*) fail "Unknown option: $1" ;;
+            *) address=$1; shift ;;
+          esac
+        done
+        [ -n "$name" ] && [ -n "$address" ] || fail "$usage_link"
+        code=""
+        # The pairing URL of `t3 pair` carries the code after #token=.
+        if [[ $address == *"#token="* ]]; then
+          code=${address##*#token=}
+          address=${address%%#*}
+        fi
+        if [ -z "$code" ]; then
+          if [ -t 0 ]; then
+            read -rsp "Pairing code from t3 pair on that computer: " code
+            echo >&2
+          else
+            read -r code || true
+          fi
+        fi
+        [ -n "$code" ] || fail "The pairing code is empty. $usage_link"
+        secret=$(mktemp)
+        trap 'rm -f "$secret"' EXIT
+        printf '%s' "$code" >"$secret"
+        CONTROL_MAX_TIME=90 control POST http://tommy/v1/t3/link --data-urlencode "name=$name" \
+          --data-urlencode "address=$address" --data-urlencode "access=$access" --data-urlencode "code@$secret"
+        check_answer
+        echo "Linked T3 Code $(value name) at $(value origin) with $(value access) access, until $(value expires_at)."
+        echo "Agents get its tools as the MCP server $(value mcp_server) from their next turn."
+        ;;
+      unlink)
+        [ -n "${3:-}" ] || fail "Usage: tommy t3 unlink <name>"
+        control POST http://tommy/v1/t3/unlink --data-urlencode "name=$3"
+        check_answer
+        echo "Removed the T3 Code link $(value name). Revoke it in T3 Code at $(value origin) too, under Sharing & access."
+        ;;
+      *) fail "Usage: tommy t3 [list|link|unlink]" ;;
     esac
     ;;
   logs) exec journalctl --unit "$UNIT" --follow ;;

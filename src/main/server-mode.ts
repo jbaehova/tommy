@@ -5,7 +5,8 @@
  *
  * The `tommy` terminal command (`scripts/hosting/tommy`) talks to this process over a Unix socket
  * in the runtime directory that systemd makes for the service user (mode 0700). Only that user and
- * root can connect. It answers the status, the agent list, a handoff and a question to one agent.
+ * root can connect. It answers the status, the agent list, a handoff, a question to one agent, and
+ * the T3 Code links (`t3-code-link.ts`).
  *
  * The protocol is HTTP with `key=value` text lines, so the command needs only `curl --unix-socket`.
  */
@@ -18,6 +19,7 @@ import { Effect } from "effect";
 import { readBodyWithin } from "./http-body";
 import { RemoteWorkflowError, remoteCall } from "./remote-service-effects";
 import type { ServerMemory } from "./server-memory";
+import { isT3LinkAccess, type T3LinkAccess, type T3LinkSummary } from "./t3-code-link";
 
 const CONTROL_SOCKET_FILE = "control.sock";
 const MAX_BODY_BYTES = 4096;
@@ -71,6 +73,18 @@ export interface ServerModeOptions {
     status: "completed" | "failed" | "cancelled" | "pending";
     text: string;
   }>;
+  /** The T3 Code environments that the agents can reach. A failure message names no secret. */
+  t3?: {
+    list: () => T3LinkSummary[];
+    link: (input: { name: string; address: string; pairingCode: string; access: T3LinkAccess }) => Promise<{
+      name: string;
+      origin: string;
+      access: T3LinkAccess;
+      expiresAt: string;
+      mcpServer: string;
+    }>;
+    unlink: (name: string) => Promise<{ name: string; origin: string }>;
+  };
   /** Tests only. */
   uid?: number;
 }
@@ -229,6 +243,38 @@ export class ServerMode {
             answer: Buffer.from(result.text, "utf8").toString("base64"),
           },
         };
+      }
+      case "GET /v1/t3": {
+        const t3 = this.#options.t3;
+        return t3 ? { status: 200, lines: { links: JSON.stringify(t3.list()) } } : failure(404, "not_found");
+      }
+      case "POST /v1/t3/link": {
+        const t3 = this.#options.t3;
+        if (!t3) return failure(404, "not_found");
+        const name = body.get("name")?.trim() ?? "";
+        const address = body.get("address")?.trim() ?? "";
+        const pairingCode = body.get("code")?.trim() ?? "";
+        const access = body.get("access") ?? "full-access";
+        if (!name || !address || !pairingCode || !isT3LinkAccess(access)) return failure(400, "invalid");
+        const linked = await t3.link({ name, address, pairingCode, access });
+        return {
+          status: 200,
+          lines: {
+            name: linked.name,
+            origin: linked.origin,
+            access: linked.access,
+            expires_at: linked.expiresAt,
+            mcp_server: linked.mcpServer,
+          },
+        };
+      }
+      case "POST /v1/t3/unlink": {
+        const t3 = this.#options.t3;
+        if (!t3) return failure(404, "not_found");
+        const name = body.get("name")?.trim() ?? "";
+        if (!name) return failure(400, "invalid");
+        const removed = await t3.unlink(name);
+        return { status: 200, lines: { name: removed.name, origin: removed.origin } };
       }
       default:
         return failure(404, "not_found");

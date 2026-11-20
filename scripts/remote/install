@@ -1,0 +1,49 @@
+#!/bin/bash
+# Installs `tommy-remote` and the skills tommy-ask and tommy-handoff for the coding agents of this
+# user (Claude Code, Codex, T3 Code). Run it on the computer that should reach the Tommy server.
+#
+#   scripts/remote/install [--host <ssh host>] [--user <ssh user>] [--identity <key file>] [--source <name>]
+#
+# Without --host, `tommy-remote` runs `sudo -n tommy` on this computer: use that on the Tommy server.
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")" && pwd)
+host="" user="" identity="" source_name=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    --host) host=${2:-}; shift 2 ;;
+    --user) user=${2:-}; shift 2 ;;
+    --identity) identity=${2:-}; shift 2 ;;
+    --source) source_name=${2:-}; shift 2 ;;
+    *) echo "Unknown option: $1" >&2; exit 64 ;;
+  esac
+done
+
+mkdir -p "$HOME/.local/bin" "$HOME/.config/tommy-remote" "$HOME/.agents/skills" "$HOME/.claude/skills"
+install -m 0755 "$here/tommy-remote" "$HOME/.local/bin/tommy-remote"
+
+config="$HOME/.config/tommy-remote/connection"
+if [ ! -e "$config" ] || [ -n "$host$user$identity$source_name" ]; then
+  umask 077
+  {
+    echo "# Settings of tommy-remote. Leave TOMMY_REMOTE_HOST empty on the Tommy server itself."
+    printf 'TOMMY_REMOTE_HOST=%q\n' "$host"
+    printf 'TOMMY_REMOTE_USER=%q\n' "$user"
+    printf 'TOMMY_REMOTE_IDENTITY=%q\n' "$identity"
+    echo "# The name that the agent's chat shows for this computer, such as Mac."
+    printf 'TOMMY_REMOTE_SOURCE=%q\n' "$source_name"
+  } >"$config"
+fi
+
+for skill in tommy-ask tommy-handoff; do
+  target="$HOME/.agents/skills/$skill"
+  mkdir -p "$target"
+  install -m 0644 "$here/skills/$skill/SKILL.md" "$target/SKILL.md"
+  # Claude Code reads ~/.claude/skills; Codex and T3 Code read ~/.agents/skills.
+  [ -e "$HOME/.claude/skills/$skill" ] || ln -s "$target" "$HOME/.claude/skills/$skill"
+done
+
+echo "Installed ~/.local/bin/tommy-remote and the skills tommy-ask and tommy-handoff."
+echo "Settings: $config"
+case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "Add ~/.local/bin to PATH." ;; esac
+echo "Test: tommy-remote agents"

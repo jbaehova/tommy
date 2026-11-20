@@ -158,4 +158,6 @@ export const messages = defineMessages("status.messaging", {
   "status.messaging.telegramSignInExpired":
     "⚠️ The engine sign-in of this agent expired, so it cannot work. Sign the engine in again on the Tommy server.",
   "status.messaging.telegramFileFailed": "Tommy could not read the file. Files up to 20 MB work.",
+  "status.messaging.telegramT3LinkExpiring":
+    "⏳ The link to T3 Code {name} ({origin}) ends on {date}. After that, agents cannot use T3 Code there. To keep it, run t3 pair on that computer, then run sudo tommy t3 link --name {name} {origin} on the Tommy server.",
 });
