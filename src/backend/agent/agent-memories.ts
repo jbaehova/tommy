@@ -900,7 +900,7 @@ function memoryRecallResult(
   result: AgentMemorySearchResult | AgentMemoryListPage,
   redact: (value: string) => string,
 ): { response: TommyToolResponse; count: number } {
-  // The agent sees the scope of a shared memory, never the id of its owner.
+  // A shared memory names its scope, so the agent need not know the id of its owner.
   result.memories = result.memories.map((memory) =>
     memory.agentId === SHARED_MEMORY_OWNER_ID ? { ...memory, scope: "shared" } : memory,
   );
