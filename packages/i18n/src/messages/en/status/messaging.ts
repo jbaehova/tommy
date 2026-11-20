@@ -119,6 +119,8 @@ export const messages = defineMessages("status.messaging", {
   "status.messaging.telegramCanceled": "Canceled waiting messages: {count}",
   "status.messaging.telegramUsageTitle": "Plan usage (used, resets):",
   "status.messaging.telegramUsageNone": "No usage data yet.",
+  "status.messaging.telegramWorking": "Working…",
+  "status.messaging.telegramWorkingFor": "Working… {minutes} min",
   "status.messaging.telegramMemoryNone": "This agent has no memories yet.",
   "status.messaging.telegramMemoryShared": "Shared by all agents:",
   "status.messaging.telegramRoutinesNone": "This agent has no routines.",

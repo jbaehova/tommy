@@ -20,6 +20,7 @@ import { escapeTelegramHtml, maskEmails, telegramHtml } from "./telegram-format"
 import { TelegramMiniApp } from "./telegram-mini-app";
 import { TelegramProfile } from "./telegram-profile";
 import type { TelegramSettings } from "./telegram-settings";
+import { TelegramStatus } from "./telegram-status";
 import { TelegramVps } from "./telegram-vps";
 
 const logger = createTommyLogger("telegram-vps");
@@ -269,6 +270,23 @@ export function createTelegramRuntime({
     else if (event.type === "turn-completed") stopTyping(`${event.agentId}:${event.turnId}`);
   };
   const tokenFor = (id: number) => (id === settings.managerId ? Effect.succeed(settings.token) : botToken(id));
+  /** With the token of the chat's bot, or a failure when the bot is not connected now. */
+  const withToken = <A>(chat: number, run: (token: string) => Effect.Effect<A, Error>) =>
+    Effect.gen(function* () {
+      const token = yield* tokenFor(chat);
+      if (!token) return yield* Effect.fail(new Error("Telegram connection is unavailable."));
+      return yield* run(token);
+    });
+  /** One message in the chat of a long turn that says what the agent does. See `TelegramStatus`. */
+  const status = new TelegramStatus({
+    chat: (agentId, turnId) => (vps.workReady && ready() ? (requestChat(agentId, turnId)?.id ?? null) : null),
+    send: (chat, text) => withToken(chat, (token) => api.sendStatus(token, settings.ownerId, text)),
+    edit: (chat, messageId, text) =>
+      withToken(chat, (token) => api.editStatus(token, settings.ownerId, messageId, text)),
+    remove: (chat, messageId) => withToken(chat, (token) => api.deleteMessage(token, settings.ownerId, messageId)),
+    note: (agentId, threadId, turnId) => agents.turnNote(agentId, threadId, turnId),
+    language: () => vps.language,
+  });
   const attention = new TelegramAttention({
     appButton: (chat) => ({
       inline_keyboard: [
@@ -360,6 +378,7 @@ export function createTelegramRuntime({
   const onEvent = (event: AgentEvent) => {
     notification(event);
     typingEvents(event);
+    status.observe(event);
     attention.observe(event);
     problems(event);
     replyEvents(event);
@@ -517,6 +536,7 @@ export function createTelegramRuntime({
       vps.setAttention(null);
       attention.close();
       for (const key of [...typing.keys()]) stopTyping(key);
+      status.close();
       tokens.clear();
       vps.close();
       yield* delivery.stop();

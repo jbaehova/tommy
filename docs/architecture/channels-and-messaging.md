@@ -546,6 +546,26 @@ the token and does the platform work for the hosts:
   replies to that message, so a reply to a Tommy post names the conversation through the replied
   post's own reference. A direct message has no guild, so Signal answers it once with a fixed line.
 
+## Telegram: a turn in progress
+
+The Telegram interface (`src/main/telegram-runtime.ts`) sends an answer when its turn ends. While
+the turn runs, the chat shows two signs.
+
+- **Typing.** From the start of the turn, the chat of the turn shows "typing", for 30 minutes at
+  most.
+- **Status message.** `TelegramStatus` (`src/main/telegram-status.ts`) sends one message when the
+  turn runs longer than 30 seconds. It has a line that the agent works, with the minutes from the
+  second minute, the last paragraph of the newest note of the turn (a commentary message or a
+  reasoning summary, read with `TelegramAgentHost.turnNote`), and the newest tool step (the
+  `turn-progress` event, in the owner's language). The message makes no notification
+  (`disable_notification`). The status edits it in place, at most each 20 seconds and only when its
+  text changed, and deletes it when the turn ends, so the chat keeps only answers.
+
+Both go to the chat that `requestChat` gives for the turn, also for a turn that a teammate's message
+started. A routine turn gets neither. The note and the step pass the same redaction as an answer.
+The status message lives in memory: a server that stops deletes the messages of the running turns,
+and a crash leaves them in the chat.
+
 ## Mobile chat queue
 
 Mobile reads the host queue, applies `queue-changed` snapshots, and refreshes active queue

@@ -140,6 +140,8 @@ The app lives in `/opt/Tommy`, the data in `/var/lib/tommy`, and the settings in
   each provider CLI, so every agent gets a known-good runtime.
 - **Agents that work together.** Agents hand work to each other inside Tommy, and answers come back
   formatted.
+- **You see long work.** During a long task, one status message says what the agent does now. It
+  changes in place and goes away when the answer comes.
 - **Browser and Computer Use.** Agents drive a sandboxed browser on the server. You see its screen
   and answer a password or code request in a Mini App inside Telegram. With
   [agent-desktop](https://github.com/vercel-labs/agent-desktop), agents also operate desktop apps.

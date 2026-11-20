@@ -112,6 +112,8 @@ export const messages = {
   "status.messaging.telegramCanceled": "대기 메시지를 취소했어요: {count}개",
   "status.messaging.telegramUsageTitle": "요금제 사용량(사용률, 초기화 시각):",
   "status.messaging.telegramUsageNone": "아직 사용량 정보가 없어요.",
+  "status.messaging.telegramWorking": "작업 중…",
+  "status.messaging.telegramWorkingFor": "작업 중… {minutes}분",
   "status.messaging.telegramMemoryNone": "아직 기억이 없어요.",
   "status.messaging.telegramMemoryShared": "모든 에이전트가 공유하는 기억:",
   "status.messaging.telegramRoutinesNone": "루틴이 없어요.",

@@ -329,6 +329,17 @@ export class TelegramAgentHost {
     return yield* this.readReply({ agentId, threadId, turnId, telegramId, ownerId, status });
   });
 
+  /**
+   * The newest note of a turn that runs: what the agent wrote between its steps, or the summary of
+   * its reasoning. Null when the turn has none. The caller shows it only in the chat of the turn.
+   */
+  turnNote(agentId: string, threadId: string, turnId: string): string | null {
+    const note = this.database
+      .readTurnAssistantMessages(agentId, threadId, turnId)
+      .findLast((row) => row.itemType === "commentary" && row.text.trim() !== "");
+    return note?.text ?? null;
+  }
+
   /** A pending delivery stores only these ids. Recheck its source before reading any answer or file. */
   readonly readReply = Effect.fn("TelegramAgentHost.readReply")(function* (
     this: TelegramAgentHost,
