@@ -185,6 +185,7 @@ export class TelegramApi {
       | "setMyShortDescription"
       | "sendChatAction"
       | "deleteMessage"
+      | "editMessageText"
       | "getFile"
       | "sendMessage"
       | "sendPhoto"
@@ -382,6 +383,43 @@ export class TelegramApi {
       "deleteMessage",
       () => ({ chat_id: chat, message_id: messageId }),
       Schema.Literal(true),
+    );
+  }).bind(this);
+
+  /**
+   * A plain message that makes no notification, for text that the sender edits and deletes later.
+   * Returns its id.
+   */
+  readonly sendStatus = Effect.fn("TelegramApi.sendStatus")(function* (
+    this: TelegramApi,
+    token: string,
+    chat: number,
+    text: string,
+  ): Effect.fn.Return<number, TelegramApiFailure> {
+    registerSecretValue(token);
+    const sent = yield* this.#request(
+      token,
+      "sendMessage",
+      () => ({ chat_id: chat, text: redactText(text), disable_notification: true }),
+      posted,
+    );
+    return sent.message_id;
+  }).bind(this);
+
+  /** Replaces the text of a message that `sendStatus` sent. Telegram refuses the same text again. */
+  readonly editStatus = Effect.fn("TelegramApi.editStatus")(function* (
+    this: TelegramApi,
+    token: string,
+    chat: number,
+    messageId: number,
+    text: string,
+  ): Effect.fn.Return<void, TelegramApiFailure> {
+    registerSecretValue(token);
+    yield* this.#request(
+      token,
+      "editMessageText",
+      () => ({ chat_id: chat, message_id: messageId, text: redactText(text) }),
+      posted,
     );
   }).bind(this);
 
