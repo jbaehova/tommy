@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { AGENT_MEMORY_CONTEXT_BUDGET_BYTES, essentialMemoryBytes } from "@tommy/contracts/agent-memory-context";
+import {
+  AGENT_MEMORY_CONTEXT_BUDGET_BYTES,
+  essentialMemoryBudgetBytes,
+  essentialMemoryBytes,
+} from "@tommy/contracts/agent-memory-context";
 import {
   type AgentMemory,
   type AgentMemorySelection,
@@ -154,7 +158,7 @@ export class AgentMemoryStore extends MemoryStore {
     return {
       selections,
       usedBytes: essentialMemoryBytes(this.list(agentId).filter((memory) => essentialIds.has(memory.id))),
-      budgetBytes: AGENT_MEMORY_CONTEXT_BUDGET_BYTES,
+      budgetBytes: essentialMemoryBudgetBytes(agentId),
     };
   }
 
@@ -202,7 +206,7 @@ export class AgentMemoryStore extends MemoryStore {
       );
       if (
         essentialMemoryBytes(this.list(agentId).filter((memory) => essentialIds.has(memory.id))) >
-        AGENT_MEMORY_CONTEXT_BUDGET_BYTES
+        essentialMemoryBudgetBytes(agentId)
       ) {
         throw new AgentMemorySelectionError({
           code: "budget",
@@ -227,34 +231,46 @@ export class AgentMemoryStore extends MemoryStore {
     });
   }
 
-  search(agentId: string, query: string, limit = 5): AgentMemorySearchResult {
+  /**
+   * The best matches among the memories of the agent. With `sharedOwnerId`, the memories of that
+   * owner are searched too, and each result names its owner in `agentId`.
+   */
+  search(agentId: string, query: string, limit = 5, sharedOwnerId?: string): AgentMemorySearchResult {
     const terms = query.match(/[\p{L}\p{N}\p{M}]+/gu) ?? [];
     if (query.length > 256 || terms.length === 0 || !Number.isInteger(limit) || limit < 1 || limit > 10) {
       throw new AgentMemorySelectionError({ code: "query", message: sourceText("error.backend.memorySearchQuery") });
     }
     // unicode61 has no stemming: a long word also matches by its stem prefix, so "closing" finds "closes".
+    // A Korean word carries its particles, and its stem is short: "회의" must find "회의를", and
+    // "회의에서" must find "회의". So a Hangul word matches by its own prefix, and by its stem
+    // without the last one or two syllables.
     const expression = [
       ...new Set(
         terms.flatMap((term) => {
           const letters = [...term];
+          if (/\p{Script=Hangul}/u.test(term) && letters.length >= 2)
+            return [1, 2]
+              .filter((cut) => letters.length - cut >= 2)
+              .map((cut) => `"${letters.slice(0, letters.length - cut).join("")}"*`)
+              .concat(`"${term}"*`);
           return letters.length < 6
             ? [`"${term}"`]
             : [`"${term}"`, `"${letters.slice(0, Math.max(4, letters.length - 3)).join("")}"*`];
         }),
       ),
     ].join(" OR ");
-    const ids = databaseRows(
+    const rows = databaseRows(
       this.database.connection
         .prepare(
-          `SELECT m.memory_id FROM agent_memory_search JOIN projection_agent_memories m ON m.rowid = agent_memory_search.rowid
-       WHERE agent_memory_search MATCH ? AND m.agent_id = ?
+          `SELECT m.memory_id, m.agent_id FROM agent_memory_search JOIN projection_agent_memories m ON m.rowid = agent_memory_search.rowid
+       WHERE agent_memory_search MATCH ? AND m.agent_id IN (?, ?)
        ORDER BY bm25(agent_memory_search), m.updated_at DESC, m.memory_id LIMIT ?`,
         )
-        .all(expression, agentId, limit + 1),
-    ).map((row) => requiredStringColumn(row, "memory_id"));
-    const result: AgentMemorySearchResult = { memories: [], hasMore: ids.length > limit };
-    for (const id of ids.slice(0, limit)) {
-      const memory = this.#retrieved(agentId, id);
+        .all(expression, agentId, sharedOwnerId ?? agentId, limit + 1),
+    ).map((row) => ({ id: requiredStringColumn(row, "memory_id"), ownerId: requiredStringColumn(row, "agent_id") }));
+    const result: AgentMemorySearchResult = { memories: [], hasMore: rows.length > limit };
+    for (const { id, ownerId } of rows.slice(0, limit)) {
+      const memory = this.#retrieved(ownerId, id);
       if (
         Buffer.byteLength(JSON.stringify({ memories: [...result.memories, memory], hasMore: false }), "utf8") >
         AGENT_MEMORY_CONTEXT_BUDGET_BYTES
@@ -312,7 +328,7 @@ export class AgentMemoryStore extends MemoryStore {
           .map((memory) =>
             memory.id === input.memoryId ? { ...memory, text: input.text.trim(), origin: input.origin } : memory,
           );
-        if (essentialMemoryBytes(proposed) > AGENT_MEMORY_CONTEXT_BUDGET_BYTES) {
+        if (essentialMemoryBytes(proposed) > essentialMemoryBudgetBytes(agentId)) {
           throw new AgentMemorySelectionError({
             code: "budget",
             message: sourceText("error.backend.memoryEssentialBudget"),
@@ -350,7 +366,7 @@ export class AgentMemoryStore extends MemoryStore {
   }
 
   #assertBudget(agentId: string): void {
-    if (this.selectionState(agentId).usedBytes > AGENT_MEMORY_CONTEXT_BUDGET_BYTES) {
+    if (this.selectionState(agentId).usedBytes > essentialMemoryBudgetBytes(agentId)) {
       throw new AgentMemorySelectionError({
         code: "budget",
         message: sourceText("error.backend.memoryEssentialBudget"),

@@ -102,7 +102,7 @@ Talk to your agents in plain words. Commands are shortcuts: type `/` in a chat t
 | `/name <display name>` | Rename the agent. |
 | `/instructions` | Show or change what the agent does. |
 | `/routines` | Show or change the work that runs on a schedule. |
-| `/memory`, `/history`, `/usage` | Show what the agent remembers, its recent messages, and plan usage. |
+| `/memory`, `/history`, `/usage` | Show what the agent remembers and what all agents share, its recent messages, and plan usage. |
 | `/status` | Show the agent's settings and state. |
 | `/delete` | Delete the agent with its conversation and workspace. |
 
@@ -134,6 +134,8 @@ The app lives in `/opt/Tommy`, the data in `/var/lib/tommy`, and the settings in
 
 - **Agents that stay.** Each agent has its own workspace, conversation, memory and identity. Switch
   it from Claude to Codex, restart the server, and it still knows who it is and what it was doing.
+- **Agents that tell each other.** An agent passes a new fact on to the teammate that owns the
+  topic, and facts about you that every agent needs go into a memory that all of them share.
 - **Your choice of model.** Run Claude, Codex, Cursor and Pi side by side. Tommy downloads and pins
   each provider CLI, so every agent gets a known-good runtime.
 - **Agents that work together.** Agents hand work to each other inside Tommy, and answers come back

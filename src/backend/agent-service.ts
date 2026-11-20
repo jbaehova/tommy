@@ -1872,6 +1872,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     return this.#memories.list(agentId);
   }
 
+  /** The memories that every agent of this server has. */
+  listSharedMemories(): AgentMemory[] {
+    return this.#memories.listShared();
+  }
+
   getMemorySelection(agentId: string): AgentMemorySelectionState {
     return this.#memories.selectionState(agentId);
   }

@@ -12,6 +12,7 @@ import type { TommyDatabase } from "./tommy-database";
  * channel's and a messaging connection's, so the SQL below is written once. Nothing here knows what
  * an owner is: the subclasses in `agent-memory-store.ts`, `channel-memory-store.ts` and
  * `messaging/messaging-memory-store.ts` name it and re-attach the owner id to every row they return.
+ * The shared memories are agent memories with the owner `SHARED_MEMORY_OWNER_ID`.
  *
  * The aggregate type is deliberately per-owner. `database/agent-roster.ts` purges the events of a
  * deleted agent by `aggregate_type`, and a channel must not be swept up by that query.

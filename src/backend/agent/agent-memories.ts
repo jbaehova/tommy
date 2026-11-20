@@ -1,4 +1,9 @@
-import { AGENT_MEMORY_CONTEXT_BUDGET_BYTES, essentialMemoryBytes } from "@tommy/contracts/agent-memory-context";
+import {
+  AGENT_MEMORY_CONTEXT_BUDGET_BYTES,
+  essentialMemoryBudgetBytes,
+  essentialMemoryBytes,
+  SHARED_MEMORY_OWNER_ID,
+} from "@tommy/contracts/agent-memory-context";
 import { INPUT_LIMITS } from "@tommy/contracts/input-limits";
 import type {
   AgentEvent,
@@ -27,11 +32,16 @@ import type { MemoryReviewOperation } from "./memory-review-prompt";
 import { listMemoriesInput, searchMemoriesInput, setMemoryInclusionInput } from "./memory-tool-inputs";
 import { type TommyToolResponse, tommyToolFailure, tommyToolResult } from "./routine-tools";
 
+/**
+ * `agentId` is the owner of the memories that the mutation changes: the agent, or
+ * `SHARED_MEMORY_OWNER_ID`. `senderAgentId` is the agent whose turn staged it.
+ */
 type PendingMemoryMutation =
   | {
       callId: string;
       type: "selection";
       agentId: string;
+      senderAgentId: string;
       epoch: number;
       memoryId?: never;
       changes: SetAgentMemoryInclusionInput["changes"];
@@ -40,6 +50,7 @@ type PendingMemoryMutation =
       callId: string;
       type: "remember";
       agentId: string;
+      senderAgentId: string;
       epoch: number;
       memoryId?: string;
       text: string;
@@ -53,6 +64,7 @@ type PendingMemoryMutation =
       callId: string;
       type: "forget";
       agentId: string;
+      senderAgentId: string;
       epoch: number;
       memoryId: string;
       expectedUpdatedAt: string;
@@ -64,7 +76,15 @@ export interface MemoryReviewBase {
   epoch: number;
   limit: number;
   essentialBytes: number;
-  memories: { memory: AgentMemory; inclusion: "essential" | "searchable"; userControlled: boolean }[];
+  memories: ReviewedMemory[];
+  /** The memories that every agent has. A review can change them too. */
+  shared: { essentialBytes: number; memories: ReviewedMemory[] };
+}
+
+interface ReviewedMemory {
+  memory: AgentMemory;
+  inclusion: "essential" | "searchable";
+  userControlled: boolean;
 }
 
 export interface AgentMemoriesOptions {
@@ -77,7 +97,10 @@ export interface AgentMemoriesOptions {
 }
 
 /**
- * What an agent remembers about its work between turns.
+ * What an agent remembers about its work between turns, and the shared memories: the facts that
+ * every agent of this server has. A shared memory is a memory of the owner `SHARED_MEMORY_OWNER_ID`,
+ * so the store, the selection, the search and the staging below treat it as they treat a memory of
+ * an agent. Each agent reads and changes them with its own memory tools.
  *
  * The staging half is the reason this is a class and not a store wrapper. An agent's `remember` and
  * `forget_memory` calls do not take effect when the model makes them: they are held against the
@@ -93,8 +116,10 @@ export class AgentMemories {
   readonly #memories: AgentMemoryStore;
   readonly #pending = new Map<string, PendingMemoryMutation[]>();
   readonly #epochs = new Map<string, number>();
+  readonly #listAgents: () => readonly { id: string }[];
 
   constructor(options: AgentMemoriesOptions) {
+    this.#listAgents = () => options.store.list();
     this.#conversation = options.conversation;
     this.#emit = options.emit;
     this.#emitError = options.emitError;
@@ -123,6 +148,16 @@ export class AgentMemories {
         .map((entry) => entry.memoryId),
     );
     return this.#memories.list(agentId).filter((memory) => ids.has(memory.id));
+  }
+
+  /** The shared memories that go into the prompt of every agent. */
+  sharedEssential(): AgentMemory[] {
+    return this.essentialFor(SHARED_MEMORY_OWNER_ID);
+  }
+
+  /** Every shared memory, the newest first. */
+  listShared(): AgentMemory[] {
+    return this.#memories.list(SHARED_MEMORY_OWNER_ID);
   }
 
   selectionState(agentId: string): AgentMemorySelectionState {
@@ -177,27 +212,34 @@ export class AgentMemories {
 
   /** The memories that a background review reads, with the epoch that its changes must still match. */
   reviewBase(agentId: string): MemoryReviewBase {
-    const selections = new Map(this.#memories.listSelections(agentId).map((entry) => [entry.memoryId, entry]));
-    const memories = this.#memories.list(agentId).map((memory) => ({
-      memory,
-      inclusion: selections.get(memory.id)?.inclusion ?? ("searchable" as const),
-      userControlled: selections.get(memory.id)?.userControlled ?? false,
-    }));
+    const read = (ownerId: string) => {
+      const selections = new Map(this.#memories.listSelections(ownerId).map((entry) => [entry.memoryId, entry]));
+      const memories = this.#memories.list(ownerId).map((memory) => ({
+        memory,
+        inclusion: selections.get(memory.id)?.inclusion ?? ("searchable" as const),
+        userControlled: selections.get(memory.id)?.userControlled ?? false,
+      }));
+      return {
+        essentialBytes: essentialMemoryBytes(
+          memories.filter((entry) => entry.inclusion === "essential").map((entry) => entry.memory),
+        ),
+        memories,
+      };
+    };
     return {
       epoch: this.#epoch(agentId),
       limit: this.#memories.limit(),
-      essentialBytes: essentialMemoryBytes(
-        memories.filter((entry) => entry.inclusion === "essential").map((entry) => entry.memory),
-      ),
-      memories,
+      ...read(agentId),
+      shared: read(SHARED_MEMORY_OWNER_ID),
     };
   }
 
   /**
    * Commits the changes of a background review as one turn of the agent, through the checks of the
    * memory tools: the cap, the essential budget, duplicates and the user's choices. A review changes
-   * only the memories that the agent saved, and only while they hold the text that the review read.
-   * A clear since `reviewBase` drops every change.
+   * only the memories that an agent saved, and only while they hold the text that the review read.
+   * A clear since `reviewBase` drops every change. An add with the scope `shared`, and a change of a
+   * shared memory that the review read, go to the shared memories.
    */
   applyReview(
     agentId: string,
@@ -206,7 +248,12 @@ export class AgentMemories {
     turnId: string,
   ): ConversationMemoryChange[] {
     if (base.epoch !== this.#epoch(agentId)) return [];
-    const read = new Map(base.memories.map((entry) => [entry.memory.id, entry]));
+    const read = new Map(
+      [
+        ...base.memories.map((entry) => ({ ...entry, ownerId: agentId })),
+        ...base.shared.memories.map((entry) => ({ ...entry, ownerId: SHARED_MEMORY_OWNER_ID })),
+      ].map((entry) => [entry.memory.id, entry]),
+    );
     // Forgets first, so that the adds find the room they free.
     const ordered = [
       ...operations.filter((operation) => operation.type === "forget"),
@@ -214,18 +261,24 @@ export class AgentMemories {
       ...operations.filter((operation) => operation.type === "add"),
     ];
     const changed = new Set(operations.flatMap((operation) => (operation.type === "add" ? [] : [operation.memoryId])));
-    const saved = new Set(
-      this.#memories
-        .list(agentId)
-        .filter((memory) => !changed.has(memory.id))
-        .map((memory) => memory.text),
-    );
+    const savedTexts = (ownerId: string) =>
+      new Set(
+        this.#memories
+          .list(ownerId)
+          .filter((memory) => !changed.has(memory.id))
+          .map((memory) => memory.text),
+      );
+    const saved = { own: savedTexts(agentId), shared: savedTexts(SHARED_MEMORY_OWNER_ID) };
     ordered.forEach((operation, index) => {
       // An add of a saved text would only change that memory's inclusion, which can be the user's choice.
-      if (operation.type === "add" && saved.has(normalizeMemoryText(operation.text))) return;
+      // A fact that every agent has needs no copy of the agent's own.
+      if (operation.type === "add") {
+        const text = normalizeMemoryText(operation.text);
+        if (saved.shared.has(text) || (operation.scope !== "shared" && saved.own.has(text))) return;
+      }
       if (operation.type !== "add") {
         const entry = read.get(operation.memoryId);
-        const current = this.#memories.get(agentId, operation.memoryId);
+        const current = entry ? this.#memories.get(entry.ownerId, operation.memoryId) : null;
         if (
           !entry ||
           entry.userControlled ||
@@ -246,7 +299,11 @@ export class AgentMemories {
               ? { memoryId: operation.memoryId }
               : operation.type === "update"
                 ? { memoryId: operation.memoryId, text: operation.text }
-                : { text: operation.text, inclusion: operation.inclusion },
+                : {
+                    text: operation.text,
+                    inclusion: operation.inclusion,
+                    ...(operation.scope === "shared" ? { scope: "shared" } : {}),
+                  },
         },
         agentId,
       );
@@ -278,7 +335,7 @@ export class AgentMemories {
       const parsed = searchMemoriesInput.safeParse(params.arguments);
       if (!parsed.success) return tommyToolFailure(sourceText("error.backend.memorySearchQuery"));
       const result = memoryRecallResult(
-        this.#memories.search(senderAgentId, parsed.data.query, parsed.data.limit),
+        this.#memories.search(senderAgentId, parsed.data.query, parsed.data.limit, SHARED_MEMORY_OWNER_ID),
         redact,
       );
       this.#emitRecallProgress(params, senderAgentId, result.count);
@@ -287,7 +344,13 @@ export class AgentMemories {
     if (params.tool === "list_memories") {
       const parsed = listMemoriesInput.safeParse(params.arguments);
       if (!parsed.success) return tommyToolFailure("after must be a memory ID or null.");
-      const result = memoryRecallResult(this.#memories.listPage(senderAgentId, parsed.data.after ?? null), redact);
+      const result = memoryRecallResult(
+        this.#memories.listPage(
+          parsed.data.scope === "shared" ? SHARED_MEMORY_OWNER_ID : senderAgentId,
+          parsed.data.after ?? null,
+        ),
+        redact,
+      );
       this.#emitRecallProgress(params, senderAgentId, result.count);
       return result.response;
     }
@@ -295,11 +358,13 @@ export class AgentMemories {
       const parsed = setMemoryInclusionInput.safeParse(params.arguments);
       if (!parsed.success) return tommyToolFailure("Provide 1 to 25 memory selections with their current revisions.");
       const ids = new Set<string>();
-      const planned = this.#plannedContext(senderAgentId, params.turnId, params.callId);
+      // One call changes the memories of one owner: the agent's own, or the shared ones.
+      const ownerId = this.#ownerOf(senderAgentId, parsed.data.changes[0]?.memoryId ?? "") ?? senderAgentId;
+      const planned = this.#plannedContext(ownerId, params.turnId, params.callId);
       const essentials = planned.essential;
       for (const change of parsed.data.changes) {
-        const selection = this.#memories.getSelection(senderAgentId, change.memoryId);
-        const memory = this.#memories.get(senderAgentId, change.memoryId);
+        const selection = this.#memories.getSelection(ownerId, change.memoryId);
+        const memory = this.#memories.get(ownerId, change.memoryId);
         if (!selection || !memory || selection.revision !== change.expectedRevision || ids.has(change.memoryId))
           return tommyToolFailure(sourceText("error.backend.memorySelectionConflict"));
         if (selection.userControlled)
@@ -308,13 +373,14 @@ export class AgentMemories {
         if (change.inclusion === "essential") essentials.set(memory.id, planned.all.get(memory.id) ?? memory);
         else essentials.delete(memory.id);
       }
-      if (essentialMemoryBytes([...essentials.values()]) > AGENT_MEMORY_CONTEXT_BUDGET_BYTES)
+      if (essentialMemoryBytes([...essentials.values()]) > essentialMemoryBudgetBytes(ownerId))
         return tommyToolFailure(sourceText("error.backend.memoryEssentialBudget"));
       this.#stage(params.turnId, {
         callId: params.callId,
         type: "selection",
-        agentId: senderAgentId,
-        epoch: this.#epoch(senderAgentId),
+        agentId: ownerId,
+        senderAgentId,
+        epoch: this.#epoch(ownerId),
         changes: parsed.data.changes,
       });
       return tommyToolResult({ status: "staged" });
@@ -329,6 +395,8 @@ export class AgentMemories {
         return tommyToolFailure(sourceText("error.backend.memoryTextTooLong"));
       if (args.inclusion !== undefined && args.inclusion !== "essential" && args.inclusion !== "searchable")
         return tommyToolFailure("inclusion must be essential or searchable.");
+      if (args.scope !== undefined && args.scope !== "own" && args.scope !== "shared")
+        return tommyToolFailure("scope must be own or shared.");
       const memoryId = args.memoryId;
       if (
         memoryId !== undefined &&
@@ -336,13 +404,24 @@ export class AgentMemories {
       ) {
         return tommyToolFailure("memoryId is invalid.");
       }
-      const current = memoryId ? this.#memories.get(senderAgentId, memoryId) : null;
+      // A memoryId names its owner. Without one, the scope does.
+      const ownerId = memoryId
+        ? this.#ownerOf(senderAgentId, memoryId)
+        : args.scope === "shared"
+          ? SHARED_MEMORY_OWNER_ID
+          : senderAgentId;
+      if (!ownerId) return tommyToolFailure("This memory does not belong to the current agent.");
+      if (memoryId && args.scope !== undefined && (args.scope === "shared") !== (ownerId === SHARED_MEMORY_OWNER_ID))
+        return tommyToolFailure(
+          "A memory keeps its scope. Save the text with the other scope and no memoryId, then forget this memory.",
+        );
+      const current = memoryId ? this.#memories.get(ownerId, memoryId) : null;
       if (memoryId && !current) return tommyToolFailure("This memory does not belong to the current agent.");
-      const planned = this.#plannedContext(senderAgentId, params.turnId, params.callId);
+      const planned = this.#plannedContext(ownerId, params.turnId, params.callId);
       const duplicateEntry = [...planned.all].find(([key, memory]) => key !== memoryId && memory.text === text);
       const duplicate = duplicateEntry?.[1];
-      const sourceSelection = current ? this.#memories.getSelection(senderAgentId, current.id) : null;
-      const duplicateSelection = duplicate ? this.#memories.getSelection(senderAgentId, duplicate.id) : null;
+      const sourceSelection = current ? this.#memories.getSelection(ownerId, current.id) : null;
+      const duplicateSelection = duplicate ? this.#memories.getSelection(ownerId, duplicate.id) : null;
       const selectedId = duplicate?.id ?? current?.id;
       const selectedKey = duplicateEntry?.[0] ?? current?.id;
       const selection = duplicateSelection ?? sourceSelection;
@@ -370,7 +449,7 @@ export class AgentMemories {
           text,
           origin: duplicate?.origin ?? ("automatic" as const),
         };
-        if (essentialMemoryBytes([...others, candidate]) > AGENT_MEMORY_CONTEXT_BUDGET_BYTES) {
+        if (essentialMemoryBytes([...others, candidate]) > essentialMemoryBudgetBytes(ownerId)) {
           if (current && sourceSelection?.inclusion === "essential")
             return tommyToolFailure(sourceText("error.backend.memoryEssentialBudget"));
           inclusion = "searchable";
@@ -379,7 +458,7 @@ export class AgentMemories {
       // A full agent hears it now, while it can still merge or forget in this turn. Staged anyway,
       // the save would fail at commit and the memory would be lost.
       if (!memoryId) {
-        const projected = this.#projectedMemories(senderAgentId, params.turnId, params.callId);
+        const projected = this.#projectedMemories(ownerId, params.turnId, params.callId);
         const normalized = normalizeMemoryText(text);
         const limit = this.#memories.limit();
         const saved = projected.size;
@@ -393,8 +472,9 @@ export class AgentMemories {
       this.#stage(params.turnId, {
         callId: params.callId,
         type: "remember",
-        agentId: senderAgentId,
-        epoch: this.#epoch(senderAgentId),
+        agentId: ownerId,
+        senderAgentId,
+        epoch: this.#epoch(ownerId),
         ...(memoryId ? { memoryId } : {}),
         text,
         sourceTurnId: params.turnId,
@@ -409,6 +489,7 @@ export class AgentMemories {
         status: "staged",
         memoryId: memoryId ?? null,
         inclusion,
+        ...(ownerId === SHARED_MEMORY_OWNER_ID ? { scope: "shared" } : {}),
         ...(inclusion !== intendedInclusion ? { note: sourceText("error.backend.memoryEssentialBudget") } : {}),
       });
     }
@@ -423,15 +504,17 @@ export class AgentMemories {
       ) {
         return tommyToolFailure("memoryId is required.");
       }
-      const current = this.#memories.get(senderAgentId, args.memoryId);
-      if (!current) return tommyToolFailure("This memory does not belong to the current agent.");
-      const selection = this.#memories.getSelection(senderAgentId, current.id);
+      const ownerId = this.#ownerOf(senderAgentId, args.memoryId);
+      const current = ownerId ? this.#memories.get(ownerId, args.memoryId) : null;
+      if (!ownerId || !current) return tommyToolFailure("This memory does not belong to the current agent.");
+      const selection = this.#memories.getSelection(ownerId, current.id);
       if (selection?.userControlled) return tommyToolFailure(sourceText("error.backend.memorySelectionUserControlled"));
       this.#stage(params.turnId, {
         callId: params.callId,
         type: "forget",
-        agentId: senderAgentId,
-        epoch: this.#epoch(senderAgentId),
+        agentId: ownerId,
+        senderAgentId,
+        epoch: this.#epoch(ownerId),
         memoryId: current.id,
         expectedUpdatedAt: current.updatedAt,
         expectedSelectionRevision: selection?.revision ?? -1,
@@ -442,9 +525,16 @@ export class AgentMemories {
     return null;
   }
 
+  /** The owner of a memory that the agent can change: the agent, or the shared memories. */
+  #ownerOf(agentId: string, memoryId: string): string | null {
+    if (this.#memories.get(agentId, memoryId)) return agentId;
+    return this.#memories.get(SHARED_MEMORY_OWNER_ID, memoryId) ? SHARED_MEMORY_OWNER_ID : null;
+  }
+
   /**
    * Commits a turn's staged mutations, or discards them when the turn did not complete. Answers the
-   * memories that the commit saved, updated and forgot, by agent. A mutation that another turn made
+   * memories that the commit saved, updated and forgot, by the agent whose turn staged them, also for
+   * a shared memory. A mutation that another turn made
    * stale, such as a change of a memory that a parallel thread changed first, is `notChanged`, so the
    * thread that made it can show it. A mutation that its text already holds is not in it.
    */
@@ -455,6 +545,7 @@ export class AgentMemories {
     if (status !== "completed" || pending.length === 0) return changes;
 
     const affectedAgents = new Set<string>();
+    const sharedPromptBefore = this.#sharedPrompt();
     const createdMemories = new Set<string>();
     const ownRevisions = new Map<string, Map<number, number>>();
     const revisionAfterOwnChanges = (agentId: string, memoryId: string, revision: number): number => {
@@ -521,7 +612,7 @@ export class AgentMemories {
           this.#memories.delete(mutation.agentId, mutation.memoryId, mutation.expectedUpdatedAt);
       } catch (error) {
         this.#emitError("memory_commit_failed", error, mutation.agentId);
-        addChanges(changes, mutation.agentId, this.#refusedChanges(mutation, previousMemory));
+        addChanges(changes, mutation.senderAgentId, this.#refusedChanges(mutation, previousMemory));
         continue;
       }
       for (const selection of this.#memories.listSelections(mutation.agentId)) {
@@ -537,14 +628,21 @@ export class AgentMemories {
         ownRevisions.set(key, revisions);
       }
       if (this.#storedState(mutation.agentId) === before) {
-        addChanges(changes, mutation.agentId, this.#refusedChanges(mutation, previousMemory));
+        addChanges(changes, mutation.senderAgentId, this.#refusedChanges(mutation, previousMemory));
         continue;
       }
       affectedAgents.add(mutation.agentId);
-      addChanges(changes, mutation.agentId, this.#committedChanges(mutation, previousMemory, previousIds));
+      addChanges(changes, mutation.senderAgentId, this.#committedChanges(mutation, previousMemory, previousIds));
     }
-    for (const agentId of affectedAgents) this.stateChanged(agentId);
+    // A shared memory that only search finds changes no prompt, so no agent reloads for it.
+    for (const agentId of affectedAgents)
+      if (agentId !== SHARED_MEMORY_OWNER_ID || this.#sharedPrompt() !== sharedPromptBefore) this.stateChanged(agentId);
     return changes;
+  }
+
+  /** The shared memories as the prompts state them. */
+  #sharedPrompt(): string {
+    return JSON.stringify(this.sharedEssential().map(({ id, text, origin }) => ({ id, text, origin })));
   }
 
   /**
@@ -675,7 +773,11 @@ export class AgentMemories {
       if (!selection || selection.inclusion === mutation.inclusion || selection.userControlled) return;
       const next = [...this.essentialFor(mutation.agentId), memory];
       // Another turn may have used the remaining budget. Keep the saved text searchable.
-      if (mutation.inclusion === "essential" && essentialMemoryBytes(next) > AGENT_MEMORY_CONTEXT_BUDGET_BYTES) return;
+      if (
+        mutation.inclusion === "essential" &&
+        essentialMemoryBytes(next) > essentialMemoryBudgetBytes(mutation.agentId)
+      )
+        return;
       this.#memories.setInclusions(
         mutation.agentId,
         [{ memoryId: memory.id, inclusion: mutation.inclusion, expectedRevision: selection.revision }],
@@ -693,6 +795,14 @@ export class AgentMemories {
    * thread of the agent is unloaded and the next turn on each of them rebuilds them.
    */
   stateChanged(agentId: string): void {
+    // Every agent has the shared memories in its instructions.
+    if (agentId === SHARED_MEMORY_OWNER_ID) {
+      for (const agent of this.#listAgents()) {
+        this.#conversation.unloadAgentThreads(agent.id);
+        this.#emit({ type: "memories-changed", agentId: agent.id });
+      }
+      return;
+    }
     const agent = this.#conversation.requireKnownAgent(agentId);
     this.#conversation.unloadAgentThreads(agent.id);
     this.#emit({ type: "memories-changed", agentId });
@@ -790,6 +900,10 @@ function memoryRecallResult(
   result: AgentMemorySearchResult | AgentMemoryListPage,
   redact: (value: string) => string,
 ): { response: TommyToolResponse; count: number } {
+  // The agent sees the scope of a shared memory, never the id of its owner.
+  result.memories = result.memories.map((memory) =>
+    memory.agentId === SHARED_MEMORY_OWNER_ID ? { ...memory, scope: "shared" } : memory,
+  );
   while (
     Buffer.byteLength(redact(JSON.stringify(result)), "utf8") > AGENT_MEMORY_CONTEXT_BUDGET_BYTES &&
     result.memories.length > 0
