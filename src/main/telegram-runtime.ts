@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { AgentEvent } from "@tommy/contracts/ipc";
 import { sourceTranslateFor } from "@tommy/i18n/source";
 import { createTommyLogger, redactText } from "@tommy/logging";
+import { classifyUserError } from "@tommy/user-errors";
 import { Effect } from "effect";
 import type { AgentService } from "../backend/agent-service";
 import type { BrowserHost } from "../backend/browser-host";
@@ -324,7 +325,10 @@ export function createTelegramRuntime({
     let text: string;
     if (event.type === "error" && event.code === "agent_error" && event.agentId) {
       agentId = event.agentId;
-      text = `⚠️ ${maskEmails(event.message)}`;
+      text =
+        classifyUserError(event.message) === "auth"
+          ? sourceTranslateFor(vps.language)("status.messaging.telegramSignInExpired")
+          : `⚠️ ${maskEmails(event.message)}`;
     } else if (event.type === "usage-limit-reached") {
       agentId = event.agentId;
       const t = sourceTranslateFor(vps.language);

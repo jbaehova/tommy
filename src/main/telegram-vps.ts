@@ -2,6 +2,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { sourceText, sourceTranslateFor } from "@tommy/i18n/source";
 import { createTommyLogger, type Logger } from "@tommy/logging";
+import { userErrorMessage } from "@tommy/user-errors";
 import { Cause, Effect, Result, Schedule, Semaphore } from "effect";
 import { readBodyWithin } from "./http-body";
 import type { TelegramAgentHost } from "./telegram-agent-host";
@@ -86,6 +87,11 @@ export class TelegramVps {
   readonly #replaced = new Set<number>();
   #closed = false;
   #attention: ((chat: number, text: string, messageId: number) => boolean) | null = null;
+  /**
+   * Updates whose agent could not take the message, by `bot:update`. Telegram sends a refused update
+   * again, so the owner hears about each message once, not at every retry.
+   */
+  readonly #refused = new Set<string>();
 
   constructor(options: Options) {
     this.#options = options;
@@ -446,7 +452,7 @@ export class TelegramVps {
     }
     const files = yield* this.#download(child.id, message, t);
     if (files === null) return;
-    yield* agents.submit(child.agentId, child.id, settings.ownerId, updateId, message.text, files);
+    yield* this.#submit(child.id, child.agentId, updateId, message.text, files);
   }).bind(this);
 
   /**
@@ -607,7 +613,39 @@ export class TelegramVps {
     }
     const files = yield* this.#download(settings.managerId, message, t);
     if (files === null) return;
-    yield* agents.submit(agentId, settings.managerId, settings.ownerId, updateId, message.text, files);
+    yield* this.#submit(settings.managerId, agentId, updateId, message.text, files);
+  }).bind(this);
+
+  /**
+   * Gives the owner's message to the agent. When the agent cannot take it, for example because its
+   * engine needs a new sign-in, the owner hears why once. The failure stays, so the webhook answers
+   * 503 and Telegram sends the update again until the agent can take it.
+   */
+  readonly #submit = Effect.fn("TelegramVps.submit")(function* (
+    this: TelegramVps,
+    chat: number,
+    agentId: string,
+    updateId: number,
+    text: string,
+    files: Parameters<Options["agents"]["submit"]>[5],
+  ) {
+    const { agents, settings } = this.#options;
+    yield* agents.submit(agentId, chat, settings.ownerId, updateId, text, files).pipe(
+      Effect.tapError((error) => {
+        const key = `${chat}:${updateId}`;
+        if (this.#refused.has(key)) return Effect.void;
+        if (this.#refused.size > 500) this.#refused.clear();
+        this.#refused.add(key);
+        const t = sourceTranslateFor(this.#language);
+        const reason = userErrorMessage(
+          "cause" in error ? error.cause : error,
+          t("error.kind.service"),
+          this.#language,
+        );
+        return this.#say(chat, t("status.messaging.telegramNotTaken", { reason })).pipe(Effect.ignore);
+      }),
+    );
+    this.#refused.delete(`${chat}:${updateId}`);
   }).bind(this);
 
   /**

@@ -153,5 +153,9 @@ export const messages = defineMessages("status.messaging", {
   "status.messaging.telegramLimit": "The engine plan reached its usage limit. Work continues at {time}.",
   "status.messaging.telegramLimitLater": "The engine plan reached its usage limit. Work continues when it resets.",
   "status.messaging.telegramNothingToStop": "Nothing is running.",
+  "status.messaging.telegramNotTaken":
+    "⚠️ The agent could not take your message. {reason} Tommy tries again by itself for a while, so you do not need to send it again.",
+  "status.messaging.telegramSignInExpired":
+    "⚠️ The engine sign-in of this agent expired, so it cannot work. Sign the engine in again on the Tommy server.",
   "status.messaging.telegramFileFailed": "Tommy could not read the file. Files up to 20 MB work.",
 });

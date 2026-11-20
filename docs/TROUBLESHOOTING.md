@@ -30,6 +30,10 @@ absolute Codex executable path.
 
 For a non-standard Claude location, set `TOMMY_CLAUDE_PATH` to the absolute Claude executable path.
 
+If a Telegram agent reports that its engine sign-in expired, sign Claude in again on the server. A
+server that runs all the time should use a token from `claude setup-token`; see
+[Telegram interface](INSTALL.md#telegram-interface).
+
 ## Tommy is slow or stops because of the GPU on Linux
 
 On Linux, Tommy uses the GPU until the GPU fails on your computer. If the GPU process crashes, or a

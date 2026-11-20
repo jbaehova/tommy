@@ -1182,6 +1182,11 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
             ...(plugins.length ? { plugins } : {}),
             mcpServers,
             env: {
+              // The CLI waits 30 s for each MCP server to connect, then starts the turn without it. A
+              // Python server such as Google Workspace needs about 7 s when the computer is idle, and
+              // more when several agents start at once after a restart. An `MCP_TIMEOUT` set by the
+              // user or the server environment still wins.
+              MCP_TIMEOUT: CLAUDE_MCP_CONNECT_TIMEOUT_MS,
               ...claudeEnvironment(this.#cli),
               // The login shell's `PATH`, so the Bash tool and hooks find Homebrew and `~/.local/bin`
               // tools when Finder starts Tommy. An `env.PATH` in the Claude settings still wins.
@@ -2503,6 +2508,9 @@ function spawnClaudeProcessGroup(
   if (signal.aborted) abort();
   return child;
 }
+
+/** How long a Claude session waits for each MCP server to connect, in milliseconds. */
+const CLAUDE_MCP_CONNECT_TIMEOUT_MS = "90000";
 
 function claudeEnvironment(cli: ClaudeCliInfo): NodeJS.ProcessEnv {
   return {

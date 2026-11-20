@@ -146,5 +146,9 @@ export const messages = {
   "status.messaging.telegramLimit": "엔진 요금제 사용 한도에 도달했어요. {time}에 이어서 작업해요.",
   "status.messaging.telegramLimitLater": "엔진 요금제 사용 한도에 도달했어요. 한도가 풀리면 이어서 작업해요.",
   "status.messaging.telegramNothingToStop": "진행 중인 작업이 없어요.",
+  "status.messaging.telegramNotTaken":
+    "⚠️ 에이전트가 메시지를 받지 못했어요. {reason} 한동안 자동으로 다시 시도하니 다시 보낼 필요는 없어요.",
+  "status.messaging.telegramSignInExpired":
+    "⚠️ 이 에이전트의 엔진 로그인이 만료돼서 일할 수 없어요. Tommy 서버에서 엔진에 다시 로그인해 주세요.",
   "status.messaging.telegramFileFailed": "파일을 읽지 못했어요. 20MB 이하 파일만 보낼 수 있어요.",
 } as const satisfies PartialTranslation<typeof source>;

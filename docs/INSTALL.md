@@ -137,6 +137,19 @@ For Claude Code, install the CLI for the same service user with the
 [Provider terms](provider-terms.md#risk-by-use). Set `TOMMY_CODEX_PATH` or `TOMMY_CLAUDE_PATH`
 in `/etc/tommy/server.env` if the executable is in a custom location.
 
+On a server, sign Claude in with a long-lived token. A normal `claude auth login` renews its
+token every few hours. When the server is idle overnight and several agents start at once, a renewal
+can fail and remove the sign-in. A token from `claude setup-token` is valid for one year and needs no
+renewal:
+
+```bash
+sudo -u tommy -H /var/lib/tommy/.local/bin/claude setup-token
+```
+
+Open the link it prints, approve, and paste the code. Put the token it prints in
+`/var/lib/tommy/.config/tommy/agent.env` as `CLAUDE_CODE_OAUTH_TOKEN=<token>`, then run
+`sudo systemctl restart tommy`. Make a new token before the year ends.
+
 1. Open the official `@BotFather` account in Telegram and create a new manager with `/newbot`.
    In its settings, enable **Bot Management Mode**. The manager needs no Main Mini App: each bot
    opens the Tommy Mini App from a button in its own chat.
