@@ -5,7 +5,6 @@
 **Tommy runs a team of AI agents on your own server. You talk to them in Telegram.**
 
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-8a63d2?style=flat-square)](LICENSE)
-[![Fork of OpenBot](https://img.shields.io/badge/fork%20of-OpenBot-ff8a3d?style=flat-square)](https://github.com/nightly-labs/openbot)
 ![Interface](https://img.shields.io/badge/interface-Telegram-26a5e4?style=flat-square&logo=telegram&logoColor=white)
 
 [Website](https://jbaehova.github.io/tommy/) &nbsp;&nbsp; [Install](#install) &nbsp;&nbsp;
@@ -155,34 +154,9 @@ The app lives in `/opt/Tommy`, the data in `/var/lib/tommy`, and the settings in
 See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the setup, the commands, the code layout, the
 server internals and the local data. Read [CONTRIBUTING.md](CONTRIBUTING.md) before a change.
 
-## Built on OpenBot
-
-<table>
-<tr>
-<td>
-
-Tommy is a fork of **[OpenBot](https://github.com/nightly-labs/openbot)** by
-[Synthetify Labs](https://openbot.run/), a local-first desktop workspace for persistent AI
-teammates. The agent model, the provider adapters and the embedded browser come from OpenBot.
-Thank you to its authors.
-
-Tommy takes that base in a different direction: one always-on server that you own, used from
-Telegram. Fixes from upstream are ported over time.
-
-</td>
-</tr>
-</table>
-
-| | OpenBot | Tommy |
-| --- | --- | --- |
-| **Shape** | Desktop app, local-first | One Linux server |
-| **Interface** | The desktop app | Telegram: one bot per agent, and a Mini App for private input |
-| **Accounts** | Optional OpenBot accounts | None: the server has one owner |
-| **Providers** | Codex, Claude, Grok, Gemini, Cursor and many more | Claude, Codex, Cursor, Pi |
-| **Computer Use** | `cua-driver` | [`agent-desktop`](https://github.com/vercel-labs/agent-desktop) |
-| **Platforms** | macOS, Windows, Linux | Linux server |
-
 ## License and attribution
+
+Tommy is based on [OpenBot](https://github.com/nightly-labs/openbot) by Synthetify Labs.
 
 Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE), for noncommercial purposes only.
 Commercial use needs a separate license from the copyright owner. See [NOTICE](NOTICE) for the
