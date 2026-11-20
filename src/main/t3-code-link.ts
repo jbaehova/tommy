@@ -14,8 +14,9 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
-import { createMcpServerId, type McpServerConfig } from "@tommy/contracts/ipc";
+import type { McpServerConfig } from "@tommy/contracts/ipc";
 import { isDynamicRecord, isOneOf, isString } from "@tommy/contracts/runtime-values";
+import { redactText } from "@tommy/logging";
 import { Effect, Result, Schema, Semaphore } from "effect";
 import { isMissingFileError } from "../backend/file-errors";
 import { type PreferenceFileFailure, readPreferenceFile, writePreferenceFile } from "./preference-file";
@@ -164,6 +165,17 @@ function refusal(value: unknown): string {
   return "no reason given.";
 }
 
+/** The innermost message of a failure, with secrets masked. A store refusal says what to correct. */
+function reason(error: unknown): string {
+  let current: unknown = error;
+  let message = "";
+  for (let depth = 0; depth < 5 && current; depth += 1) {
+    if (current instanceof Error && current.message) message = current.message;
+    current = isDynamicRecord(current) ? current.cause : null;
+  }
+  return redactText(message || "no reason given.").slice(0, 300);
+}
+
 export interface T3LinkRecord {
   name: string;
   origin: string;
@@ -261,7 +273,8 @@ export class T3LinkService {
     const signIn = this.#options.signIn ?? ((request: T3SignIn) => signInToT3(request));
     const issued = yield* signIn({ origin, pairingCode, access: input.access, clientName: this.#options.clientName });
     const config: McpServerConfig = {
-      id: existing?.id ?? createMcpServerId(),
+      // A new row has no id: the store gives one, and refuses an id that it does not hold.
+      id: existing?.id ?? "",
       name: serverName,
       transport: "http",
       enabled: true,
@@ -275,7 +288,7 @@ export class T3LinkService {
     };
     yield* this.#options.mcp
       .save(config)
-      .pipe(Effect.mapError(() => failure(`Tommy could not save the MCP server ${serverName}. Read the log.`)));
+      .pipe(Effect.mapError((cause) => failure(`Tommy could not save the MCP server ${serverName}: ${reason(cause)}`)));
     const record: T3LinkRecord = {
       name,
       origin,
@@ -296,7 +309,9 @@ export class T3LinkService {
     if (row)
       yield* this.#options.mcp
         .remove(row.id)
-        .pipe(Effect.mapError(() => failure(`Tommy could not remove the MCP server ${row.name}. Read the log.`)));
+        .pipe(
+          Effect.mapError((cause) => failure(`Tommy could not remove the MCP server ${row.name}: ${reason(cause)}`)),
+        );
     yield* this.#write(this.#links.filter((entry) => entry !== link));
     return link;
   });
