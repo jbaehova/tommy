@@ -10,6 +10,10 @@ export const searchMemoriesInput = z.strictObject({
 
 export const listMemoriesInput = z.strictObject({
   after: memoryId.nullable().optional(),
+  scope: z
+    .enum(["own", "shared"])
+    .describe("own, the default, or shared for the memories that every agent has.")
+    .optional(),
 });
 
 export const setMemoryInclusionInput = z.strictObject({
@@ -29,13 +33,13 @@ export const MEMORY_RECALL_TOOL_DEFINITIONS = [
   {
     name: "search_memories",
     description:
-      "Search your saved memories when a past preference, decision, or fact can help with the current task. Returns committed entries and their selection revisions. Search terms are words, not query operators. No match means the fact was not found; do not invent it.",
+      "Search your saved memories and the shared memories when a past preference, decision, or fact can help with the current task. Returns committed entries and their selection revisions; a shared entry has scope shared. Search terms are words, not query operators. No match means the fact was not found; do not invent it.",
     shape: searchMemoriesInput.shape,
   },
   {
     name: "list_memories",
     description:
-      "Read a bounded page of your saved memories for review or maintenance. Pass nextCursor as after to continue. Search is usually better for a specific fact.",
+      "Read a bounded page of your saved memories, or of the shared memories with scope shared, for review or maintenance. Pass nextCursor as after to continue. Search is usually better for a specific fact.",
     shape: listMemoriesInput.shape,
   },
   {

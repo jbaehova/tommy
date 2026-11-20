@@ -517,17 +517,23 @@ export const TOMMY_TOOL_DEFINITIONS: readonly TommyToolDefinition[] = [
   {
     name: "remember",
     description:
-      "Stage one short, durable memory for this agent. Use memoryId to correct or consolidate an existing memory. New entries are searchable unless inclusion is essential. Essential requests that do not fit stay searchable. The change commits only if the current turn completes.",
+      "Stage one short, durable memory for this agent, or with scope shared for every agent. Use memoryId to correct or consolidate an existing memory, your own or a shared one. New entries are searchable unless inclusion is essential. Essential requests that do not fit stay searchable. The change commits only if the current turn completes.",
     shape: {
       text: z.string().min(1).max(INPUT_LIMITS.agentMemoryText),
       memoryId: z.string().optional(),
       inclusion: z.enum(["essential", "searchable"]).optional(),
+      scope: z
+        .enum(["own", "shared"])
+        .describe(
+          "own, the default, for a fact of your own work. shared for a fact that every agent needs: about the user, their environment, or a decision for all agents.",
+        )
+        .optional(),
     },
   },
   {
     name: "forget_memory",
     description:
-      "Stage deletion of one saved memory when the user asks you to forget it, or when it is stale or merged into another memory and you need room under the memory limit. The change commits only if the current turn completes.",
+      "Stage deletion of one saved memory, your own or a shared one, when the user asks you to forget it, or when it is stale or merged into another memory and you need room under the memory limit. The change commits only if the current turn completes.",
     shape: { memoryId: z.string().min(1) },
   },
   {

@@ -94,6 +94,7 @@ function fixture(options: { memories?: number; history?: number } = {}) {
         createdAt: "",
         updatedAt: "",
       })),
+    listSharedMemories: () => [],
     listRoutines: () => [],
     updateRoutine: () => {
       throw new Error("not used");

@@ -231,7 +231,7 @@ export function deliveryPromptInput(context: DeliveryContext, sources: DeliveryP
       : delivery.expectsReply === false
         ? [
             NO_ANSWER_LINE,
-            "Use it if it changes your work, and continue with what you were doing.",
+            "Use it if it changes your work, and continue with what you were doing. When it is a lasting fact for your remit, such as a deadline or a decision, save it with tommy.remember.",
             "Do not send a reply, an acknowledgement, or a result for it. Tommy sends the sender nothing back.",
           ]
         : [

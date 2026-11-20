@@ -1281,6 +1281,7 @@ export class ThreadLifecycle {
       serverHost: this.#serverHost,
       memoryLimit: this.#memories.limit(),
       storedMemoryCount: this.#memories.listFor(agent.id).length,
+      sharedMemories: this.#memories.sharedEssential(),
       memoriesInTurns: client.turnContext === true,
       teammatesInTurns: client.turnContext === true,
       instructionsFileInTurns: this.#instructionsFileInTurns(client),

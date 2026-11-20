@@ -21,6 +21,7 @@ export type TelegramCommandService = Pick<
   | "cancelQueuedMessage"
   | "getUsage"
   | "listMemories"
+  | "listSharedMemories"
   | "listRoutines"
   | "updateRoutine"
   | "testRoutine"
@@ -459,9 +460,18 @@ export class TelegramCommands {
   }
 
   #memory(agent: AgentSummary, t: Translate): TelegramCommandReply {
+    const numbered = (memories: readonly { text: string }[]) =>
+      memories.map((memory, index) => `${index + 1}. ${html(clip(memory.text, 300))}`);
     const memories = this.#options.service.listMemories(agent.id);
-    if (!memories.length) return { html: html(t("status.messaging.telegramMemoryNone")) };
-    return { html: fitLines(memories.map((memory, index) => `${index + 1}. ${html(clip(memory.text, 300))}`)) };
+    const shared = this.#options.service.listSharedMemories();
+    if (!memories.length && !shared.length) return { html: html(t("status.messaging.telegramMemoryNone")) };
+    // The agent's own memories first, then the ones that every agent has.
+    return {
+      html: fitLines([
+        ...numbered(memories),
+        ...(shared.length ? [`<b>${html(t("status.messaging.telegramMemoryShared"))}</b>`, ...numbered(shared)] : []),
+      ]),
+    };
   }
 
   #routines(agent: AgentSummary, argument: string, t: Translate, context: { timeZone: string; language: "en" | "ko" }) {

@@ -105,7 +105,8 @@ function readMemoryContext(params: unknown): MemoryContext | null {
       isDynamicRecord(memory) &&
       isString(memory.id) &&
       isString(memory.text) &&
-      isOneOf(["automatic", "manual"] as const, memory.origin),
+      isOneOf(["automatic", "manual"] as const, memory.origin) &&
+      (memory.scope === undefined || memory.scope === "shared"),
   );
   return { memories, storedCount: context.storedCount, limit: context.limit };
 }

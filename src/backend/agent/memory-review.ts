@@ -17,7 +17,7 @@ import { createTommyLogger } from "@tommy/logging";
 import { Deferred, Effect, Exit, Fiber, Schema, Scope } from "effect";
 import type { AgentClient } from "../agent-client";
 import { extractJsonObject } from "../structured-output";
-import type { AgentMemories } from "./agent-memories";
+import type { AgentMemories, MemoryReviewBase } from "./agent-memories";
 import { backgroundModel, withBackgroundEffort } from "./background-model";
 import { memoryChangesMessage } from "./memory-changes-message";
 import {
@@ -500,21 +500,27 @@ export class MemoryReview {
         return;
       }
       const base = yield* Effect.try(() => options.memories.reviewBase(agentId));
-      const redacted = base.memories.map((entry) => ({
-        ...entry,
-        memory: { ...entry.memory, text: options.redact(entry.memory.text) },
-      }));
+      const redactedEntries = (entries: MemoryReviewBase["memories"]) =>
+        entries.map((entry) => ({
+          ...entry,
+          memory: { ...entry.memory, text: options.redact(entry.memory.text) },
+        }));
+      const redacted = redactedEntries(base.memories);
+      const redactedShared = redactedEntries(base.shared.memories);
       // The model sees only the redacted text of these, so it must not write or forget them.
+      const original = new Map(
+        [...base.memories, ...base.shared.memories].map((entry) => [entry.memory.id, entry.memory.text]),
+      );
       const hidden = new Set(
-        redacted
-          .filter((entry, index) => entry.memory.text !== base.memories[index]?.memory.text)
+        [...redacted, ...redactedShared]
+          .filter((entry) => entry.memory.text !== original.get(entry.memory.id))
           .map((entry) => entry.memory.id),
       );
       const learningGeneration = this.#learningGeneration;
       const skillInput = yield* this.#skillInput(agentId, messages);
       const prompt = memoryReviewPrompt(
         agent,
-        { ...base, memories: redacted },
+        { ...base, memories: redacted, shared: { ...base.shared, memories: redactedShared } },
         excerpt.map((message) => redactedMessage(message, options.redact)),
         skillInput ?? undefined,
       );

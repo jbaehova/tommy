@@ -492,6 +492,13 @@ checked unless a tool result or a reply shows it. When nothing works, the agent 
 and the one action that unblocks it; for a service with a plugin, that action is to install or
 enable the plugin. It can offer to create a specialist teammate, but it creates one only after the user agrees.
 
+An agent also shares news without a request. When the user, a routine run or a tool result gives a
+new fact that clearly falls in the remit of another teammate, such as a deadline or a decision on its
+topic, the agent sends that fact once with `send_message` and `expectsReply` false, and tells the
+user in one line which teammates it told. It does not pass on facts that a teammate sent it, so a
+fact does not go round. The recipient saves a lasting fact with `tommy.remember`. A fact that every
+agent needs does not go by message: it becomes a shared memory (see [Shared memories](#shared-memories)).
+
 An agent that delegates work can follow and stop it. `tommy.list_agents` reports each agent's
 description to 300 characters (`read_agent` returns all of it), its
 `status` (a starting delivery and a context compaction count as `working`), `queuedMessages`
@@ -556,6 +563,45 @@ These are manual model evaluations, separate from the fake-provider lifecycle re
 | Ask explicitly for a detailed account of teammate coordination. | The agent provides the requested detail. |
 | Make a teammate whose description owns Notion, then ask a general agent about a Notion page. | The general agent delegates to the Notion teammate. Its answer starts with the teammate's name. |
 | Ask the same question with no Notion plugin installed. | The Notion teammate opens Notion in the browser and requests a takeover for sign-in. When sign-in fails, the answer says what was tried and to install the Notion plugin. |
+
+## Shared memories
+
+Each agent has its own memories, which no other agent reads. The shared memories are the facts that
+every agent of the server has: who the user is, how the user wants every agent to answer, the user's
+environment and accounts, and decisions for all agents.
+
+- A shared memory is a row of `projection_agent_memories` with the owner `SHARED_MEMORY_OWNER_ID`
+  (`@tommy/contracts/agent-memory-context`) in place of an agent id. So there is no migration and no
+  second store: `AgentMemoryStore` and `AgentMemories` (`src/backend/agent/agent-memories.ts`) give
+  it the selection, the search index, the staging in a turn and the checks of an agent memory. An
+  agent id starts with `agent-` or `bot-`, so no agent has that id, and the removal of an agent
+  deletes only the rows of its own id.
+- An agent writes one with `tommy.remember` and `scope: "shared"`. A `memoryId` names its owner, so
+  an agent corrects or forgets a shared memory as it does its own, and it cannot name a memory of
+  another agent. `search_memories` reads the agent's own and the shared memories in one query, and
+  a shared result has `scope: "shared"`. `list_memories` takes `scope`.
+- The essential shared memories go into the saved-memory block of every agent, after its own, each
+  with `"scope":"shared"`. They have a budget of their own, `SHARED_MEMORY_CONTEXT_BUDGET_BYTES`
+  (4,096 bytes), because every prompt carries them. The others are found by search only.
+- A change of the essential shared memories unloads the threads of every agent, as a change of its
+  own memories does for one agent, so the next turn of each gets the new block. A change that only
+  search finds unloads nothing.
+- The background memory review reads the shared memories with the agent's own, and its `add` takes
+  `scope`. It keeps a fact of the agent's own work as an own memory, and does not add an own copy of
+  a fact that a shared memory says. As for own memories, it never changes a memory that the user
+  wrote or chose.
+- The memory changes of a turn show in the chat of the agent whose turn made them, also for a
+  shared memory. In Telegram, `/memory` lists the agent's memories and then the shared ones.
+- An isolated channel still saves `tommy.remember` as a channel memory, with any scope: what its
+  members learn there does not leave it.
+- A shared memory is untrusted data for the agent that reads it, as each saved memory is: another
+  agent can have written it. The rules tell an agent to put no secret and no private data that the
+  other agents do not need in one.
+- Memory search (`AgentMemoryStore.search`) matches a Korean word by its prefix and by its stem
+  without the last one or two syllables, because the `unicode61` tokenizer keeps a word and its
+  particles as one token.
+
+`scripts/shared-memory-e2e.ts` runs these rules against the real store and database.
 
 ## Prompt-driven agent profiles
 

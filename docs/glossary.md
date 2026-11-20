@@ -74,6 +74,12 @@ table, IPC channel or product string, or when a term in the code disagrees with 
   (`workflow_steps`). A **workflow version** is a saved copy of the graph that the user can restore
   (`workflow_versions`). A **workflow webhook trigger** is a trigger node with a webhook route of
   the `workflow` owner kind (`workflow_trigger_webhooks`).
+- **shared memory**: a saved fact that every agent of this server has, such as who the user is or a
+  decision for all agents. It is a row of `projection_agent_memories` whose owner is
+  `SHARED_MEMORY_OWNER_ID` (`tommy-shared-memory`) in place of an agent id, so it has no table,
+  aggregate type or tool of its own: `remember` with `scope: "shared"` saves one. It is not a
+  **channel memory** (`projection_channel_memories`), which only the members of one channel get, and
+  not a **shared table**.
 - **shared table**: a table an agent created in the one file every agent shares
   (`~/Tommy/Shared/Data/agent-data.db`, `SharedTable`, `AgentTables`). `tommy.db` is the
   application's database and holds none of these. **owner**: the agent whose id
