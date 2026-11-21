@@ -38,6 +38,7 @@ import { runCauseEffect } from "../backend/effect-boundary";
 import { MailboxStore } from "../backend/mailbox-store";
 import { McpOAuth } from "../backend/mcp-oauth-provider";
 import { passwordVaultRouter } from "../backend/password-vault-router";
+import { RemoteMcpReader } from "../backend/remote-mcp-reader";
 import { routineFlowRoutines } from "../backend/routine-flows/routine-flow-routines";
 import { RoutineFlowStore } from "../backend/routine-flows/routine-flow-store";
 import { createRoutineFlows } from "../backend/routine-flows/routine-flows";
@@ -86,6 +87,10 @@ import { toProviderRuntimeFailure } from "./provider-runtime-effects";
 import { ProviderRuntimeManager, providerRuntimeRoot } from "./provider-runtime-manager";
 import { ProviderUseSettingsStore } from "./provider-use-settings-store";
 import { type PublicHttpRoute, PublicHttpServer } from "./public-http-server";
+import { RemoteMcpEndpoint } from "./remote-mcp/remote-mcp-endpoint";
+import { RemoteMcpGrants } from "./remote-mcp/remote-mcp-grants";
+import { readRemoteMcpSettings } from "./remote-mcp/remote-mcp-settings";
+import { RemoteMcpTools } from "./remote-mcp/remote-mcp-tools";
 import { ResourceMonitor } from "./resource-monitor";
 import { StatementTimings } from "./resource-summary";
 import { ROUTINE_HOLD_FILE, takeRoutineHold } from "./routine-hold-file";
@@ -126,6 +131,8 @@ const PROVIDER_CREDENTIAL_FILE = "tommy-provider-credentials-v1.json";
 const MCP_OAUTH_FILE = "tommy-mcp-oauth-v1.json";
 const MCP_OAUTH_PROXY_FILE = "tommy-mcp-oauth-proxy-v1.json";
 const T3_LINKS_FILE = "tommy-t3-links-v1.json";
+/** The clients and sign-ins of the remote MCP endpoint. It holds only hashes of their tokens. */
+const REMOTE_MCP_GRANTS_FILE = "tommy-remote-mcp-grants-v1.json";
 /** The logins, payment cards and contact info of the Vault, with the same cipher. */
 const VAULT_FILE = "tommy-vault-v1.json";
 /** The port that the reverse proxy forwards to on loopback. */
@@ -776,12 +783,48 @@ export async function createApplicationServices({
       await Effect.runPromise(runtime.stop);
     });
   }
-  // The one public entry: Telegram first, then the workflow and routine webhooks.
+  // Read-only MCP for outside clients such as claude.ai connectors. The owner approves each
+  // sign-in with a code that the Telegram manager chat shows, so it needs Telegram.
+  const remoteMcpSettings = readRemoteMcpSettings(process.env, telegramSettings?.publicOrigin ?? null);
+  let remoteMcp: { endpoint: RemoteMcpEndpoint; grants: RemoteMcpGrants } | null = null;
+  if (remoteMcpSettings.settings && telegram) {
+    const owner = telegram;
+    const grants = new RemoteMcpGrants({ path: join(userData, REMOTE_MCP_GRANTS_FILE) });
+    const loaded = await runCauseEffect(grants.load()).then(
+      () => true,
+      (error) => {
+        logger.warn("Remote MCP is off: Tommy could not read its sign-ins.", toLogValue(error));
+        return false;
+      },
+    );
+    if (loaded) {
+      const reader = new RemoteMcpReader(store.database);
+      const tools = new RemoteMcpTools({
+        agents: () => service.listAgents().filter((agent) => agent.hiddenAt === undefined),
+        memories: (agentId) => service.listMemories(agentId),
+        sharedMemories: () => service.listSharedMemories(),
+        messages: reader,
+        folders: remoteMcpSettings.settings.folders,
+      });
+      const endpoint = new RemoteMcpEndpoint({
+        settings: remoteMcpSettings.settings,
+        grants,
+        tools,
+        tellOwner: (text) => owner.tellOwner(text),
+        version: app.getVersion(),
+      });
+      remoteMcp = { endpoint, grants };
+    }
+  } else if (!remoteMcpSettings.settings && remoteMcpSettings.problem !== "off") {
+    logger.warn("Remote MCP is off. Check its server setting.", { problem: remoteMcpSettings.problem });
+  }
+  // The one public entry: Telegram first, then the workflow and routine webhooks, then remote MCP.
   const publicHttp = new PublicHttpServer(
     { host: "127.0.0.1", port: readPublicPort(process.env.TOMMY_DIRECT_PORT) },
     (): PublicHttpRoute[] => [
       (request, response) => telegram?.handle(request, response) ?? Effect.succeed(false),
       (request, response) => webhookIngress.handle(request, response),
+      (request, response) => remoteMcp?.endpoint.handle(request, response) ?? Effect.succeed(false),
     ],
   );
   await runCauseEffect(publicHttp.start()).catch((error) =>
@@ -826,6 +869,7 @@ export async function createApplicationServices({
       status: () => ({
         public_listener: publicHttp.listening ? "listening" : "stopped",
         telegram: telegramSettings ? "on" : "off",
+        remote_mcp: remoteMcp ? "on" : "off",
       }),
       memory: hostMemory,
       onError: (message, error) => logger.warn(message, toLogValue(error)),
@@ -843,6 +887,14 @@ export async function createApplicationServices({
         telegram
           ? Effect.runPromise(telegram.ask(input), { signal })
           : Promise.reject(new Error("Telegram is not set up on this server.")),
+      ...(remoteMcp
+        ? {
+            connector: {
+              list: () => remoteMcp?.grants.list() ?? [],
+              revoke: (id: string) => (remoteMcp ? Effect.runPromise(remoteMcp.grants.revoke(id)) : Promise.resolve(0)),
+            },
+          }
+        : {}),
       t3: {
         list: () => t3Links.list(),
         link: (input) => Effect.runPromise(t3Links.link(input)),

@@ -364,6 +364,37 @@ Agents can use T3 Code on another computer, and T3 Code sessions can ask Tommy a
 off until the owner sets them up. Follow [T3 Code](t3-code.md) only when the user asks for it: it
 needs a pairing code from `t3 pair` on the other computer, and SSH access for the other direction.
 
+### Remote MCP for claude.ai and other clients
+
+Tommy can give an outside MCP client, such as a claude.ai custom connector, read-only access to
+the agents' memories, the owner's chats with them, and folders of notes. It is off by default.
+Set it up only when the user asks for it. It needs the Telegram interface and its HTTPS origin:
+the owner approves each sign-in with a one-time code that the manager chat shows.
+
+1. Add these lines to `/etc/tommy/server.env`. `TOMMY_REMOTE_MCP_FOLDERS` is optional: a
+   colon-separated list of absolute folder paths that the service user can read. Tommy reads only
+   `.md`, `.markdown` and `.txt` files there, never hidden files or links that leave a folder.
+
+   ```sh
+   TOMMY_REMOTE_MCP=on
+   TOMMY_REMOTE_MCP_FOLDERS=/var/lib/tommy/notes
+   ```
+
+2. Forward the MCP and OAuth paths in the nginx site. The template
+   `scripts/hosting/nginx-tommy.conf` has the `location` blocks for `/mcp`, `/oauth/` and
+   `/.well-known/oauth-`. Copy them into the HTTPS `server` block, then run
+   `sudo nginx -t && sudo systemctl reload nginx`.
+3. Restart Tommy. `tommy status` shows `remote_mcp=on`.
+4. In claude.ai, open Customize, then Connectors, then Add custom connector. Use
+   `https://<domain>/mcp` as the URL and leave the OAuth fields empty. Connect, then type the code
+   from the Telegram manager chat on the Tommy page.
+
+Only the addresses of the claude.ai connectors can register. Add another client's HTTPS redirect
+address with `TOMMY_REMOTE_MCP_REDIRECT_URIS` (comma-separated). `sudo tommy connector` lists the
+sign-ins, and `sudo tommy connector revoke --all` ends them. The tools redact secrets, but chat
+text goes to the client. Do not use other connectors that can send data out in the same claude.ai
+chat if the stored chats can hold text from other people.
+
 ### Other optional features
 
 Pi can use the optional host web-search tool when Codex is already enabled and signed in.
