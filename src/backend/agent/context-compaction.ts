@@ -1,6 +1,3 @@
-import { randomUUID } from "node:crypto";
-import { INPUT_LIMITS } from "@tommy/contracts/input-limits";
-import type { AgentContextCategoryUsage, AgentContextState } from "@tommy/contracts/ipc";
 import { sourceText } from "@tommy/i18n/source";
 import { createTommyLogger } from "@tommy/logging";
 import { Effect, Schema } from "effect";
@@ -87,8 +84,6 @@ const CONTEXT_COMPACTION_TIMEOUT_MS = 120_000;
  * the start deadline, so it only ends a compaction that hangs.
  */
 const CONTEXT_COMPACTION_RUN_FACTOR = 10;
-/** Usage arrives after each model step; one runtime snapshot carries the latest value of a burst. */
-export const USAGE_CHANGE_DELAY_MS = 250;
 
 export interface ContextCompactionOptions {
   /**
@@ -113,9 +108,6 @@ export interface ContextCompactionOptions {
   loadSession(agentId: string, client: AgentClient, threadId: string): Effect.Effect<boolean, ThreadOperationFailed>;
   /** Whether `rotateSession` can replace this session. See `ThreadLifecycle.rotatesSession`. */
   rotatesSession(agentId: string, threadId: string): boolean;
-  /** The service stops: its database can close before a provider stops reporting usage. */
-  isStopping(): boolean;
-  changed?(): void;
   /** A provider session finished a compaction: its summary replaces what it read before. */
   compacted?(threadId: string): void;
 }
@@ -161,7 +153,6 @@ export class ContextCompaction {
   readonly #rotateSession: ContextCompactionOptions["rotateSession"];
   readonly #loadSession: ContextCompactionOptions["loadSession"];
   readonly #rotatesSession: ContextCompactionOptions["rotatesSession"];
-  readonly #isStopping: () => boolean;
   readonly #budgets = new Map<string, ThreadContextBudget>();
   /**
    * The agent of each provider thread that compacts, and the client that runs it once `request` sends it.
@@ -174,21 +165,17 @@ export class ContextCompaction {
   readonly #runTimeoutMs: number;
   /** How long a stopped compaction, or a refused queue, waits for the turn to end. */
   readonly #graceMs: number;
-  readonly #display = new Map<string, Omit<AgentContextState, "agentId" | "threadId">>();
+  readonly #compactionStatus = new Map<string, "running" | "completed" | "failed">();
   readonly #awaitingPostCompaction = new Set<string>();
   /**
    * Sessions in a compaction whose usage Tommy compares: until it ends, Codex 0.167.0 reports an
    * estimate of its result, which can be much smaller than the next request.
    */
   readonly #estimating = new Set<string>();
-  readonly #durations = new Map<string, number>();
-  readonly #changed: () => void;
   readonly #compacted: (threadId: string) => void;
   readonly #timers = new Map<string, NodeJS.Timeout>();
-  #usageTimer: NodeJS.Timeout | null = null;
 
   constructor(options: ContextCompactionOptions) {
-    this.#changed = options.changed ?? (() => {});
     this.#compacted = options.compacted ?? (() => {});
     this.#timeoutMs = options.timeoutMs ?? CONTEXT_COMPACTION_TIMEOUT_MS;
     this.#runTimeoutMs = this.#timeoutMs * CONTEXT_COMPACTION_RUN_FACTOR;
@@ -200,7 +187,6 @@ export class ContextCompaction {
     this.#rotateSession = options.rotateSession;
     this.#loadSession = options.loadSession;
     this.#rotatesSession = options.rotatesSession;
-    this.#isStopping = options.isStopping;
   }
 
   /** How long a started compaction runs before Tommy stops it. */
@@ -208,122 +194,27 @@ export class ContextCompaction {
     return this.#runTimeoutMs;
   }
 
-  /** Only personal sessions appear in the desktop snapshot; execution threads remain separate. */
-  snapshot(): AgentContextState[] {
-    return this.#store.list().flatMap((agent) => {
-      const session = agent.threadId
-        ? this.#store.database.activeProviderSession(agent.threadId, agent.provider)
-        : null;
-      const display = session ? this.#display.get(session.externalSessionId) : null;
-      return display && agent.threadId ? [{ agentId: agent.id, threadId: agent.threadId, ...display }] : [];
-    });
-  }
-
-  /** The side threads of `threads` (`id` is the agent) that reported their context, keyed by thread id. */
-  threadSnapshot(threads: Array<{ id: string; threadId: string }>): AgentContextState[] {
-    if (this.#display.size === 0) return [];
-    const agents = new Map(this.#store.list().map((agent) => [agent.id, agent]));
-    return threads
-      .flatMap(({ id: agentId, threadId }) => {
-        const agent = agents.get(agentId);
-        const session = agent ? this.#store.database.activeProviderSession(threadId, agent.provider) : null;
-        const display = session ? this.#display.get(session.externalSessionId) : null;
-        if (!agent || !display) return [];
-        // A `handoff` provider compacts only a session it can replace, which a side thread never is, so
-        // nothing compacts the thread on its own.
-        const handoff = this.#providers.clientForAgent(agent)?.contextCompaction === "handoff";
-        const usage = display.usage && handoff ? { ...display.usage, autoCompactAt: null } : display.usage;
-        return [{ agentId, threadId, usage, compaction: display.compaction }];
-      })
-      .slice(0, INPUT_LIMITS.agents * INPUT_LIMITS.agentTasks);
-  }
-
-  observeUsage(
-    threadId: string,
-    usedTokens: number,
-    windowTokens: number,
-    nativeManaged: boolean,
-    autoCompactAt: number | null,
-    estimated = false,
-    categories?: AgentContextCategoryUsage[],
-  ): void {
-    if (!Number.isFinite(usedTokens) || usedTokens < 0 || !Number.isFinite(windowTokens) || windowTokens <= 0) return;
-    const display = this.#display.get(threadId) ?? { usage: null, compaction: null };
-    const previous = display.usage;
-    display.usage = {
-      usedTokens,
-      windowTokens,
-      nativeManaged,
-      autoCompactAt,
-      estimated,
-      ...(categories ? { categories } : {}),
-    };
-    const after = display.compaction?.status === "completed" && this.#awaitingPostCompaction.delete(threadId);
-    if (after && display.compaction) display.compaction.afterTokens = usedTokens;
-    this.#display.set(threadId, display);
-    if (after || JSON.stringify(previous) !== JSON.stringify(display.usage)) this.#scheduleUsageChange();
-  }
-
-  #scheduleUsageChange(): void {
-    // While the service stops: a timer could read the snapshot after the database closes (#3808).
-    if (this.#isStopping()) return;
-    this.#usageTimer ??= setTimeout(() => {
-      this.#usageTimer = null;
-      this.#changed();
-    }, USAGE_CHANGE_DELAY_MS);
-  }
-
-  /** A snapshot sent now also carries any pending usage. */
-  #emitChanged(): void {
-    if (this.#usageTimer) clearTimeout(this.#usageTimer);
-    this.#usageTimer = null;
-    this.#changed();
-  }
-
   observeCompaction(
     threadId: string,
     status: "running" | "completed" | "failed",
     tokenComparison: "context" | "none" = "context",
   ): void {
-    const display = this.#display.get(threadId) ?? { usage: null, compaction: null };
-    if (status === "running" && display.compaction?.status === "running") return;
-    const previous =
-      status === "running"
-        ? display.compaction?.status === "running"
-          ? display.compaction
-          : null
-        : display.compaction;
-    const startedAt = previous ? previous.startedAt : Date.now();
-    const expectedMs = this.#durations.get(threadId);
-    const compaction: NonNullable<typeof display.compaction> = {
-      id: previous ? previous.id : randomUUID(),
-      startedAt,
-      status,
-      ...(expectedMs === undefined ? {} : { expectedMs }),
-      ...(previous ?? {}),
-    };
-    compaction.status = status;
-    display.compaction = compaction;
-    const before = previous ? previous.beforeTokens : display.usage?.usedTokens;
-    if (tokenComparison === "none") {
-      delete compaction.beforeTokens;
-      delete compaction.afterTokens;
-    } else if (before !== undefined) compaction.beforeTokens = before;
-    this.#awaitingPostCompaction.delete(threadId);
+    const previous = this.#compactionStatus.get(threadId);
+    if (status === "running" && previous === "running") return;
+    this.#compactionStatus.set(threadId, status);
     if (tokenComparison === "context" && status === "running") this.#estimating.add(threadId);
     else this.#estimating.delete(threadId);
-    if (tokenComparison === "context" && status === "completed" && compaction.afterTokens === undefined)
-      this.#awaitingPostCompaction.add(threadId);
-    if (status === "completed" && previous?.status === "running")
-      this.#durations.set(threadId, Math.max(1, Date.now() - startedAt));
-    this.#display.set(threadId, display);
-    this.#emitChanged();
+    if (tokenComparison === "context" && status === "completed") {
+      if (previous !== "completed") this.#awaitingPostCompaction.add(threadId);
+    } else {
+      this.#awaitingPostCompaction.delete(threadId);
+    }
     if (status === "completed") this.#compacted(threadId);
   }
 
   /** Ends a running compaction whose provider stopped before it reported the result. */
   abandonCompaction(threadId: string): void {
-    if (this.#display.get(threadId)?.compaction?.status === "running") this.observeCompaction(threadId, "failed");
+    if (this.#compactionStatus.get(threadId) === "running") this.observeCompaction(threadId, "failed");
   }
 
   beginTurn(threadId: string): void {
@@ -350,9 +241,7 @@ export class ContextCompaction {
     const contextWindow = finiteNumberOrNull(usage?.modelContextWindow);
     if (usedTokens === null || usedTokens < 0 || contextWindow === null || contextWindow <= 0) return;
 
-    // Only the next request tells whether the compaction helped. The estimate reset the count of
-    // compactions that left the session almost full, so each turn compacted again. The display still
-    // shows it.
+    // Only the next request measures the result. An estimate can hide repeated ineffective compactions.
     if (this.#estimating.has(threadId)) return;
 
     const budget = this.#budgets.get(threadId) ?? {
@@ -371,9 +260,9 @@ export class ContextCompaction {
     budget.usedTokens = usedTokens;
     budget.contextWindow = contextWindow;
     this.#budgets.set(threadId, budget);
-    // The display mark also covers a compaction that ended in this turn before the session had a
-    // budget. `observeUsage` runs next and takes that mark, so it is read here first.
-    const afterCompaction = budget.awaitingUsage || this.#awaitingPostCompaction.has(threadId);
+    // A compaction can finish before the provider reports its first budget.
+    const justCompacted = this.#awaitingPostCompaction.delete(threadId);
+    const afterCompaction = budget.awaitingUsage || justCompacted;
     budget.awaitingUsage = false;
     if (afterCompaction) {
       budget.compactionResultTokens = usedTokens;
@@ -683,11 +572,9 @@ export class ContextCompaction {
   /** Drops a retired provider thread's budget. The agent keeps compacting until `forgetAgent`. */
   forgetThread(threadId: string): void {
     this.#budgets.delete(threadId);
-    const displayed = this.#display.delete(threadId);
-    this.#durations.delete(threadId);
+    this.#compactionStatus.delete(threadId);
     this.#awaitingPostCompaction.delete(threadId);
     this.#estimating.delete(threadId);
-    if (displayed) this.#emitChanged();
     this.#clearTimer(threadId);
   }
 
@@ -738,16 +625,13 @@ export class ContextCompaction {
   }
 
   dispose(): void {
-    if (this.#usageTimer) clearTimeout(this.#usageTimer);
-    this.#usageTimer = null;
     for (const timer of this.#timers.values()) clearTimeout(timer);
     this.#timers.clear();
     this.#compacting.clear();
     for (const hold of this.#refusals.values()) clearTimeout(hold.timer);
     this.#refusals.clear();
     this.#budgets.clear();
-    this.#display.clear();
-    this.#durations.clear();
+    this.#compactionStatus.clear();
     this.#awaitingPostCompaction.clear();
     this.#estimating.clear();
   }
@@ -790,7 +674,6 @@ export class ContextCompaction {
   ) {
     // The hold keeps no client: `clientEnded` must not release the queue while the rotation runs.
     // The rotation ends the hold itself, also when the client exits.
-    const compaction = this.#display.get(threadId)?.compaction;
     const compactedTokens = this.#budgets.get(threadId)?.usedTokens ?? null;
     const next = yield* this.#rotateSession(agentId, client, threadId).pipe(
       Effect.catch((failure) =>
@@ -801,14 +684,6 @@ export class ContextCompaction {
         }),
       ),
     );
-    // No token comparison: the new session reports its usage during its first turn.
-    if (next && compaction) {
-      const { id, startedAt, expectedMs } = compaction;
-      this.#display.set(next, {
-        usage: null,
-        compaction: { id, startedAt, status: "completed", ...(expectedMs === undefined ? {} : { expectedMs }) },
-      });
-    }
     // The growth rule moves to the new session, as it stays on a Codex thread: a session that starts
     // above the threshold does not rotate again at each turn.
     if (next)
@@ -832,7 +707,6 @@ export class ContextCompaction {
       this.observeCompaction(threadId, "failed");
     }
     this.#release(agentId, threadId);
-    this.#emitChanged();
     this.#scheduleDrain(agentId);
   });
 

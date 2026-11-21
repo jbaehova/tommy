@@ -438,7 +438,7 @@ export class TelegramApi {
     this: TelegramApi,
     token: string,
     chat: number,
-    file: { name: string; mimeType: string; bytes: Uint8Array },
+    file: { name: string; mimeType: string; bytes: Uint8Array; caption?: string },
   ): Effect.fn.Return<void, TelegramApiFailure> {
     registerSecretValue(token);
     if (file.bytes.byteLength > 49 * 1024 * 1024)
@@ -452,6 +452,7 @@ export class TelegramApi {
       () => {
         const form = new FormData();
         form.set("chat_id", String(chat));
+        if (file.caption) form.set("caption", redactText(file.caption));
         form.set(photo ? "photo" : "document", new Blob([Uint8Array.from(file.bytes)], { type: file.mimeType }), name);
         return form;
       },

@@ -8,6 +8,9 @@ export function telegramMiniAppPage(nonce: string, language: string): string {
     agents: t("sidebar.view.agents"),
     empty: t("sidebar.empty.noAgents"),
     retry: t("browser.telegram.refresh"),
+    mcpConnect: t("status.messaging.telegramMcpConnect"),
+    mcpOpen: t("browser.telegram.mcpOpen"),
+    mcpReturn: t("browser.telegram.mcpReturn"),
     skip: t("browser.telegram.skip"),
     promptTitle: t("browser.telegram.promptTitle"),
     vaultTitle: t("browser.telegram.vaultTitle"),
@@ -245,6 +248,46 @@ function requestForm(request) {
   return form;
 }
 /** A prompt that needs private input: a secret answer, or a Vault or API key form. */
+function signInCard(item) {
+  const block = element("div", undefined, "block");
+  block.append(element("p", item.name, "title"), originPill(item.origin));
+  const button = element("button", words.mcpConnect, "primary");
+  button.type = "button";
+  const actions = element("div", undefined, "actions");
+  const failure = element("p", "", "error");
+  failure.setAttribute("role", "alert");
+  actions.append(button);
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    failure.textContent = "";
+    try {
+      const { url } = await (await post("mcp", { handle: item.handle })).json();
+      if (!url) {
+        block.replaceChildren(element("p", words.mcpReturn, "note"));
+        return;
+      }
+      const destination = new URL(url);
+      if (destination.protocol !== "https:" || destination.username || destination.password) throw new Error(words.failure);
+      const link = element("a", words.mcpOpen + " (" + destination.hostname + ")");
+      link.href = destination.href;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.addEventListener("click", (event) => {
+        if (window.TelegramWebviewProxy || (window.external && typeof window.external.notify === "function") || window.parent !== window) {
+          event.preventDefault();
+          postEvent("web_app_open_link", { url: destination.href });
+        }
+      });
+      actions.replaceChildren(link);
+    } catch (error) {
+      if (error.message === words.reopen) showPanel("expired");
+      else failure.textContent = words.failure;
+      button.disabled = false;
+    }
+  });
+  block.append(actions, failure);
+  return block;
+}
 function promptForm(prompt) {
   const form = element("form", undefined, "block");
   const title = prompt.form === "vault" ? words.vaultTitle : prompt.form === "api-key" ? words.apiKeyTitle : words.promptTitle;
@@ -397,11 +440,12 @@ async function load() {
     const rows = document.createDocumentFragment();
     rows.append(element("p", words.agents, "label"));
     const prompts = state.prompts || [];
-    if (!state.agents.length && !prompts.length) return showPanel("empty");
+    const signIns = state.signIns || [];
+    if (!state.agents.length && !prompts.length && !signIns.length) return showPanel("empty");
     // An agent without its own chat can still ask in work that the owner started here.
     const listed = new Set(state.agents.map((agent) => agent.agentId));
     const others = [];
-    for (const prompt of prompts)
+    for (const prompt of [...prompts, ...signIns])
       if (!listed.has(prompt.agentId) && !others.some((agent) => agent.agentId === prompt.agentId))
         others.push({ agentId: prompt.agentId, name: prompt.agentName || "Tommy", username: "", active: true });
     for (const agent of [...state.agents, ...others]) {
@@ -418,6 +462,7 @@ async function load() {
       }
       head.append(avatar(agent.name), who, element("span", agent.active ? words.ready : words.pending, agent.active ? "badge ok" : "badge"));
       card.append(head);
+      for (const item of signIns) if (agent.agentId === item.agentId) card.append(signInCard(item));
       for (const req of state.requests) if (agent.agentId === req.agentId) card.append(requestForm(req));
       for (const prompt of prompts) if (agent.agentId === prompt.agentId) card.append(promptForm(prompt));
       for (const preview of state.previews) if (agent.agentId === preview.agentId) card.append(previewCard(preview));

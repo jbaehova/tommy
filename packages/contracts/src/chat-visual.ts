@@ -1,7 +1,3 @@
-import { INPUT_LIMITS } from "./input-limits";
-import { isBoundedString } from "./ipc-bounded-values";
-import { isBoolean, isDynamicRecord, isNumber, isOneOf } from "./runtime-values";
-
 /**
  * A visual reply: an HTML page that an agent publishes to show a chart, a table, a diagram or a
  * mockup above its reply. Unlike a ```html preview, the page runs its scripts and can load files
@@ -15,8 +11,6 @@ import { isBoolean, isDynamicRecord, isNumber, isOneOf } from "./runtime-values"
 /** The frame is never lower or higher than this, whatever the page reports. */
 export const CHAT_VISUAL_MIN_HEIGHT = 80;
 export const CHAT_VISUAL_MAX_HEIGHT = 2000;
-/** The height that the frame keeps for a page before the page reports its own. */
-export const CHAT_VISUAL_DEFAULT_HEIGHT = 240;
 
 /** The prefix of the URL fragment that gives the page its theme before its first paint. */
 export const CHAT_VISUAL_THEME_FRAGMENT = "tommy-theme=";
@@ -31,18 +25,8 @@ export const CHAT_VISUAL_UPDATE_MODEL_CONTEXT = "ui/update-model-context";
 export const CHAT_VISUAL_OPEN_IMAGE = "tommy/notifications/open-image";
 export const CHAT_VISUAL_KEY_DOWN = "tommy/notifications/keydown";
 
-export type ChatVisualDisplayMode = "inline" | "fullscreen";
-const DISPLAY_MODES: readonly ChatVisualDisplayMode[] = ["inline", "fullscreen"];
-
 /** The most characters of page context, the limit of a quote in the composer. */
 export const CHAT_VISUAL_CONTEXT_LIMIT = 2_000;
-/** The most characters of an image address, so a `data:` image as large as a page still opens. */
-const IMAGE_SOURCE_LIMIT = 8 * 1_024 * 1_024;
-/** An image that the app shows from a page. SVG is safe here: an image cannot run its scripts. */
-const DATA_IMAGE = /^data:image\/(?:png|jpeg|gif|webp|avif|svg\+xml)[;,]/iu;
-const KEY_LIMIT = 32;
-/** The most text blocks in one message, so a page cannot make the app join a large array. */
-const CONTENT_BLOCK_LIMIT = 32;
 
 /**
  * The `itemType` of a visual reply message: the prefix, then the height that the agent asked for,
@@ -62,8 +46,8 @@ export const CHAT_VISUAL_PAGE_LIMIT = 8 * 1_024 * 1_024;
 export const CHAT_VISUAL_FRAME_SANDBOX = "allow-scripts allow-forms";
 export const CHAT_VISUAL_TITLE_LIMIT = 200;
 
-export function chatVisualItemType(height?: number): string {
-  return `${CHAT_VISUAL_ITEM_TYPE_PREFIX}${height !== undefined && Number.isFinite(height) ? clampHeight(height) : ""}`;
+export function chatVisualItemType(height?: number, includeSource = false): string {
+  return `${CHAT_VISUAL_ITEM_TYPE_PREFIX}${height !== undefined && Number.isFinite(height) ? clampHeight(height) : ""}${includeSource ? ":source" : ""}`;
 }
 
 /** The page and the requested height of a visual reply message, or null for any other message. */
@@ -75,12 +59,22 @@ export function isChatVisualMimeType(mimeType: string): boolean {
 export function chatVisualReply<Attachment extends { mimeType: string }>(message: {
   itemType?: string | null | undefined;
   attachments?: readonly Attachment[] | null | undefined;
-}): { attachment: Attachment; height?: number } | null {
+}): { attachment: Attachment; preview?: Attachment; includeSource?: true; height?: number } | null {
   if (!message.itemType?.startsWith(CHAT_VISUAL_ITEM_TYPE_PREFIX)) return null;
-  const attachment = message.attachments?.length === 1 ? message.attachments[0] : undefined;
-  if (!attachment || !isChatVisualMimeType(attachment.mimeType)) return null;
-  const height = message.itemType.slice(CHAT_VISUAL_ITEM_TYPE_PREFIX.length);
-  return /^\d{1,4}$/u.test(height) ? { attachment, height: clampHeight(Number(height)) } : { attachment };
+  const items = message.attachments ?? [];
+  if (items.length < 1 || items.length > 2) return null;
+  const attachment = items.find((item) => isChatVisualMimeType(item.mimeType));
+  const preview = items.find((item) => item.mimeType === "image/png");
+  if (!attachment || (items.length === 2 && !preview)) return null;
+  const suffix = message.itemType.slice(CHAT_VISUAL_ITEM_TYPE_PREFIX.length);
+  const includeSource = suffix.endsWith(":source");
+  const height = includeSource ? suffix.slice(0, -7) : suffix;
+  return {
+    attachment,
+    ...(preview ? { preview } : {}),
+    ...(includeSource ? { includeSource: true } : {}),
+    ...(/^\d{1,4}$/u.test(height) ? { height: clampHeight(Number(height)) } : {}),
+  };
 }
 
 /** CSS custom properties that the page can use, such as `--foreground` or `--chart-1`. */
@@ -135,41 +129,6 @@ export function chatVisualAppTheme(appearance: ChatVisualAppearance): ChatVisual
   return { ...APP_THEMES[appearance], ...SHARED_APP_THEME };
 }
 
-/** A key that the user pressed in the page and that the page did not use. */
-export interface ChatVisualKey {
-  key: string;
-  code: string;
-  metaKey: boolean;
-  ctrlKey: boolean;
-  shiftKey: boolean;
-  altKey: boolean;
-}
-
-/** A message from the page, after the app has checked it. */
-export type ChatVisualMessage =
-  | { type: "size"; height: number }
-  | { type: "open-link"; id: number | string; url: string }
-  | { type: "display-mode"; id: number | string; mode: ChatVisualDisplayMode }
-  /** Text for the user's message box. The user reads it and sends it. */
-  | { type: "message"; id: number | string; text: string }
-  /** The page state for the agent, which goes with the user's next message. Empty text removes it. */
-  | { type: "context"; id: number | string; text: string }
-  /** A request with values out of range. The host refuses it, so the page's promise fails. */
-  | { type: "refused"; id: number | string }
-  | { type: "open-image"; src: string; name: string }
-  | { type: "key"; key: ChatVisualKey };
-
-/**
- * The frame height. The height that the agent asked for is the maximum: a taller page scrolls in
- * the frame. Before the page reports its height, the frame keeps the agent's height.
- */
-export function chatVisualFrameHeight(reported?: number, requested?: number): number {
-  const limit = requested !== undefined && Number.isFinite(requested) ? clampHeight(requested) : undefined;
-  const height = reported !== undefined && Number.isFinite(reported) ? clampHeight(reported) : undefined;
-  if (height === undefined) return limit ?? CHAT_VISUAL_DEFAULT_HEIGHT;
-  return limit === undefined ? height : Math.min(limit, height);
-}
-
 function clampHeight(height: number): number {
   return Math.min(CHAT_VISUAL_MAX_HEIGHT, Math.max(CHAT_VISUAL_MIN_HEIGHT, Math.ceil(height)));
 }
@@ -178,126 +137,6 @@ function clampHeight(height: number): number {
 export function chatVisualFrameUrl(src: string, theme: ChatVisualTheme): string {
   const base = src.split("#", 1)[0] ?? src;
   return `${base}#${CHAT_VISUAL_THEME_FRAGMENT}${encodeURIComponent(JSON.stringify(theme))}`;
-}
-
-/** The message that sends the theme to a page that has loaded. */
-export function chatVisualThemeMessage(theme: ChatVisualTheme) {
-  return {
-    jsonrpc: "2.0",
-    method: CHAT_VISUAL_HOST_CONTEXT_CHANGED,
-    params: { theme: "dark", styles: { variables: theme } },
-  } as const;
-}
-
-/** The message that tells a page whether it shows in the chat or fills the window. */
-export function chatVisualDisplayModeMessage(mode: ChatVisualDisplayMode) {
-  return {
-    jsonrpc: "2.0",
-    method: CHAT_VISUAL_HOST_CONTEXT_CHANGED,
-    params: { displayMode: mode, availableDisplayModes: DISPLAY_MODES },
-  } as const;
-}
-
-/** What the host answers to a request that it did: the display mode for a display mode request. */
-export interface ChatVisualReplyResult {
-  mode?: ChatVisualDisplayMode;
-}
-
-/** The answer to a request of the page. A refused request gets an error, so its promise fails. */
-export function chatVisualReplyMessage(id: number | string, result: ChatVisualReplyResult | null) {
-  return result
-    ? ({ jsonrpc: "2.0", id, result } as const)
-    : ({ jsonrpc: "2.0", id, error: { code: -32000, message: "Refused" } } as const);
-}
-
-/**
- * Reads a message that a page posted. The page can post anything, so a message that is not one of
- * the known methods, or has a value out of range, gives null.
- */
-export function parseChatVisualMessage(data: unknown): ChatVisualMessage | null {
-  if (!isDynamicRecord(data) || data.jsonrpc !== "2.0" || !isDynamicRecord(data.params)) return null;
-  const params = data.params;
-  switch (data.method) {
-    case CHAT_VISUAL_SIZE_CHANGED: {
-      const height = params.height;
-      return isNumber(height) && Number.isFinite(height) && height >= 0 ? { type: "size", height } : null;
-    }
-    case CHAT_VISUAL_OPEN_LINK: {
-      const id = requestId(data.id);
-      const url = isBoundedString(params.url, INPUT_LIMITS.browserUrl) ? webUrl(params.url) : null;
-      return url && id !== null ? { type: "open-link", id, url } : refused(id);
-    }
-    case CHAT_VISUAL_REQUEST_DISPLAY_MODE: {
-      const id = requestId(data.id);
-      return id !== null && isOneOf(DISPLAY_MODES, params.mode)
-        ? { type: "display-mode", id, mode: params.mode }
-        : refused(id);
-    }
-    case CHAT_VISUAL_MESSAGE: {
-      const id = requestId(data.id);
-      const text = params.role === "user" ? contentText(params.content, INPUT_LIMITS.messageText) : null;
-      return id !== null && text ? { type: "message", id, text } : refused(id);
-    }
-    case CHAT_VISUAL_UPDATE_MODEL_CONTEXT: {
-      const id = requestId(data.id);
-      const text = contentText(params.content, CHAT_VISUAL_CONTEXT_LIMIT);
-      return id !== null && text !== null ? { type: "context", id, text } : refused(id);
-    }
-    case CHAT_VISUAL_OPEN_IMAGE: {
-      const src = isBoundedString(params.src, IMAGE_SOURCE_LIMIT) ? imageUrl(params.src) : null;
-      const name = params.name === undefined ? "" : params.name;
-      return src && isBoundedString(name, CHAT_VISUAL_TITLE_LIMIT) ? { type: "open-image", src, name } : null;
-    }
-    case CHAT_VISUAL_KEY_DOWN: {
-      const { key, code, metaKey, ctrlKey, shiftKey, altKey } = params;
-      if (!isBoundedString(key, KEY_LIMIT) || !key || !isBoundedString(code, KEY_LIMIT)) return null;
-      if (!isBoolean(metaKey) || !isBoolean(ctrlKey) || !isBoolean(shiftKey) || !isBoolean(altKey)) return null;
-      // The page sends only a chord or Escape; any other key is typing, which stays in the page.
-      if (!metaKey && !ctrlKey && key !== "Escape") return null;
-      return { type: "key", key: { key, code, metaKey, ctrlKey, shiftKey, altKey } };
-    }
-    default:
-      return null;
-  }
-}
-
-function refused(id: number | string | null): ChatVisualMessage | null {
-  return id === null ? null : { type: "refused", id };
-}
-
-function requestId(id: unknown): number | string | null {
-  return (isNumber(id) && Number.isFinite(id)) || isBoundedString(id, INPUT_LIMITS.identifier) ? id : null;
-}
-
-/** The text of MCP content blocks, or null when a block is not text or the text is too long. */
-function contentText(content: unknown, limit: number): string | null {
-  if (!Array.isArray(content) || content.length > CONTENT_BLOCK_LIMIT) return null;
-  const parts: string[] = [];
-  for (const block of content) {
-    if (!isDynamicRecord(block) || block.type !== "text" || !isBoundedString(block.text, limit)) return null;
-    parts.push(block.text);
-  }
-  const text = parts.join("\n").trim();
-  return text.length <= limit ? text : null;
-}
-
-function imageUrl(value: string): string | null {
-  if (DATA_IMAGE.test(value)) return value;
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" ? url.toString() : null;
-  } catch {
-    return null;
-  }
-}
-
-function webUrl(value: string): string | null {
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
-  } catch {
-    return null;
-  }
 }
 
 /**

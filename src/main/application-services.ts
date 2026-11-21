@@ -81,7 +81,7 @@ import { OnePasswordCliVault } from "./onepassword-cli-vault";
 import { PromptCacheTtlPreferenceStore } from "./prompt-cache-ttl-preference-store";
 import { createProviderCliAppVersionStore } from "./provider-cli-app-version-store";
 import { ProviderCredentialStore } from "./provider-credential-store";
-import { startAccountLog, startAgentLog, startProviderLog } from "./provider-log";
+import { startAgentLog, startProviderLog } from "./provider-log";
 import { toProviderRuntimeFailure } from "./provider-runtime-effects";
 import { ProviderRuntimeManager, providerRuntimeRoot } from "./provider-runtime-manager";
 import { ProviderUseSettingsStore } from "./provider-use-settings-store";
@@ -128,8 +128,6 @@ const MCP_OAUTH_PROXY_FILE = "tommy-mcp-oauth-proxy-v1.json";
 const T3_LINKS_FILE = "tommy-t3-links-v1.json";
 /** The logins, payment cards and contact info of the Vault, with the same cipher. */
 const VAULT_FILE = "tommy-vault-v1.json";
-/** The owner of a server. Webhook routes keep this id, so the routes saved before stay valid. */
-const SERVER_OWNER_ID = "local-owner";
 /** The port that the reverse proxy forwards to on loopback. */
 const DEFAULT_PUBLIC_PORT = 8790;
 /** The address of a sign-in page that a server cannot listen for. Some servers accept it anyway. */
@@ -171,7 +169,6 @@ const TEARDOWN_ORDER = {
   providerLog: 121,
   // After the service, so a deletion that fails while the service stops is kept.
   agentLog: 122,
-  accountLog: 123,
   // Last: every step above can still write.
   database: 130,
 } as const;
@@ -189,10 +186,8 @@ export interface ApplicationServices {
   /** Starts the shared database host after the server is up. */
   prewarmAgentDatabase: Effect.Effect<void>;
   service: AgentService;
-  providerRuntimes: ProviderRuntimeManager;
   agentInitialization: AgentInitializationGate<AgentLifecycleFailed>;
   eventsRuntime: HostEventsRuntime;
-  publicHttp: PublicHttpServer;
   trace: TraceFile;
 }
 
@@ -229,7 +224,6 @@ export async function createApplicationServices({
   // First, so the provider lines of the whole startup reach the file.
   teardown.push(TEARDOWN_ORDER.providerLog, "the provider log", startProviderLog(join(userData, "logs")));
   teardown.push(TEARDOWN_ORDER.agentLog, "the agent log", startAgentLog(join(userData, "logs")));
-  teardown.push(TEARDOWN_ORDER.accountLog, "the account log", startAccountLog(join(userData, "logs")));
   // A server has no screen: a sign-in page opens in the agent browser, where the owner can see it.
   const openLink = (url: string) => shell.openExternal(url);
   // Before the agents load, so the first check of an agent that follows a default reads the saved one.
@@ -261,7 +255,6 @@ export async function createApplicationServices({
   // One unit holds Tommy and every agent process, so the server holds turns for memory.
   const hostMemory = serverModeEnvironment
     ? new ServerMemory({
-        hostedPlan: false,
         onError: (message, error) => logger.warn(message, toLogValue(error)),
         onAgentProcessStopped: (stopped) =>
           logger.warn("Stopped a leftover agent process to free memory.", { ...stopped }),
@@ -289,7 +282,6 @@ export async function createApplicationServices({
     },
     profileExists: (profileId) => browserProfileStore.get(profileId) !== undefined,
     profileProxy: (profileId) => browserProfileProxies.connection(profileId),
-    quitShortcut: () => false,
   });
   teardown.push(TEARDOWN_ORDER.browser, "the browser", () => runCauseEffect(browser.destroy()));
   await runCauseEffect(browser.restore(store.list().map((agent) => ({ id: agent.id, threadId: agent.threadId }))));
@@ -388,7 +380,6 @@ export async function createApplicationServices({
     language,
     preferredPort: MCP_OAUTH_REDIRECT_PORT,
     deliver: (state, code) => mcpOAuthAuthority?.receiveAuthorizationCode(state, code) ?? false,
-    relayRefusal: () => {},
   }).catch((error: unknown) => {
     logger.warn("Tommy could not listen for MCP sign-ins on this machine:", toLogValue(error));
     return null;
@@ -398,6 +389,7 @@ export async function createApplicationServices({
   }
   const mcpOAuth = new McpOAuth({
     storage: mcpOAuthStore,
+    ...(telegramSettings ? { telegramPublicOrigin: telegramSettings.publicOrigin } : {}),
     openExternal: openLink,
     redirectUrl: mcpOAuthRedirect?.redirectUrl ?? MCP_OAUTH_FALLBACK_REDIRECT_URL,
     logger: createTommyLogger("mcp-oauth"),
@@ -441,10 +433,7 @@ export async function createApplicationServices({
     () => service.listAgents(),
     // Every skill change ends here: install, update, uninstall, turning one on or off, and a skill
     // an agent creates.
-    (agentId) =>
-      service
-        .refreshAgentRuntime(agentId)
-        .pipe(Effect.ensuring(Effect.sync(() => service.notifySkillsChanged(agentId)))),
+    (agentId) => service.refreshAgentRuntime(agentId),
     new LocalSkillLibrary(join(userData, "local-skills"), () => service.listAgents()),
   );
   const skillLearning = new SkillLearningService({
@@ -468,7 +457,6 @@ export async function createApplicationServices({
       }),
     // The server has an agent display of its own, so agents take their screenshots with the
     // Computer Use driver.
-    screenCapture: null,
     hostMemory,
     requestTimeoutMs: 30_000,
     offProviders: providerUse.off(),
@@ -487,7 +475,6 @@ export async function createApplicationServices({
       }),
     sidebarLayout,
     preferredModel: setupState.preferredModel,
-    developmentDefaults: false,
     credentials: {
       apiKey: (provider) => providerCredentials.get(provider),
       // Read at each Claude spawn, so a change applies to the next process.
@@ -595,9 +582,6 @@ export async function createApplicationServices({
       turnAnswer,
       agentName: (agentId) => store.list().find((agent) => agent.id === agentId)?.name ?? agentId,
       sendHandoff: (input) => service.enqueueRoutineHandoff(input),
-      changed: (agentIds) => {
-        for (const agentId of agentIds) service.notifyRoutineFlowsChanged(agentId);
-      },
     }),
   );
   teardown.push(TEARDOWN_ORDER.routineFlows, "the routine flows", () => Effect.runPromise(routineFlowRuntime.close()));
@@ -609,7 +593,6 @@ export async function createApplicationServices({
   let connectorWorkflows: WorkflowsHandle | null = null;
   const workflowConnectors = new WorkflowConnectors({
     config: connectorSettings.config,
-    publicWebhookOrigin,
     workflows: () => connectorWorkflows,
   });
   await runCauseEffect(workflowConnectors.start());
@@ -651,7 +634,6 @@ export async function createApplicationServices({
       changed: (workflowId, agentId) => service.notifyWorkflowsChanged(workflowId, agentId),
       rearm: () => service.armRoutines(),
       timezone: () => serverTimezone.effective(),
-      runEnded: (end) => service.notifyWorkflowRunEnded(end),
     }),
   );
   connectorWorkflows = workflowRuntime;
@@ -662,7 +644,6 @@ export async function createApplicationServices({
     changed: (workflowId) => service.notifyWorkflowsChanged(workflowId),
   });
   service.armRoutines();
-  vault.onChanged(() => service.notifyVaultChanged());
   // A changed or deleted Vault API key reaches the file that an agent reads at once.
   vault.onChanged(() => void Effect.runPromise(agentApiKeys.syncVault().pipe(Effect.ignore)));
   teardown.push(TEARDOWN_ORDER.workflows, "the workflows", () => Effect.runPromise(workflowRuntime.close()));
@@ -675,13 +656,6 @@ export async function createApplicationServices({
         return found ? { turnId: found.turnId } : null;
       },
       turnAnswer,
-      // Tommy has no messaging connection, so a saved destination reads as gone.
-      connection: () => null,
-      options: () => Effect.succeed([]),
-      post: () => Effect.succeed({ failure: "gone" as const }),
-      changed: (agentIds) => {
-        for (const agentId of agentIds) service.notifyRoutineResultsChanged(agentId);
-      },
     }),
   );
   service.on("event", (event) => {
@@ -733,7 +707,6 @@ export async function createApplicationServices({
     },
     cipher: secretCipher,
     relay: webhookRoutes,
-    accountPrincipal: () => SERVER_OWNER_ID,
   });
   const eventsRuntime = new HostEventsRuntime(events);
   const webhookIngress = new DirectWebhookIngress({
@@ -748,22 +721,19 @@ export async function createApplicationServices({
   teardown.push(TEARDOWN_ORDER.trace, "the trace file", () => Effect.runPromise(trace.close()));
   const resourceMonitor = new ResourceMonitor({
     userDataPath: userData,
-    server: true,
     trace,
     statementTimings,
     tabProcessIds: () => browser.tabProcessIds(),
-    turnRunning: () => service.earliestRunningTurnStartedAt() !== null,
   });
   teardown.push(TEARDOWN_ORDER.resourceMonitor, "the resource monitor", () =>
     Effect.runPromise(resourceMonitor.close()),
   );
   service.on("event", (event) => resourceMonitor.observeAgentEvent(event));
-  resourceMonitor.start(() => undefined);
-  const agentInitialization = new AgentInitializationGate((rosterLoaded) =>
+  resourceMonitor.start();
+  const agentInitialization = new AgentInitializationGate(() =>
     Effect.gen(function* () {
       yield* service.initialize({
         heldRoutines: takeRoutineHold(join(userData, ROUTINE_HOLD_FILE), (message) => logger.warn(message)),
-        rosterLoaded,
       });
       yield* eventsRuntime.start();
       yield* automation.sync();
@@ -779,6 +749,7 @@ export async function createApplicationServices({
   if (telegramSettings) {
     const runtime = createTelegramRuntime({
       settings: telegramSettings,
+      mcpOAuth,
       dataRoot: userData,
       service,
       sidebar: sidebarLayout,
@@ -888,10 +859,8 @@ export async function createApplicationServices({
   return {
     service,
     prewarmAgentDatabase: tables.prewarm(),
-    providerRuntimes,
     agentInitialization,
     eventsRuntime,
-    publicHttp,
     trace,
   };
 }

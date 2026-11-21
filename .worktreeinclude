@@ -4,6 +4,5 @@
 # Local agent instruction files.
 AGENTS.md
 packages/contracts/AGENTS.md
-packages/team-client/AGENTS.md
 src/backend/AGENTS.md
 src/main/AGENTS.md

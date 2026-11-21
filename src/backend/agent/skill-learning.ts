@@ -1,7 +1,7 @@
 import type { AgentSummary, ConversationMessage, SkillConversationEvent } from "@tommy/contracts/ipc";
 import { type Effect, Schema } from "effect";
+import { chatTranscript, promptJson } from "./chat-transcript";
 import type { SkillReviewSuggestion } from "./memory-review-prompt";
-import { chatTranscript, promptJson } from "./side-question";
 import { workSteps } from "./skill-learning-suggestion";
 
 /** The most characters of a skill description that a review writes, as tommy-skill-creator says. */

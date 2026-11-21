@@ -32,8 +32,6 @@ export interface DirectWebhookIngressOptions {
 /** A local URL adapter for the existing durable route store. It opens no account or relay socket. */
 export class DirectWebhookRoutes implements HostWebhookRelay {
   readonly #origin: string | null;
-  #enabled = false;
-  #active = true;
   #listening = false;
 
   constructor(publicOrigin: string | null) {
@@ -46,7 +44,7 @@ export class DirectWebhookRoutes implements HostWebhookRelay {
   }
 
   connected(): boolean {
-    return this.#origin !== null && this.#listening && this.#active;
+    return this.#origin !== null && this.#listening;
   }
 
   configured(): boolean {
@@ -57,40 +55,15 @@ export class DirectWebhookRoutes implements HostWebhookRelay {
     this.#listening = listening;
   }
 
-  setEnabled(enabled: boolean): void {
-    this.#enabled = enabled;
-  }
-
-  setAccountActive(active: boolean): void {
-    this.#active = active;
-  }
-
-  refresh(): void {
-    // Route authorization is read from SQLite for every delivery, not cached by this adapter.
-  }
-
   readonly registerRoute = Effect.fn("DirectWebhookRoutes.registerRoute")(function* (
     this: DirectWebhookRoutes,
     routeId: string,
   ) {
-    if (!this.#origin || !this.#active)
-      return yield* Effect.fail({ cause: new DirectWebhookFailure({ code: "not_configured" }) });
+    if (!this.#origin) return yield* Effect.fail({ cause: new DirectWebhookFailure({ code: "not_configured" }) });
     if (!new RegExp(`^${ROUTE_ID}$`, "i").test(routeId))
       return yield* Effect.fail({ cause: new DirectWebhookFailure({ code: "invalid_route" }) });
     return `${this.#origin}/hooks/${routeId}`;
   }).bind(this);
-
-  readonly revokeRoute = Effect.fn("DirectWebhookRoutes.revokeRoute")(function* (
-    this: DirectWebhookRoutes,
-    _routeId: string,
-  ) {
-    // Deletion has already removed the durable route. There is no external route claim to revoke.
-    yield* Effect.void;
-  }).bind(this);
-
-  hasRoutes(): boolean {
-    return this.#enabled;
-  }
 }
 
 /** The single value of an HTTP header. Duplicate security headers are refused. */

@@ -132,9 +132,8 @@ to 141.5s, and reached 2.64 on four. Use it, or repeat the run, before believing
 `deps.optimizer` is not enabled: it left `import` unchanged, at 26.1s against 26.2s, because that
 phase is this repository's own module graph re-executing per file rather than dependency resolution.
 
-`bun run dev:prepare` checks Bun, copies the files that `.worktreeinclude` lists from the main
-checkout into a new worktree, creates missing local state in `.tommy/dev-state.json`, and installs
-the packages. Existing state is reused. `bun run dev` does the same before it starts.
+Use `bun install --frozen-lockfile` to prepare a worktree. Run an isolated E2E from
+`scripts/` for the affected server path.
 
 ## Lint rules
 

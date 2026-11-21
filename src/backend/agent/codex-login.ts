@@ -14,7 +14,6 @@ import {
   decodeRecordResponse,
   isCodexLoginType,
 } from "./../protocol";
-import { recordRestartActivity } from "../restart-activity";
 
 const CODEX_LOGIN_TIMEOUT_MS = 10 * 60_000;
 const UNVERIFIED_MESSAGE = "Tommy could not verify the ChatGPT connection. Try again.";
@@ -338,7 +337,6 @@ export class CodexLoginFlow {
     timer.unref?.();
     pending = { client, cli, loginId, timer, completing: false, ended: Deferred.makeUnsafe<boolean>() };
     this.#pending = pending;
-    recordRestartActivity();
     client.once("exit", () => {
       if (this.#pending?.client === client) {
         Effect.runFork(this.#fail(this.#pending, "ChatGPT connection stopped. Try again."));

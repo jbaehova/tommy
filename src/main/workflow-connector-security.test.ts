@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { createHmac } from "node:crypto";
 import { redactText } from "@tommy/logging";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { readWebhookPublicOrigin, readWorkflowConnectorSettings } from "./workflow-connector-config";
 import { equalWebhookSecret, verifyGitHubWebhook, verifySlackWebhook } from "./workflow-connector-security";
@@ -26,7 +27,7 @@ describe("workflow connector trust boundary", () => {
     expect(equalWebhookSecret(signingSecret, "")).toBe(false);
   });
 
-  it("keeps credentials out of the public catalog and registers them for redaction", () => {
+  it("redacts connector credentials from outgoing message text and diagnostic text", async () => {
     const settings = readWorkflowConnectorSettings({
       TOMMY_WORKFLOW_CONNECTORS_JSON: JSON.stringify({
         github: { token, webhookSecret: signingSecret, repositories: ["example/project"] },
@@ -55,11 +56,27 @@ describe("workflow connector trust boundary", () => {
       }),
     });
     expect(settings.invalid).toBe(false);
-    const connectors = new WorkflowConnectors({ config: settings.config, workflows: () => null });
-    const catalog = JSON.stringify(connectors.catalog());
-    expect(catalog).not.toContain(token);
-    expect(catalog).not.toContain(signingSecret);
-    expect(catalog).not.toContain("webhookSecret");
+    const bodies: string[] = [];
+    const connectors = new WorkflowConnectors({
+      config: settings.config,
+      workflows: () => null,
+      request: async (_url, init) => {
+        if (typeof init.body === "string") bodies.push(init.body);
+        return Response.json({ ok: true });
+      },
+    });
+    await Effect.runPromise(connectors.start());
+    try {
+      expect(
+        await Effect.runPromise(connectors.post("slack-example", "CEXAMPLE", `safe ${token} ${signingSecret}`)),
+      ).toEqual({ posted: true });
+    } finally {
+      await Effect.runPromise(connectors.stop());
+    }
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toContain("safe");
+    expect(bodies[0]).not.toContain(token);
+    expect(bodies[0]).not.toContain(signingSecret);
     expect(redactText(`request failed: ${token} ${signingSecret}`)).not.toContain(token);
     expect(redactText(signingSecret)).not.toContain(signingSecret);
     expect(redactText(`https://api.telegram.org/bot${token}/sendMessage`)).not.toContain(token);

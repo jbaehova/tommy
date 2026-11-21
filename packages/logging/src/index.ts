@@ -1,7 +1,6 @@
-import { dummyLogger, type Logger } from "ts-log";
+import type { Logger } from "ts-log";
 
 export type { Logger };
-export { dummyLogger };
 
 // The values a log call can carry. A recursive domain type instead of
 // `unknown`: redaction branches on it without assertions, and callers keep

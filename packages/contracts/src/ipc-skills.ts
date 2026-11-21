@@ -104,18 +104,7 @@ export const INSTALLED_SKILL_ORIGINS = ["marketplace", "managed", "local", "work
  * same for every agent and are not in the agent's workspace.
  */
 export const HOME_SKILL_ID_PREFIX = "home:";
-
-export function isHomeSkillId(skillId: string): boolean {
-  return skillId.startsWith(HOME_SKILL_ID_PREFIX);
-}
 export type InstalledSkillOrigin = (typeof INSTALLED_SKILL_ORIGINS)[number];
-
-/**
- * The message a user sends to ask the agent for a new local skill, on desktop, web and mobile. The
- * agent reads it, so it stays English and the same everywhere; it names the skill-creation guide.
- */
-export const SKILL_CREATION_REQUEST =
-  "Help me create a new local skill. Use the skill-creation guide. Ask me what workflow it should support before you create it.";
 
 /** The Agent Skills specification limit for a SKILL.md `description`. */
 export const SKILL_DESCRIPTION_MAX_LENGTH = 1024;
@@ -140,40 +129,6 @@ export interface InstalledSkill {
    * the agent's provider does not read its folder. A provider can skip such a skill.
    */
   problem?: string;
-}
-
-/*
- * What an installed skill of an agent is to the user. The agent skills dialog and the Marketplace
- * apply the same rules, so the count and the cap of one agent are the same in both.
- */
-
-/** A skill that Tommy puts on the agent. The user does not remove it. */
-export function isBuiltInSkill(skill: InstalledSkill): boolean {
-  return skill.origin === "managed" || skill.slug === "tommy-site-hosting" || skill.skillId === "tommy-site-hosting";
-}
-
-/** A skill in a skill folder that Tommy lists but does not manage. */
-export function isFolderSkill(skill: InstalledSkill): boolean {
-  return skill.origin === "workspace";
-}
-
-export function isSkillEnabled(skill: InstalledSkill): boolean {
-  return skill.enabled !== false;
-}
-
-/** A skill that the user added or made. A home skill comes with the `$` list; it is not in the agent's workspace. */
-export function isUserAssignedSkill(skill: InstalledSkill): boolean {
-  return !isBuiltInSkill(skill) && !isHomeSkillId(skill.skillId);
-}
-
-/** The skills that the user added or made, by name. */
-export function userAssignedSkills(skills: readonly InstalledSkill[]): InstalledSkill[] {
-  return skills.filter(isUserAssignedSkill).sort((left, right) => left.name.localeCompare(right.name));
-}
-
-/** A skill in a folder Tommy did not write is not an assignment, so it does not count toward the cap. */
-export function assignedSkillCount(skills: readonly InstalledSkill[]): number {
-  return skills.filter((skill) => !isBuiltInSkill(skill) && !isFolderSkill(skill)).length;
 }
 
 export interface InstallSkillInput {
@@ -261,5 +216,3 @@ export interface LocalSkillRevisionInput {
   skillId: string;
   revision?: number | undefined;
 }
-/** Installs one exact revision, so the agent gets the copy the user read. */
-export type InstallLocalSkillInput = LocalSkillRevisionInput & { agentId: string; revision: number };

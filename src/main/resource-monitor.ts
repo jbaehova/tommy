@@ -1,12 +1,11 @@
 import { execFile } from "node:child_process";
-import { cpus, totalmem } from "node:os";
+
 import { join } from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import type { AgentEvent } from "@tommy/contracts/ipc";
 import { Effect, Exit, Option, Scope, Semaphore } from "effect";
 import {
   app,
-  BrowserWindow,
   type Details,
   type Event,
   type ProcessMetric,
@@ -20,9 +19,7 @@ import { readPreferenceFile, writePreferenceFile } from "./preference-file";
 import {
   addCount,
   COUNTER,
-  type DeviceClass,
   decodeResourceSummaryFile,
-  deviceClass,
   emptyDay,
   type GoneReason,
   goneReason,
@@ -36,10 +33,8 @@ import {
   type ResourceProvider,
   recordPeak,
   recordValue,
-  resourceEventProperties,
   SLOW_DATABASE_STATEMENT_MS,
   type StatementTimings,
-  summarizeDay,
 } from "./resource-summary";
 import { appendRotatingLines, type TraceFile } from "./trace-file";
 
@@ -64,18 +59,12 @@ const UTILITY_GROUPS = new Map<string, ProcessGroup>([
 
 export interface ResourceMonitorOptions {
   userDataPath: string;
-  server: boolean;
   trace: TraceFile;
   statementTimings: StatementTimings;
   tabProcessIds: () => number[];
-  /**
-   * Whether a turn runs now. The turn count of the samples can keep a turn that ended with no
-   * completion event, so the loop rest asks the turns themselves.
-   */
-  turnRunning: () => boolean;
 }
 
-/** One sample as `resources.ndjson` and the diagnostics export hold it. Group and provider names only. */
+/** One sample in `resources.ndjson`. Group and provider names only. */
 interface ResourceSample {
   at: string;
   rssMb: Partial<Record<ProcessGroup | "total", number>>;
@@ -90,15 +79,13 @@ interface ResourceSample {
 
 /**
  * Samples the CPU and memory of Tommy's own processes and of the provider CLIs it starts, once a
- * minute, and keeps a summary for each local day. The summary goes into the diagnostics export, and
- * analytics sends the summary of the last closed day once. A failed sample is skipped: this must not
- * become the failure it would have recorded.
+ * minute, and keeps a summary for each local day. The monitor keeps the latest closed day on disk. A failed
+ * sample is skipped so the tracker can recover at the next interval.
  */
 export class ResourceMonitor {
   readonly #options: ResourceMonitorOptions;
   readonly #summaryPath: string;
   readonly #samplesFile: { directory: string; path: string; maxBytes: number };
-  readonly #device: DeviceClass;
   readonly #loop = monitorEventLoopDelay({ resolution: LOOP_RESOLUTION_MS });
   readonly #activeTurns = new Set<string>();
   readonly #writes = Semaphore.makeUnsafe(1);
@@ -107,7 +94,6 @@ export class ResourceMonitor {
   #day: ResourceDay = emptyDay(localDay(new Date()));
   #previous: ResourceDay | null = null;
   #previousHandled = false;
-  #lastSample: ResourceSample | null = null;
   #lastSampleAt: number | null = null;
   #previousCpuSeconds: Map<number, number> | null = null;
   /**
@@ -122,39 +108,28 @@ export class ResourceMonitor {
   #closed = false;
   /** False until the saved days are read, so a quit before that does not overwrite them. */
   #loaded = false;
-  #onDayClosed: () => void = () => {};
 
   constructor(options: ResourceMonitorOptions) {
     this.#options = options;
     this.#summaryPath = join(options.userDataPath, RESOURCE_SUMMARY_FILE);
     const directory = join(options.userDataPath, "logs");
     this.#samplesFile = { directory, path: join(directory, SAMPLES_FILE), maxBytes: MAX_SAMPLES_BYTES };
-    this.#device = deviceClass({
-      totalMemoryBytes: totalmem(),
-      cpuCount: cpus().length,
-      arch: process.arch,
-      server: options.server,
-    });
   }
 
-  /** Loads the saved days and starts sampling. `onDayClosed` runs when a closed day waits to be sent. */
-  start(onDayClosed: () => void): void {
+  /** Load the saved days before the first sample. */
+  start(): void {
     if (this.#closed || this.#timer) return;
-    this.#onDayClosed = onDayClosed;
     app.on("render-process-gone", this.#rendererGone);
     app.on("child-process-gone", this.#childGone);
     powerMonitor.on("suspend", this.#suspend);
     powerMonitor.on("resume", this.#resume);
-    app.on("browser-window-focus", this.#measureLoop);
-    // The start is measured even with no window: the first sample stops the timer if nobody uses the app.
-    this.#measureLoop();
+    this.#loop.enable();
     this.#fork(
       this.#load().pipe(
         Effect.andThen(
           Effect.sync(() => {
             this.#loaded = true;
             this.#schedule();
-            this.#onDayClosed();
           }),
         ),
       ),
@@ -164,35 +139,9 @@ export class ResourceMonitor {
   observeAgentEvent(event: AgentEvent): void {
     if (event.type === "turn-started") {
       if (this.#activeTurns.size < MAX_ACTIVE_TURNS) this.#activeTurns.add(event.turnId);
-      this.#measureLoop();
     } else if (event.type === "turn-completed") {
       this.#activeTurns.delete(event.turnId);
     }
-  }
-
-  previousDay(): { day: string; properties: ReturnType<typeof resourceEventProperties> } | null {
-    const previous = this.#previous;
-    if (!previous || previous.samples === 0 || this.#previousHandled) return null;
-    return { day: previous.day, properties: resourceEventProperties(previous, this.#device) };
-  }
-
-  clearPreviousDay(day: string): Effect.Effect<void, AnalyticsOperationFailure> {
-    return Effect.suspend(() => {
-      if (this.#previous?.day !== day || this.#previousHandled) return Effect.void;
-      this.#previousHandled = true;
-      return this.#persist().pipe(toAnalyticsOperationFailure);
-    });
-  }
-
-  /** The last sample and the summaries of today and the last closed day, for the diagnostics export. */
-  diagnostics() {
-    return {
-      device: this.#device,
-      sampleIntervalMs: SAMPLE_INTERVAL_MS,
-      lastSample: this.#lastSample,
-      today: summarizeDay(this.#day),
-      previousDay: this.#previous ? summarizeDay(this.#previous) : null,
-    };
   }
 
   /** Stops sampling, waits for a sample that runs, and saves the day. */
@@ -204,7 +153,6 @@ export class ResourceMonitor {
     app.off("child-process-gone", this.#childGone);
     powerMonitor.off("suspend", this.#suspend);
     powerMonitor.off("resume", this.#resume);
-    app.off("browser-window-focus", this.#measureLoop);
     this.#loop.disable();
     yield* Scope.close(this.#scope, Exit.void);
     if (this.#loaded) yield* this.#persist().pipe(Effect.ignore);
@@ -243,28 +191,9 @@ export class ResourceMonitor {
     this.#lastSampleAt = null;
     this.#previousCpuSeconds = null;
     this.#loop.reset();
-    this.#measureLoop();
+    this.#loop.enable();
     this.#schedule();
   };
-
-  /**
-   * The histogram wakes the main process every 20 ms, which is most of its idle energy use. It runs
-   * while a window has the focus or a turn runs, and from a start or a resume to the next sample.
-   * Node keeps the last tick when the timer stops, so a new start resets it: else the paused time
-   * would count as one long delay.
-   */
-  readonly #measureLoop = () => {
-    if (!this.#closed && this.#loop.enable()) this.#loop.reset();
-  };
-
-  /**
-   * Stops the histogram at a sample, after its window is read, when nobody uses the app. A server
-   * has no window and runs on mains power, and its remote clients feel each stall, so it never rests.
-   */
-  #restLoop(): void {
-    if (this.#options.server || this.#options.turnRunning() || BrowserWindow.getFocusedWindow() !== null) return;
-    this.#loop.disable();
-  }
 
   readonly #rendererGone = (_event: Event, _contents: WebContents, details: RenderProcessGoneDetails) =>
     this.#recordGone("renderer", details.reason);
@@ -391,7 +320,6 @@ export class ResourceMonitor {
     const mainLoopMs =
       this.#loop.count > 0 ? { p99: loopDelayMs(this.#loop.percentile(99)), max: loopDelayMs(this.#loop.max) } : null;
     this.#loop.reset();
-    this.#restLoop();
     if (mainLoopMs) {
       recordValue(day, METRIC.mainLoop, mainLoopMs.p99);
       recordPeak(day, METRIC.mainLoop, mainLoopMs.max);
@@ -431,12 +359,10 @@ export class ResourceMonitor {
       browserTabs: tabPids.size,
       providerTreeSupported,
     };
-    this.#lastSample = sample;
     yield* this.#writes
       .withPermit(appendRotatingLines(this.#samplesFile, [JSON.stringify(sample)]))
       .pipe(Effect.ignore, Effect.uninterruptible);
     if (closedDay || Date.now() - this.#persistedAt >= PERSIST_INTERVAL_MS) yield* this.#persist().pipe(Effect.ignore);
-    if (closedDay) this.#onDayClosed();
   });
 }
 

@@ -1,5 +1,5 @@
 /**
- * The routine flow tables: links, node positions and steps. Rows are written directly, not through
+ * Routine flow links and execution steps. Rows are written directly, not through
  * `database.dispatch`, because a step holds the text one agent gave another and the event log is
  * never deleted from. It reads the routine runs table but never writes it. It owns no events: the
  * runtime says when something changed.
@@ -9,7 +9,6 @@ import { INPUT_LIMITS } from "@tommy/contracts/input-limits";
 import {
   ROUTINE_FLOW_STEP_STATUSES,
   type RoutineFlowLink,
-  type RoutineFlowPosition,
   type RoutineFlowStep,
   type RoutineFlowStepStatus,
   type RoutineRunStatus,
@@ -79,23 +78,6 @@ export class RoutineFlowStore {
     ).map(toLink);
   }
 
-  link(linkId: string): RoutineFlowLink | null {
-    const row = databaseRow(
-      this.#database.connection.prepare("SELECT * FROM routine_flow_links WHERE link_id = ?").get(linkId),
-    );
-    return row ? toLink(row) : null;
-  }
-
-  /** Gives one link a new instruction: what the next agent is asked to do with the answer. */
-  updateLinkInstruction(linkId: string, instruction: string): RoutineFlowLink {
-    this.#database.connection
-      .prepare("UPDATE routine_flow_links SET instruction = ? WHERE link_id = ?")
-      .run(instruction.trim(), linkId);
-    const link = this.link(linkId);
-    if (!link) throw new RoutineFlowError(sourceText("error.backend.routineFlowLinkGone"));
-    return link;
-  }
-
   /** The agent a routine belongs to, or null when the routine is gone. */
   routineOwner(routineId: string): string | null {
     const row = databaseRow(
@@ -153,14 +135,14 @@ export class RoutineFlowStore {
    * Removes a link, and every link of the same routine that only it kept on the flow: an agent the
    * flow no longer reaches would otherwise hand work on from nowhere.
    */
-  deleteLink(linkId: string, ownerAgentId: (routineId: string) => string | null): RoutineFlowLink[] {
-    return this.#transaction(() => {
+  deleteLink(linkId: string): void {
+    this.#transaction(() => {
       const row = databaseRow(
         this.#database.connection.prepare("SELECT * FROM routine_flow_links WHERE link_id = ?").get(linkId),
       );
       if (!row) throw new RoutineFlowError(sourceText("error.backend.routineFlowLinkGone"));
       const link = toLink(row);
-      const owner = ownerAgentId(link.routineId);
+      const owner = this.routineOwner(link.routineId);
       let remaining = this.linksForRoutines([link.routineId]).filter((candidate) => candidate.id !== link.id);
       const removed = [link];
       // Each pass strands at least one link or stops, so this ends within the routine's link count.
@@ -174,32 +156,7 @@ export class RoutineFlowStore {
       }
       const remove = this.#database.connection.prepare("DELETE FROM routine_flow_links WHERE link_id = ?");
       for (const gone of removed) remove.run(gone.id);
-      return removed;
     });
-  }
-
-  positions(canvasAgentId: string): RoutineFlowPosition[] {
-    return databaseRows(
-      this.#database.connection
-        .prepare("SELECT node_key, x, y FROM routine_flow_positions WHERE canvas_agent_id = ? ORDER BY node_key")
-        .all(canvasAgentId),
-    ).map((row) => ({ nodeKey: String(row.node_key), x: Number(row.x), y: Number(row.y) }));
-  }
-
-  savePosition(canvasAgentId: string, nodeKey: string, x: number, y: number, now = new Date().toISOString()): void {
-    this.#database.connection
-      .prepare(
-        `INSERT INTO routine_flow_positions (canvas_agent_id, node_key, x, y, updated_at) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(canvas_agent_id, node_key) DO UPDATE SET x = excluded.x, y = excluded.y,
-           updated_at = excluded.updated_at`,
-      )
-      .run(canvasAgentId, nodeKey, x, y, now);
-  }
-
-  removePosition(canvasAgentId: string, nodeKey: string): void {
-    this.#database.connection
-      .prepare("DELETE FROM routine_flow_positions WHERE canvas_agent_id = ? AND node_key = ?")
-      .run(canvasAgentId, nodeKey);
   }
 
   steps(runId: string): RoutineFlowStep[] {
@@ -208,13 +165,6 @@ export class RoutineFlowStore {
         .prepare("SELECT * FROM routine_flow_steps WHERE run_id = ? ORDER BY created_at, step_id")
         .all(runId),
     ).map(toStep);
-  }
-
-  stepForDelivery(deliveryId: string): RoutineFlowStep | null {
-    const row = databaseRow(
-      this.#database.connection.prepare("SELECT * FROM routine_flow_steps WHERE delivery_id = ?").get(deliveryId),
-    );
-    return row ? toStep(row) : null;
   }
 
   runningSteps(): RoutineFlowStep[] {

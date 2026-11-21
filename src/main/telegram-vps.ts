@@ -80,7 +80,14 @@ export class TelegramVps {
    * A new agent without a role. Within the reply window, the owner's next plain text in the manager chat
    * becomes its role. /skip ends the question.
    */
-  #askingRole: { agentId: string; botId: number; username: string; name: string; expires: number } | null = null;
+  #askingRole: {
+    agentId: string;
+    botId: number;
+    generation: string;
+    username: string;
+    name: string;
+    expires: number;
+  } | null = null;
   /** An agent delete that waits for the owner to send its code. */
   #deleting: { agentId: string; name: string; code: string; expires: number } | null = null;
   /** Bots whose token this process replaced once. A second rejection does not revoke the new token again. */
@@ -462,7 +469,7 @@ export class TelegramVps {
     }
     const files = yield* this.#download(child.id, message, t);
     if (files === null) return;
-    yield* this.#submit(child.id, child.agentId, updateId, message.text, files);
+    yield* this.#submit(child.id, child.agentId, updateId, message.text, files, child.operationId);
   }).bind(this);
 
   /**
@@ -616,14 +623,15 @@ export class TelegramVps {
   ) {
     const { agents, directory, settings, ready } = this.#options;
     if (!ready() || !this.workReady) return yield* Effect.fail(new Error("Tommy is starting."));
-    const agentId = directory.managerAgent()?.agentId;
+    const root = directory.managerAgent();
+    const agentId = root?.agentId;
     if (!agentId || !agents.isAvailable(agentId)) {
       yield* this.#chooseRoot("", t);
       return;
     }
     const files = yield* this.#download(settings.managerId, message, t);
     if (files === null) return;
-    yield* this.#submit(settings.managerId, agentId, updateId, message.text, files);
+    yield* this.#submit(settings.managerId, agentId, updateId, message.text, files, root.operationId);
   }).bind(this);
 
   /**
@@ -638,9 +646,10 @@ export class TelegramVps {
     updateId: number,
     text: string,
     files: Parameters<Options["agents"]["submit"]>[5],
+    generation: string,
   ) {
     const { agents, settings } = this.#options;
-    yield* agents.submit(agentId, chat, settings.ownerId, updateId, text, files).pipe(
+    yield* agents.submit(agentId, chat, settings.ownerId, updateId, text, files, generation).pipe(
       Effect.tapError((error) => {
         const key = `${chat}:${updateId}`;
         if (this.#refused.has(key)) return Effect.void;
@@ -740,6 +749,7 @@ export class TelegramVps {
     }
     this.#askingRole = null;
     const { agents, api, settings } = this.#options;
+    if (this.#options.directory.get(asking.botId)?.operationId !== asking.generation) return;
     const saved = yield* Effect.result(agents.describe(asking.agentId, role));
     if (Result.isFailure(saved)) {
       yield* this.#tellOwner(
@@ -757,6 +767,8 @@ export class TelegramVps {
       settings.ownerId,
       updateId,
       t("status.messaging.telegramRoleMessage", { description: role }),
+      [],
+      asking.generation,
     );
     yield* this.#tellOwner(t("status.messaging.telegramRoleSaved", { name: asking.name, username: asking.username }));
   }).bind(this);
@@ -791,6 +803,7 @@ export class TelegramVps {
             this.#askingRole = {
               agentId,
               botId: entry.id,
+              generation: entry.operationId,
               username: entry.username,
               name,
               expires: Date.now() + ownerReplyWindow,

@@ -1,4 +1,4 @@
-# Computer Use and remote desktop
+# Computer Use on the host
 
 ## Computer Use
 
@@ -47,8 +47,7 @@ Neither mode does everything. Headed has a way for each action: when a click on 
 out, the agent reads the element's bounds (`desktop_get`) and clicks its center with
 `desktop_mouse_click`. So the server uses `--headed`.
 
-The MCP server offers 67 tools (`desktop_snapshot`, `desktop_click`, and so on) with about 41 KB of
-schemas, and its instructions tell the agent to read `desktop_skills_get` first. The tools are named
+The MCP server offers accessibility and input tools such as `desktop_snapshot` and `desktop_click`, and its instructions tell the agent to read `desktop_skills_get` first. The tools are named
 after the CLI commands, so the driver's bundled skills apply as written.
 
 The driver is packaged, not downloaded at run time. `native-runtime.lock.json` pins it under
@@ -56,8 +55,7 @@ The driver is packaged, not downloaded at run time. `native-runtime.lock.json` p
 their digests. `scripts/agent-desktop-stage.mjs` is the `beforePack` hook of electron-builder. For each
 target it downloads the archive (cached under `.tommy-build/agent-desktop-cache`), checks the digests,
 and copies only the named files and the license to `.tommy-build/agent-desktop`, which
-`extraResources` copies to `resources/agent-desktop`. An upstream layout change stops the build. A
-target with no pinned build (Windows) gets an empty folder and reports no driver.
+`extraResources` copies to `resources/agent-desktop`. An upstream layout change stops the build.
 
 A packaged build reads only `resources/agent-desktop/agent-desktop`, because the release is pinned to
 it and an environment variable must not decide which program drives the desktop. A checkout reads
@@ -76,9 +74,7 @@ Electron keeps its own `DISPLAY`: the built-in browser draws its tabs in the Tom
 Xvfb a hidden view gives no capture and no clicks, so Tommy cannot only hide its window. On Linux,
 `agent-display.ts` sets `DISPLAY` to the agent display in `agentEnvironment` for every agent process
 and in the driver's entry, so a screenshot, an input event and a program that an agent starts all use
-the agent display. `capture_screen` and `list_capture_sources` use Electron's `desktopCapturer`,
-which sees only the Tommy display, so with an agent display they are not available, and agents take
-screenshots with the driver.
+the agent display. Agents take screenshots of that display through the driver. The Telegram browser screenshot has its own tab and owner checks.
 
 The driver needs two things on the server. `tommy-install` installs `at-spi2-core`, `libatk-adaptor`
 and `openbox` when they are missing. `tommy-server` starts `openbox` on the agent display, because
@@ -115,62 +111,3 @@ XDG_RUNTIME_DIR=$(mktemp -d) dbus-run-session -- bun scripts/agent-desktop-smoke
 of the unit at the same time. An Xvfb that stops first ends Tommy before it closes its database. So
 the unit's `ExecStop` runs `tommy-server --stop`: it sends `SIGTERM` to Tommy only, whose PID the
 script writes to `$XDG_RUNTIME_DIR/tommy.pid`, and waits for it.
-
-## Remote desktop permission checks and live tests
-
-`RemoteScreenGateway` owns setup checks and live-test session ownership. The optional
-`remote-desktop-setup` Team API capability uses separate v4 adapter routes; released codecs remain unchanged.
-Diagnostics contain host/account names and permission results and travel only to an authenticated member.
-They do not include Sunshine credentials or screen content. The renderer opens macOS settings only through
-fixed local IPC actions.
-
-Sunshine checks its own macOS permissions and hosts the temporary native test panel. During a test, native
-input is restricted to that panel and tagged for the test. The panel requires both the test tag and the
-Sunshine process ID before recording a click or keyboard result. The gateway rejects additional sessions
-and display switches during a test and closes the panel when its owning stream disconnects. It does not
-interrupt another member's session to start a test.
-
-Local tests use a temporary HTTP listener bound to `127.0.0.1`, without publishing the host or requiring an account. The same single-use viewer grant and cookie checks protect it. The gateway owns the listener and closes it with the test session; its lease expires after three minutes. Local test IPC can address only sessions created for this purpose.
-
-A local video-only test can run without native diagnostics. Its viewer iframe is inert and excluded from keyboard focus; it does not start a native input test or report input success. Local loopback test cookies use HttpOnly, Secure and SameSite=None so the embedded viewer works across the app origin.
-
-A paste in the viewer puts the member's text on the host's clipboard, and then presses the host's
-paste keys. Moonlight sends Cmd+V or Ctrl+V as keys and cancels them, so the browser fires no paste
-event and the host pastes its own clipboard. The gateway adds `tommy-paste.js` to Moonlight's
-`stream.html`. The script keeps the member's paste key from Moonlight, reads the paste event, and
-posts the text to `moonlight/tommy-clipboard`. Both routes are under `moonlight/` because the
-released Team API adapters forward only that family of viewer routes. The same viewer cookie or
-WebRTC session check protects them, and the clipboard route refuses a request from another site.
-At the paste event, the script presses the host's paste modifier, Cmd for a macOS host or Ctrl for
-other hosts, and releases the member's other held modifiers except Shift. A Win or Super key
-released with no key between would open the host's Start menu or Activities. After the upload, the
-script presses V. Text that the host
-already has from an earlier paste is not sent again, so a copy made on the host stays on its
-clipboard. A host with no clipboard writer serves neither route.
-
-On Linux, the gateway accepts only an X11 session (`DISPLAY` set, no `WAYLAND_DISPLAY`, and
-`XDG_SESSION_TYPE` not `wayland`). Sunshine then runs with X11 capture and software encoding, and
-sends input through XTest, so a hosted server under Xvfb needs no uinput device and no extra
-capability. On a server with an agent display, Sunshine runs on that display (see
-[Agent display on a server](#agent-display-on-a-server)). Linux has no permission checks: an X11 session is ready.
-
-### Codex tool approvals
-
-Codex saves an “Always allow” tool decision only when the MCP server is in a file-backed
-configuration layer. A thread configuration alone does not satisfy this check. Before starting or
-resuming a thread with Computer Use, Tommy registers `agent_desktop` in the Codex user
-configuration through `config/batchWrite`. The new entry contains only a placeholder command
-(`tommy-mcp`) and `enabled = false`. The write uses the user layer's version, and an existing entry is left unchanged.
-Tommy does not save the driver path, environment, or credentials in that entry. A disabled
-`computer_use` placeholder from the earlier driver can stay in that file; nothing starts it.
-
-The thread configuration enables the running driver and supplies its current command, arguments,
-and environment. It also carries the saved per-tool settings, including `desktop_set_value.approval_mode`.
-Saved tool settings are also in the session fingerprint. When an approval changes, the next turn
-replaces a loaded provider session that holds the old policy.
-An agent with Full access does not ask: Tommy accepts each Computer Use tool consent once and
-saves nothing, as it does for other MCP tools. A Workspace only or Ask first agent shows the card,
-and Codex keeps "Always allow" per tool and per provider account.
-When Computer Use is off for the agent or the driver is unavailable, the thread keeps the saved
-entry disabled. A registration failure stops the thread with steps to repair the configuration or
-turn off Computer Use.

@@ -1,7 +1,7 @@
 import { type AppLanguagePreference, DEFAULT_APP_LANGUAGE, isAppLanguage } from "@tommy/contracts/ipc";
 import { isDynamicRecord } from "@tommy/contracts/runtime-values";
 import { Effect } from "effect";
-import { readPreferenceFile, writePreferenceFile } from "./preference-file";
+import { readPreferenceFile } from "./preference-file";
 
 const DEFAULT_PREFERENCE: AppLanguagePreference = { language: DEFAULT_APP_LANGUAGE };
 
@@ -30,11 +30,3 @@ export const readLanguagePreference = Effect.fn("readLanguagePreference")((path:
     }),
   ),
 );
-
-export const writeLanguagePreference = Effect.fn("LanguagePreference.write")(function* (
-  path: string,
-  preference: AppLanguagePreference,
-) {
-  yield* writePreferenceFile(path, { version: 1, language: preference.language });
-  return { language: preference.language };
-});

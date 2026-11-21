@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { ConversationSnapshot } from "@tommy/contracts/ipc";
 import { afterEach, describe, expect, it } from "vitest";
 import { ConversationReadStore } from "./conversation-read-store";
+import { refreshChangedOrder } from "./database/thread-message-order";
 import { runCauseEffect } from "./effect-boundary";
 import { TommyDatabase } from "./tommy-database";
 import { migrateTommyDatabase } from "./tommy-database-schema";
@@ -92,18 +93,23 @@ describe("conversation read-state migration", () => {
     const database = new TommyDatabase(root);
     await runCauseEffect(database.initialize());
     const reads = new ConversationReadStore(database);
-    const legacySnapshot = snapshot([message("legacy-answer", "assistant")]);
-    expect(reads.readState("member-new", legacySnapshot)).toEqual({
+    expect(reads.readStateForThread("member-new", "thread-chief")).toEqual({
       unreadCount: 0,
       firstUnreadMessageId: null,
       throughMessageId: "legacy-answer",
     });
-    expect(
-      reads.readState("member-new", {
-        ...legacySnapshot,
-        messages: [...legacySnapshot.messages, message("new-answer", "assistant")],
-      }),
-    ).toMatchObject({ unreadCount: 1, firstUnreadMessageId: "new-answer" });
+    const added = { ...message("new-answer", "assistant"), createdAt: "2026-08-19T10:05:00.000Z" };
+    database.connection
+      .prepare(
+        `INSERT INTO projection_thread_messages (thread_id, message_id, turn_id, author, status, item_type, created_at, ordinal, message_json, last_event_sequence)
+       VALUES (?, ?, NULL, ?, 'completed', NULL, ?, 1, ?, 2)`,
+      )
+      .run("thread-chief", added.id, added.author, added.createdAt, JSON.stringify(added));
+    refreshChangedOrder(database.connection, "thread-chief", new Map(), [added.id]);
+    expect(reads.readStateForThread("member-new", "thread-chief")).toMatchObject({
+      unreadCount: 1,
+      firstUnreadMessageId: "new-answer",
+    });
 
     expect(database.connection.prepare("SELECT thread_id FROM projection_direct_messages").all()).toEqual([
       expect.objectContaining({ thread_id: directId }),
@@ -170,22 +176,12 @@ function legacyDatabase(path: string): DatabaseSync {
   return database;
 }
 
-function snapshot(messages: ConversationSnapshot["messages"]): ConversationSnapshot {
-  return {
-    agentId: "chief",
-    threadId: "thread-chief",
-    activeTurnId: null,
-    revision: messages.length,
-    messages,
-  };
-}
-
 function message(id: string, author: "assistant" | "user"): ConversationSnapshot["messages"][number] {
   return {
     id,
     author,
     text: id,
-    createdAt: `2026-08-19T09:0${id.at(-1) ?? "0"}:00.000Z`,
+    createdAt: "2026-08-19T09:00:00.000Z",
     status: "completed",
   };
 }

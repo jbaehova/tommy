@@ -103,16 +103,6 @@ export class MemoryStore {
     return this.save(ownerId, { text, origin: "manual", sourceTurnId: null });
   }
 
-  /**
-   * Copies every memory, even past the cap: the user can lower the cap below what the source holds,
-   * and a copy that stops partway would lose memories.
-   */
-  duplicate(sourceOwnerId: string, targetOwnerId: string): MemoryEntry[] {
-    return this.list(sourceOwnerId).map((memory) =>
-      this.save(targetOwnerId, { text: memory.text, origin: memory.origin, sourceTurnId: null, uncapped: true }),
-    );
-  }
-
   updateManual(ownerId: string, memoryId: string, text: string): MemoryEntry {
     return this.save(ownerId, { memoryId, text, origin: "manual", sourceTurnId: null });
   }

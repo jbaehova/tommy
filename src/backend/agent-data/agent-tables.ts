@@ -171,7 +171,7 @@ export class AgentTables {
       if (owner !== null && owner !== agentId) {
         return {
           ok: false,
-          message: `${table.value.name} was created by another agent. Ask that agent to remove it, or the user can remove it in agent settings.`,
+          message: `${table.value.name} was created by another agent. Ask that agent to remove it.`,
         };
       }
       return yield* this.#drop(table.value.name);

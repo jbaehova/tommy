@@ -117,17 +117,7 @@ function fixture(options: { memories?: number; history?: number } = {}) {
           }),
         ),
       }),
-    getRuntimeSnapshot: () => ({
-      agents: [],
-      activeTurns: [],
-      work: [],
-      latestMessages: [],
-      attentionComplete: true,
-      pendingPrompts: [],
-      pendingApprovals: [],
-      pendingBrowserTakeovers: [],
-      failedTurns: [],
-    }),
+    activeTurnId: () => null,
     instructionsSaving: () => () => {},
   };
   const commands = new TelegramCommands({

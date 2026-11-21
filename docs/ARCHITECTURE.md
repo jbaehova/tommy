@@ -1,52 +1,19 @@
 # Tommy architecture
 
-Tommy is a Bun workspace for one Linux server that people use through Telegram. There are no
-client apps: the Electron main process runs headless as a systemd service, and the Telegram
-runtime in `src/main/telegram-*.ts` is its only interface. Some topic notes below still describe
-parts of the old desktop and mobile apps; the code is the reference where they differ.
+Tommy runs as a systemd service on Linux. Telegram is the owner's chat interface. The same server runs the agents, stores their work and hosts the Mini App. Its other entry points are the operator socket, the local scripts API and configured incoming webhooks.
 
-The architecture notes are in one file for each topic:
+| Topic | Where to start |
+| --- | --- |
+| [Structure and state](architecture/structure.md) | Which process owns the data and credentials |
+| [Server lifecycle and storage](architecture/servers.md) | Startup, SQLite, attachments and restart |
+| [Agents and routines](architecture/agents.md) | Workspaces, threads, scheduling and recovery |
+| [Channels and Telegram](architecture/channels-and-messaging.md) | Internal collaboration and delivery to an owner |
+| [Providers](architecture/providers.md) | Sessions, tool discovery and managed executables |
+| [Browser](architecture/browser.md) | Browser tools, screenshots and private input |
+| [Computer Use](architecture/computer-use.md) | Driver and separate agent display |
+| [Webhooks](architecture/events.md) | Signatures, duplicate requests and revocation |
+| [External integrations](architecture/integrations.md) | MCP sign-in and workflow connectors |
+| [Skills](architecture/skills-and-plugins.md) | Managed skills, local revisions and installation |
+| [Change rules](architecture/change-rules.md) | Trust boundaries, compatibility and focused checks |
 
-- [Repository structure](architecture/structure.md)
-  - [Workspace map](architecture/structure.md#workspace-map)
-  - [Dependency direction](architecture/structure.md#dependency-direction)
-  - [State ownership](architecture/structure.md#state-ownership)
-  - [Shared UI package](architecture/structure.md#shared-ui-package)
-- [Change rules and verification](architecture/change-rules.md)
-  - [Effect service execution](architecture/change-rules.md#effect-service-execution)
-  - [Change rules](architecture/change-rules.md#change-rules)
-  - [Required verification](architecture/change-rules.md#required-verification)
-- [Browser](architecture/browser.md)
-  - [Browser client](architecture/browser.md#browser-client)
-  - [Browser tool execution](architecture/browser.md#browser-tool-execution)
-  - [Secure browser authentication](architecture/browser.md#secure-browser-authentication)
-- [Computer Use and remote desktop](architecture/computer-use.md)
-  - [Computer Use](architecture/computer-use.md#computer-use)
-  - [Remote desktop permission checks and live tests](architecture/computer-use.md#remote-desktop-permission-checks-and-live-tests)
-- [Providers](architecture/providers.md)
-  - [Provider CLI updates](architecture/providers.md#provider-cli-updates)
-  - [OpenCode and ACP](architecture/providers.md#opencode-and-acp)
-- [Agents](architecture/agents.md)
-  - [Local scripts API](architecture/agents.md#local-scripts-api)
-  - [Routine flows](architecture/agents.md#routine-flows)
-  - [Agent communication policy](architecture/agents.md#agent-communication-policy)
-  - [Prompt-driven agent profiles](architecture/agents.md#prompt-driven-agent-profiles)
-  - [Agent import](architecture/agents.md#agent-import)
-  - [Instance transfer](architecture/agents.md#instance-transfer)
-  - [Agent templates](architecture/agents.md#agent-templates)
-- [Channels, messaging, and mobile](architecture/channels-and-messaging.md)
-  - [Android notifications](architecture/channels-and-messaging.md#android-notifications)
-  - [Shared channel chats](architecture/channels-and-messaging.md#shared-channel-chats)
-  - [Messaging connections](architecture/channels-and-messaging.md#messaging-connections)
-  - [Mobile chat queue](architecture/channels-and-messaging.md#mobile-chat-queue)
-- [Servers, routine flows and workflows](architecture/servers.md)
-- [Skills and plugins](architecture/skills-and-plugins.md)
-  - [Skill folders and MCP configuration](architecture/skills-and-plugins.md#skill-folders-and-mcp-configuration)
-  - [Local skill library](architecture/skills-and-plugins.md#local-skill-library)
-  - [Plugin distribution](architecture/skills-and-plugins.md#plugin-distribution)
-- [Integrations and sign-in](architecture/integrations.md)
-  - [How a sign-in reaches Tommy](architecture/integrations.md#how-a-sign-in-reaches-tommy)
-  - [Remote sign-in: the callback relay](architecture/integrations.md#remote-sign-in-the-callback-relay)
-  - [Add a provider](architecture/integrations.md#add-a-provider)
-  - [Add a connector](architecture/integrations.md#add-a-connector)
-  - [Add a Team API capability](architecture/integrations.md#add-a-team-api-capability)
+For operations, use the [installation guide](INSTALL.md). For setup and available commands, use the [development guide](DEVELOPMENT.md).

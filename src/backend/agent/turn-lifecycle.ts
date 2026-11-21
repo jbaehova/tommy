@@ -4,7 +4,6 @@ import {
   type AgentEvent,
   type AgentSummary,
   agentProviderDescriptor,
-  type BrowserControlState,
   type BrowserTab,
   CONVERSATION_PLAN_ITEM_TYPE,
   CONVERSATION_SUBAGENTS_ITEM_TYPE,
@@ -16,7 +15,6 @@ import {
   clampConversationSubagents,
   conversationPlanText,
   conversationSubagentsText,
-  isAgentContextCategories,
   latestTurnAnswer,
   PLAN_CONTINUATION_ITEM_TYPE,
 } from "@tommy/contracts/ipc";
@@ -24,7 +22,7 @@ import { type DynamicRecord, isString } from "@tommy/contracts/runtime-values";
 import { sourceText } from "@tommy/i18n/source";
 import { createTommyLogger } from "@tommy/logging";
 import { Cause, Deferred, Effect, Exit, Schema, Scope } from "effect";
-import type { AgentClient } from "../agent-client";
+import type { AgentClient, AgentProvider } from "../agent-client";
 import type { AgentStore } from "../agent-store";
 import type { BrowserOperationError } from "../browser-effects";
 import type { BrowserDynamicToolHooks } from "../browser-tool-actions";
@@ -47,10 +45,9 @@ import type { AgentMemories } from "./agent-memories";
 import { answerFilePaths } from "./answer-file-paths";
 import type { AttentionBrowserHost, AttentionRegistry } from "./attention-registry";
 import type { BrowserUploadTarget } from "./browser-uploads";
-import { type ContextCompaction, compactsOnRequest } from "./context-compaction";
+import type { ContextCompaction } from "./context-compaction";
 import type { ConversationRuntime } from "./conversation-runtime";
 import type { DeltaBuffer } from "./delta-buffer";
-import type { FailureContext, FailureSignal } from "./failure-signal";
 import { readCapturedSteps } from "./handoff-tool-steps";
 import type { ImageGenRuntime } from "./image-gen-runtime";
 import { markIncompleteImageGeneration } from "./image-generation";
@@ -74,16 +71,13 @@ import {
   stopRunningSubagents,
   subagentsFromNotification,
 } from "./subagent-updates";
-import { ThreadFileHistory } from "./thread-file-history";
 import {
   isNonActionableCodexWarning,
   isToolItem,
   refusedSessionFailure,
-  type ToolUsageSignal,
   toolFailed,
   toolProgressText,
   toolTraceDetail,
-  toolUsage,
   toThreadItem,
 } from "./thread-items";
 import { TurnTraces, traceMessage } from "./turn-traces";
@@ -117,6 +111,13 @@ const FAILOVER_CAUSES: ReadonlySet<CauseCode> = new Set([
  */
 const COMPACTION_RETRY_CAUSES: ReadonlySet<CauseCode> = new Set(["network", "timeout"]);
 
+export interface FailureContext {
+  causeCode?: CauseCode;
+  provider?: AgentProvider;
+  model?: string | null;
+  turnId?: string | null;
+}
+
 /** A provider error held until the end of its turn, which runs the turn again on a backup model or shows it. */
 interface HeldProviderError {
   message: string;
@@ -130,7 +131,6 @@ export interface AgentBrowserHost extends AttentionBrowserHost, BrowserUploadTar
   unshareThread(threadId: string): void;
   agentTab(tabId: string, agentId: string): { title: string; url: string } | null;
   onChanged(listener: (tabs: BrowserTab[], activeTabId: string | null) => void): () => void;
-  onControlChanged(listener: (state: BrowserControlState) => void): () => void;
   /**
    * Fires with the document ids a tab still has. A navigation drops the file input that justified a
    * staged upload, so `BrowserUploads` listens here to delete the copy it made.
@@ -142,22 +142,15 @@ export interface AgentBrowserHost extends AttentionBrowserHost, BrowserUploadTar
   close(tabId: string): Effect.Effect<void, BrowserOperationError>;
   /** Deleting an agent deletes the cookies and storage of its own browser session. */
   clearAgentSession(agentId: string): Effect.Effect<void, BrowserOperationError>;
-  /** `onUserControl` gives the result of a call that reaches a held tab in the tab queue. */
   handleDynamicTool(
     params: DynamicToolCallParams,
     hooks?: BrowserDynamicToolHooks,
   ): Effect.Effect<DynamicToolResult, BrowserOperationError>;
-  /** The tab of this browser tool call while the user controls it, or null. */
-  userControlTabFor(params: DynamicToolCallParams): string | null;
-  /** Ends when nobody controls the tab: a release, a tab close or the host shutdown. */
-  awaitUserControlRelease(tabId: string): Effect.Effect<void>;
 }
 
 export interface TurnHooks {
-  emitFailure?(failure: FailureSignal): void;
   emit(event: AgentEvent): void;
   emitError(code: string, error: unknown, agentId?: string, context?: FailureContext): void;
-  emitRuntimeSnapshot(): void;
   scheduleDrain(agentId: string): void;
   /**
    * Takes a message from another agent into the recipient's running chat turn when the recipient's
@@ -168,8 +161,6 @@ export interface TurnHooks {
   dropRefusedSession(agentId: string, externalThreadId: string): Effect.Effect<void, TurnOperationFailed>;
   listAgents(): AgentSummary[];
   redactMcp(text: string): string;
-  /** A finished tool step, for product analytics only. It never reaches a renderer or a remote client. */
-  emitToolUsage(usage: ToolUsageSignal): void;
   /** The model this turn was started with, or null when the drain no longer knows it. */
   turnModel(agentId: string, turnId: string): string | null;
   /** Whether a provider error moves this agent to a backup model: it switches without asking and has a ready one. */
@@ -273,7 +264,6 @@ export class TurnLifecycle {
   readonly #usageLimits: UsageLimitGate;
   readonly #planContinuation: PlanContinuation;
   readonly #hooks: TurnHooks;
-  readonly fileHistory = new ThreadFileHistory();
   readonly #failedTurns = new Map<string, string>();
   readonly #observedCompactions = new Map<string, string>();
   readonly #itemTurns = new Map<string, string>();
@@ -367,12 +357,7 @@ export class TurnLifecycle {
     this.#hooks = options.hooks;
   }
 
-  failedTurns(): ReadonlyMap<string, string> {
-    return this.#failedTurns;
-  }
-
   forgetAgent(agentId: string): void {
-    this.fileHistory.forgetAgent(agentId);
     this.#failedTurns.delete(agentId);
     this.#lastEventAt.delete(agentId);
   }
@@ -404,13 +389,11 @@ export class TurnLifecycle {
   acknowledgeFailedTurn(agentId: string, turnId: string): void {
     if (this.#failedTurns.get(agentId) !== turnId) return;
     this.#failedTurns.delete(agentId);
-    this.#hooks.emitRuntimeSnapshot();
   }
 
   readonly dispose = Effect.fn("TurnLifecycle.dispose")(function* (this: TurnLifecycle) {
     yield* Scope.close(this.#scope, Exit.void);
     this.#scope = Scope.makeUnsafe();
-    this.fileHistory.clear();
     this.#failedTurns.clear();
     this.#turnAssociations.clear();
     this.#turnErrors.clear();
@@ -570,7 +553,6 @@ export class TurnLifecycle {
           provider: client.provider,
           model: this.#hooks.turnModel(agentId, turnId),
           turnId,
-          severity: "error",
         },
         true,
       );
@@ -600,7 +582,6 @@ export class TurnLifecycle {
         provider: client.provider,
         model: this.#hooks.turnModel(agentId, turnId),
         turnId,
-        severity: "error",
       },
       false,
       sourceText("error.agent.compactionLoopStopped", { provider: agentProviderName(client.provider) }),
@@ -646,7 +627,6 @@ export class TurnLifecycle {
       this.#hooks.emitError("agent_error", failover.message, agentId, failover.context);
       return;
     }
-    this.#hooks.emitFailure?.({ code: "agent_error", agentId, ...failover.context });
     // A thread shows no usage notice, so its failed turn keeps the provider's text.
     if (taskId !== null) this.#hooks.taskFailed(taskId, failover.message);
   }
@@ -746,11 +726,6 @@ export class TurnLifecycle {
         const turnId = getString(params, "turnId");
         const item = getRecord(params, "item");
         if (!turnId || !item) return;
-        this.fileHistory.record(
-          agentId,
-          this.#conversation.publicThreadId(agentId, threadId),
-          getArray(params, "filePaths"),
-        );
         const itemId = getString(item, "id");
         if (itemId) this.#itemTurns.set(itemId, turnId);
         this.#markProduced(turnId, isRepeatedWork(item));
@@ -882,16 +857,6 @@ export class TurnLifecycle {
           !this.#hooks.turnStopped(agentId, this.#taskForThread(agentId, threadId), turnId)
             ? "failed"
             : reported;
-        if (status === "failed" && !this.#turnErrors.has(turnId)) {
-          this.#hooks.emitFailure?.({
-            code: "agent_error",
-            agentId,
-            turnId,
-            provider: source.provider,
-            model: this.#hooks.turnModel(agentId, turnId),
-            causeCode: classifyFailure(getRecord(turn, "error")),
-          });
-        }
         this.#attention.clearForTurn(threadId, turnId);
         if (this.#observedCompactions.get(threadId) === turnId) {
           this.#observedCompactions.delete(threadId);
@@ -917,18 +882,6 @@ export class TurnLifecycle {
         if (!threadId || !agentId) return;
         if (this.#conversation.openClientFor(threadId) !== source) return;
         this.#compaction.updateBudget(threadId, params, agentId);
-        const usage = getRecord(params, "tokenUsage");
-        const last = getRecord(usage, "last");
-        if (typeof last?.totalTokens === "number" && typeof usage?.modelContextWindow === "number")
-          this.#compaction.observeUsage(
-            threadId,
-            last.totalTokens,
-            usage.modelContextWindow,
-            source.contextCompaction === "native",
-            compactsOnRequest(source.contextCompaction) ? 0.8 : null,
-            usage.estimated === true,
-            isAgentContextCategories(usage.categories) ? usage.categories : undefined,
-          );
         return;
       }
       case "tommy/context-compaction": {
@@ -1015,13 +968,6 @@ export class TurnLifecycle {
           if (planLimit && notification.method === "error" && errorTurnId && this.#runningTurns.has(errorTurnId)) {
             this.#limitedTurns.set(errorTurnId, this.#limitedTurns.get(errorTurnId) ?? null);
           }
-          const context = {
-            turnId: errorTurnId,
-            provider: source.provider,
-            model: agentId && errorTurnId ? this.#hooks.turnModel(agentId, errorTurnId) : null,
-            causeCode: classifyFailure(error ?? message),
-            severity: notification.method === "warning" ? ("warning" as const) : ("error" as const),
-          };
           yield* this.#providers.refreshUsageAfterLimit(source);
           // A spent balance or quota that the gate does not hold moves to a backup model as a provider
           // error does (#4616). The end of the turn reports it.
@@ -1033,10 +979,18 @@ export class TurnLifecycle {
             !this.#limitedTurns.has(errorTurnId) &&
             this.#hooks.mayFailOver(agentId)
           ) {
-            this.#failoverTurns.set(errorTurnId, { message, context, quiet: true });
+            this.#failoverTurns.set(errorTurnId, {
+              message,
+              context: {
+                turnId: errorTurnId,
+                provider: source.provider,
+                model: this.#hooks.turnModel(agentId, errorTurnId),
+                causeCode: classifyFailure(error ?? message),
+              },
+              quiet: true,
+            });
             return;
           }
-          this.#hooks.emitFailure?.({ code: "agent_error", ...(agentId !== undefined ? { agentId } : {}), ...context });
           // A thread shows no usage notice, so its failed turn keeps the provider's text. A turn that a
           // plan limit holds waits in the queue for the reset, so it has not failed.
           const held = planLimit || (errorTurnId !== null && this.#limitedTurns.has(errorTurnId));
@@ -1052,7 +1006,6 @@ export class TurnLifecycle {
           provider: source.provider,
           model: agentId && errorTurnId ? this.#hooks.turnModel(agentId, errorTurnId) : null,
           turnId: errorTurnId,
-          severity: notification.method === "warning" ? ("warning" as const) : ("error" as const),
         };
         if (
           notification.method === "error" &&
@@ -1088,7 +1041,6 @@ export class TurnLifecycle {
         const taskId =
           notification.method === "error" && agentId && threadId ? this.#taskForThread(agentId, threadId) : null;
         if (taskId !== null) {
-          this.#hooks.emitFailure?.({ code: "agent_error", ...(agentId ? { agentId } : {}), ...context });
           this.#hooks.taskFailed(taskId, message);
         } else this.#hooks.emitError(`agent_${notification.method}`, message, agentId, context);
       }
@@ -1130,7 +1082,6 @@ export class TurnLifecycle {
         provider,
         model: this.#hooks.turnModel(agentId, turnId),
         turnId,
-        severity: "warning",
       },
     );
   }
@@ -1383,7 +1334,6 @@ export class TurnLifecycle {
         return;
       }
       if (failover && failedOver && failedKey !== null) {
-        this.#hooks.emitFailure?.({ code: "agent_error", agentId, ...failover.context });
         for (const { delivery } of deliveries) {
           const failed = this.#failoverRetries.get(delivery.id) ?? new Set<string>();
           this.#failoverRetries.set(delivery.id, failed.add(failedKey));
@@ -1398,9 +1348,7 @@ export class TurnLifecycle {
         this.#markFailed(agentId, model, failover);
       // The turn did work, or nothing waits to run again: the error shows as it does with no backup.
       if (failover) this.#showFailoverError(agentId, threadId, failover);
-      if (compactionFailure && compactionContinuation)
-        this.#hooks.emitFailure?.({ code: "agent_error", agentId, ...compactionFailure.context });
-      else if (compactionFailure && status === "failed" && !failover)
+      if (compactionFailure && !compactionContinuation && status === "failed" && !failover)
         this.#showFailoverError(agentId, threadId, compactionFailure);
       if (limited) yield* this.#usageLimits.reached(agentId, resetsAt, model);
       else if (status === "completed") yield* this.#usageLimits.completed(agentId, model);
@@ -1422,7 +1370,6 @@ export class TurnLifecycle {
         yield* this.#hooks.dropRefusedSession(agentId, threadId);
         const taskId = taskTurn ? this.#taskForThread(agentId, threadId) : null;
         if (taskId !== null && failure !== undefined) {
-          this.#hooks.emitFailure?.({ code: "agent_error", agentId, causeCode: classifyFailure(failure) });
           this.#hooks.taskFailed(taskId, failure);
         } else this.#hooks.emitError("agent_error", failure, agentId);
       }
@@ -1969,8 +1916,6 @@ export class TurnLifecycle {
     item: ThreadItem,
     completed: boolean,
   ) {
-    const usage = completed ? toolUsage(item) : null;
-    if (usage) this.#hooks.emitToolUsage({ ...usage, agentId, turnId });
     if (yield* this.#images.handleItem(agentId, threadId, turnId, item, completed)) return;
     const toolProgress = toolProgressText(item, completed);
     this.#observeTraceStep(turnId, item, completed, toolProgress);

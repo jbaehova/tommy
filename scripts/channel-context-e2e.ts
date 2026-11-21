@@ -303,14 +303,9 @@ const browser: AgentBrowserHost = {
   unshareThread: () => {},
   agentTab: () => null,
   listTabs: () => [],
-  beginTakeover: unused,
-  endTakeover: () => {},
   resolveUploadTarget: unused,
   handleDynamicTool: unused,
-  userControlTabFor: () => null,
-  awaitUserControlRelease: unused,
   onChanged: () => () => {},
-  onControlChanged: () => () => {},
   onDocumentChanged: () => () => {},
   clearControls: () => {},
   endControl: () => {},
@@ -1152,7 +1147,6 @@ try {
         },
       },
       relay: new DirectWebhookRoutes(null),
-      accountPrincipal: () => null,
     });
     for (const runIn of ["chat", "thread"] as const) {
       const saved = await runCauseEffect(
@@ -1340,10 +1334,11 @@ try {
     };
     await controls(false);
     for (const member of [retryLead, retryPeer]) {
+      const before = turnLogs().length;
       await retrySend("Establish the model's limit.", member.id).send();
       await waitFor(
         "a refused channel turn",
-        () => refused() && agents.getRuntimeSnapshot().usageLimits?.some((limit) => limit.agentId === member.id),
+        () => refused() && retryTurns(before).some((turn) => turn.model === member.model && turn.limited),
       );
       await clearRetryTasks();
     }

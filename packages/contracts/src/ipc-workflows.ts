@@ -66,7 +66,6 @@ export const WORKFLOW_OUTPUT_TARGETS = [
   "slack",
   "chat-channel",
 ] as const;
-export type WorkflowOutputTarget = (typeof WORKFLOW_OUTPUT_TARGETS)[number];
 
 /** A value that a node keeps: a text, a choice, a number or a switch. */
 export type WorkflowFieldValue = string | number | boolean;
@@ -503,8 +502,6 @@ export interface WorkflowWebhookSecret {
 export const WORKFLOW_MAX_COORDINATE = 1_000_000;
 const MAX_SIZE = 100_000;
 const FIELD_NAME = 64;
-/** `<started at>|<run id>`, as `WorkflowRunPage.nextBefore` gives it. */
-const RUN_CURSOR = 64;
 
 function isCoordinate(value: unknown): value is number {
   return isFiniteNumber(value) && Math.abs(value) <= WORKFLOW_MAX_COORDINATE;
@@ -721,62 +718,6 @@ export function isWorkflowRunPage(value: unknown): value is WorkflowRunPage {
     Array.isArray(value.soloSteps) &&
     value.soloSteps.every(isWorkflowStep) &&
     isNullableString(value.nextBefore)
-  );
-}
-
-export function isCreateWorkflowInput(value: unknown): value is CreateWorkflowInput {
-  return isDynamicRecord(value) && isTitle(value.title) && (value.graph === undefined || isWorkflowGraph(value.graph));
-}
-
-export function isRenameWorkflowInput(value: unknown): value is RenameWorkflowInput {
-  return isDynamicRecord(value) && isIdentifier(value.workflowId) && isTitle(value.title);
-}
-
-export function isSaveWorkflowGraphInput(value: unknown): value is SaveWorkflowGraphInput {
-  return (
-    isDynamicRecord(value) &&
-    isIdentifier(value.workflowId) &&
-    isRevision(value.baseRevision) &&
-    isWorkflowGraph(value.graph)
-  );
-}
-
-export function isWorkflowVersionInput(value: unknown): value is WorkflowVersionInput {
-  return isDynamicRecord(value) && isIdentifier(value.workflowId) && isIdentifier(value.versionId);
-}
-
-export function isStartWorkflowRunInput(value: unknown): value is StartWorkflowRunInput {
-  return (
-    isDynamicRecord(value) &&
-    isIdentifier(value.workflowId) &&
-    isIdentifier(value.requestId) &&
-    (value.fromNodeId === undefined || isIdentifier(value.fromNodeId))
-  );
-}
-
-export function isRunWorkflowStepInput(value: unknown): value is RunWorkflowStepInput {
-  return (
-    isDynamicRecord(value) &&
-    isIdentifier(value.workflowId) &&
-    isIdentifier(value.nodeId) &&
-    isIdentifier(value.requestId)
-  );
-}
-
-export function isRetryWorkflowStepInput(value: unknown): value is RetryWorkflowStepInput {
-  return isDynamicRecord(value) && isIdentifier(value.stepId) && isIdentifier(value.requestId);
-}
-
-export function isDecideWorkflowStepInput(value: unknown): value is DecideWorkflowStepInput {
-  return isDynamicRecord(value) && isIdentifier(value.stepId) && isBoolean(value.approved);
-}
-
-export function isWorkflowRunsInput(value: unknown): value is WorkflowRunsInput {
-  return (
-    isDynamicRecord(value) &&
-    isIdentifier(value.workflowId) &&
-    (value.before === undefined || (isBoundedString(value.before, RUN_CURSOR) && value.before.length > 0)) &&
-    integerInRange(value.limit, 1, INPUT_LIMITS.workflowRunsPage)
   );
 }
 

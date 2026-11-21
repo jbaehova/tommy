@@ -49,3 +49,7 @@ export interface MessagingSlackMention {
   /** ISO time. */
   receivedAt: string;
 }
+
+export type MessagingMentionResult = "none" | "started" | "skipped";
+
+export type MessagingPostFailure = "gone" | "not-running" | "refused" | "unknown";

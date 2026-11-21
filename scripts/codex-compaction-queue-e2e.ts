@@ -5,8 +5,7 @@
 // Four cases: a compaction that ends by itself, one that runs past the start deadline and ends by
 // itself, one that the run deadline stops, and one that does not stop, so that Tommy sends
 // a turn that Codex refuses. Then a turn end that fails after it reserved a compaction does not hold
-// the next message. Then a side thread: the runtime snapshot carries its context, and
-// `compactTaskContext` compacts its session and not the agent's own chat, and a side thread
+// the next message. A manual compaction targets the requested side thread. A side thread
 // deleted while it compacts does not hold the agent's own chat. Then a chat whose compactions fail
 // and whose turns grow it each time: Tommy stops after 2 failures in a row and says so, and the
 // messages still run. One such chat compacted every 19 seconds for 7 hours and used up the plan
@@ -19,6 +18,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { AGENT_PROVIDERS, type AgentEvent } from "@tommy/contracts/ipc";
+import { ContextCompactRefusedError } from "@tommy/contracts/team-protocol/context-compact-v1";
+import { sourceText } from "@tommy/i18n/source";
 import { Effect } from "effect";
 import type { AgentBrowserHost } from "../src/backend/agent/turn-lifecycle";
 import { getString, isRecord } from "../src/backend/protocol";
@@ -42,7 +43,6 @@ process.env.TOMMY_FAKE_CODEX_CONTROL = controlPath;
 mkdirSync(home, { recursive: true });
 
 const { AgentService } = await import("../src/backend/agent-service");
-const { USAGE_CHANGE_DELAY_MS } = await import("../src/backend/agent/context-compaction");
 const { AgentStore } = await import("../src/backend/agent-store");
 const { runCauseEffect } = await import("../src/backend/effect-boundary");
 const { MailboxStore } = await import("../src/backend/mailbox-store");
@@ -209,14 +209,9 @@ const browser: AgentBrowserHost = {
   unshareThread: () => {},
   agentTab: () => null,
   listTabs: () => [],
-  beginTakeover: unused,
-  endTakeover: () => {},
   resolveUploadTarget: unused,
   handleDynamicTool: unused,
-  userControlTabFor: () => null,
-  awaitUserControlRelease: unused,
   onChanged: () => () => {},
-  onControlChanged: () => () => {},
   onDocumentChanged: () => () => {},
   clearControls: () => {},
   endControl: () => {},
@@ -250,10 +245,14 @@ function protocolEntry(value: unknown): ProtocolEntry {
 }
 
 /** Waits for a state of the service or of the fake Codex. */
-async function waitFor<T>(label: string, read: () => T | null | undefined | false, timeoutMs = 20_000): Promise<T> {
+async function waitFor<T>(
+  label: string,
+  read: () => T | null | undefined | false | Promise<T | null | undefined | false>,
+  timeoutMs = 20_000,
+): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    const value = read();
+    const value = await read();
     if (value) return value;
     if (Date.now() > deadline) throw new Error(`Timed out waiting for ${label}.`);
     await new Promise((done) => setTimeout(done, 25));
@@ -430,14 +429,11 @@ try {
     const busy = agents.listQueue(owner.id).deliveries.some((delivery) => delivery.status !== "completed");
     return session && !busy ? session : null;
   });
-  const mainContext = () =>
-    agents.getRuntimeSnapshot().contextStates?.find((state) => state.agentId === owner.id) ?? null;
   const mainCompactStarts = () =>
     protocol().filter((line) => line.method === "thread/compact/start" && line.threadId === mainSession).length;
   // The agent's own first turn reports 90% too, so its chat compacts first.
-  const mainBefore = await waitFor(
-    "the agent's own compaction",
-    () => mainContext()?.compaction?.status === "completed" && mainContext(),
+  await waitFor("the agent's own compaction", () =>
+    protocol().some((entry) => entry.compactionEnded && entry.threadId === mainSession && entry.status === "completed"),
   );
   const mainStartsBefore = mainCompactStarts();
   const task = await runCauseEffect(agents.startTask({ agentId: owner.id, text: "Thread message." }));
@@ -445,35 +441,37 @@ try {
     "the thread session",
     () => store.database.activeProviderSession(task.threadId, "codex")?.externalSessionId,
   );
-  const threadContext = () =>
-    agents.getRuntimeSnapshot().threadContextStates?.find((state) => state.threadId === task.threadId) ?? null;
   const compactions = () => protocol().filter((line) => line.compactionEnded && line.threadId === taskSession);
   // The thread's turn reports 90% of the window, so the thread compacts at the end of the turn.
   const automatic = await waitFor("the thread's automatic compaction", () => {
-    const state = threadContext();
     const idle = agents.listTasks(owner.id).tasks.find((candidate) => candidate.id === task.id)?.state === "idle";
-    return idle && compactions().length === 1 && state?.compaction?.status === "completed" ? state : null;
+    return idle && compactions()[0]?.compactionEnded;
   });
-  await runCauseEffect(agents.compactTaskContext({ agentId: owner.id, taskId: task.id }));
-  const manual = await waitFor("the thread's manual compaction", () => {
-    const state = threadContext();
-    return compactions().length === 2 && state?.compaction?.status === "completed" ? state : null;
+  // The provider writes its result before the host handles it and releases the session.
+  await waitFor("the task session to accept a manual compaction", async () => {
+    try {
+      await runCauseEffect(agents.compactTaskContext({ agentId: owner.id, taskId: task.id }));
+      return true;
+    } catch (error) {
+      if (
+        error instanceof ContextCompactRefusedError &&
+        error.message === sourceText("error.agent.waitBeforeCompactContext")
+      )
+        return false;
+      throw error;
+    }
   });
-  const mainAfter = mainContext();
+  const manual = await waitFor("the thread's manual compaction", () => compactions()[1]?.compactionEnded);
   const sideThread = {
-    threadUsage: automatic.usage,
-    automaticCompaction: automatic.compaction?.id ?? null,
-    manualCompaction: manual.compaction?.id ?? null,
+    automaticCompaction: automatic,
+    manualCompaction: manual,
     threadCompactions: compactions().map((line) => line.status),
     mainCompactStarts: mainCompactStarts() - mainStartsBefore,
-    mainContextUnchanged: JSON.stringify(mainAfter) === JSON.stringify(mainBefore),
   };
   Object.assign(report, { sideThread });
-  assert.equal(sideThread.threadUsage?.usedTokens, 90_000, "side thread: no usage");
   assert.notEqual(sideThread.manualCompaction, sideThread.automaticCompaction, "side thread: no new compaction");
   assert.deepEqual(sideThread.threadCompactions, ["completed", "completed"], "side thread: compactions");
   assert.equal(sideThread.mainCompactStarts, 0, "side thread: the agent's own chat compacted");
-  assert.ok(sideThread.mainContextUnchanged, "side thread: the agent's own context changed");
 
   // A side thread deleted while Codex compacts its session. No turn of the deleted session ends the
   // compaction for Tommy, so its hold stayed, and the agent's own chat waited until a restart.
@@ -532,9 +530,9 @@ try {
       "the failing chat to settle",
       () =>
         failingIdle() &&
-        !agents
-          .getRuntimeSnapshot()
-          .contextStates?.some((state) => state.agentId === failing.id && state.compaction?.status === "running"),
+        failedEnds().length ===
+          protocol().filter((line) => line.method === "thread/compact/start" && line.threadId === failingSession)
+            .length,
     );
     await runCauseEffect(agents.sendMessage({ agentId: failing.id, text }));
     await waitFor("the message to end", failingIdle);
@@ -565,9 +563,7 @@ try {
   await runCauseEffect(agents.stop());
   database.close();
   stopped = true;
-  // Not a guessed delay: timers of the same delay fire in creation order, so a usage timer that the
-  // stop started fires before this one.
-  await new Promise((done) => setTimeout(done, USAGE_CHANGE_DELAY_MS));
+  await new Promise<void>((done) => setImmediate(done));
   process.off("uncaughtException", collect);
   const usageOnStop = {
     reportedThreads: protocol().find((line) => line.usageOnStop !== null)?.usageOnStop ?? 0,

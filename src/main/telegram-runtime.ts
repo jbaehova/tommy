@@ -8,15 +8,18 @@ import { Effect } from "effect";
 import type { AgentService } from "../backend/agent-service";
 import type { BrowserHost } from "../backend/browser-host";
 import type { AgentMessageNotice, MailboxStore } from "../backend/mailbox-store";
+import type { McpOAuth } from "../backend/mcp-oauth-provider";
 import type { SidebarLayoutStore } from "../backend/sidebar-layout-store";
 import type { TommyDatabase } from "../backend/tommy-database";
 import { TelegramAgentHost } from "./telegram-agent-host";
 import { TelegramApi, TelegramApiFailure } from "./telegram-api";
 import { TelegramAttention } from "./telegram-attention";
+import { telegramBrowserReport } from "./telegram-browser-report";
 import { TelegramCommands } from "./telegram-commands";
 import { TelegramDelivery } from "./telegram-delivery";
 import { chatReady, type TelegramConnection, TelegramDirectory } from "./telegram-directory";
 import { escapeTelegramHtml, maskEmails, telegramHtml } from "./telegram-format";
+import { TelegramMcpSignIn } from "./telegram-mcp-sign-in";
 import { TelegramMiniApp } from "./telegram-mini-app";
 import { TelegramProfile } from "./telegram-profile";
 import type { TelegramSettings } from "./telegram-settings";
@@ -32,6 +35,7 @@ interface RuntimeOptions {
   sidebar: SidebarLayoutStore;
   mailbox: MailboxStore;
   database: TommyDatabase;
+  mcpOAuth: Pick<McpOAuth, "receiveTelegramAuthorization">;
   browser: BrowserHost;
   ready: () => boolean;
 }
@@ -44,10 +48,10 @@ export function createTelegramRuntime({
   sidebar,
   mailbox,
   database,
+  mcpOAuth,
   browser,
   ready,
 }: RuntimeOptions) {
-  const agents = new TelegramAgentHost(service, sidebar, mailbox, database);
   const directory = new TelegramDirectory(
     join(dataRoot, "telegram-connections-v1.json"),
     settings.managerId,
@@ -69,6 +73,10 @@ export function createTelegramRuntime({
     };
   };
   const connection = (id: number) => (id === settings.managerId ? rootConnection() : directory.get(id));
+  const agents = new TelegramAgentHost(service, sidebar, mailbox, database, (id, agentId) => {
+    const entry = connection(id);
+    return chatReady(entry) && entry.agentId === agentId ? entry.operationId : null;
+  });
   const connections = () => {
     const root = rootConnection();
     return root ? [root, ...directory.list()] : directory.list();
@@ -101,9 +109,9 @@ export function createTelegramRuntime({
     },
     stop: (agentId) =>
       Effect.gen(function* () {
-        const turns = service.getRuntimeSnapshot().activeTurns.filter((turn) => turn.agentId === agentId);
-        for (const turn of turns) yield* service.interrupt(turn.agentId, turn.turnId);
-        return turns.length > 0;
+        const turnId = service.activeTurnId(agentId);
+        if (turnId) yield* service.interrupt(agentId, turnId);
+        return turnId !== null;
       }),
   });
   const available = (id: string | null) => Boolean(id && vps.workReady && ready() && agents.isAvailable(id));
@@ -125,7 +133,7 @@ export function createTelegramRuntime({
     if (owner) return owner;
     // A routine's browser request goes to the agent's own chat.
     if (agents.routineTurn(id, turnId)) return chatFor(id);
-    const traced = available(id) ? agents.tracedChat(id, turnId, settings.ownerId) : null;
+    const traced = available(id) ? agents.tracedChat(id, turnId, settings.ownerId, activeAgentForBot) : null;
     const origin = traced === null ? undefined : connection(traced);
     if (!chatReady(origin) || !available(origin.agentId)) return undefined;
     return connections().find((entry) => entry.agentId === id && chatReady(entry)) ?? origin;
@@ -139,24 +147,54 @@ export function createTelegramRuntime({
     const chat = requestChat(id, turnId);
     return chat !== undefined && (bot === settings.managerId || chat.id === bot);
   };
-  // Agent bot credentials stay in memory only, for a few minutes.
-  const tokens = new Map<number, { token: string; until: number }>();
-  const botToken = (bot: number) =>
+  const botToken = (id: number) =>
     Effect.gen(function* () {
-      const entry = directory.get(bot);
-      if (!chatReady(entry) || !vps.workReady) return null;
-      const cached = tokens.get(bot);
-      if (cached && cached.until > Date.now()) return cached.token;
-      const token = yield* api.getManagedBotToken(settings.token, bot);
-      tokens.set(bot, { token, until: Date.now() + 10 * 60_000 });
-      return token;
+      const before = directory.get(id);
+      if (!chatReady(before) || !vps.workReady) return null;
+      const token = yield* api.getManagedBotToken(settings.token, id);
+      const after = directory.get(id);
+      return chatReady(after) && before.operationId === after.operationId && vps.workReady ? token : null;
     }).pipe(Effect.orElseSucceed(() => null));
+  const tokenFor = (id: number) => (id === settings.managerId ? Effect.succeed(settings.token) : botToken(id));
+  const mcp = new TelegramMcpSignIn({
+    service,
+    publicOrigin: settings.publicOrigin,
+    route: (agentId, turnId) => {
+      const entry = requestChat(agentId, turnId);
+      return entry ? { id: entry.id, generation: entry.operationId } : null;
+    },
+    receive: (state, code) => mcpOAuth.receiveTelegramAuthorization(state, code),
+    language: () => vps.language,
+    send: (id, text, button, generation) =>
+      Effect.gen(function* () {
+        const token = yield* tokenFor(id);
+        const current = connection(id);
+        if (token && chatReady(current) && current.operationId === generation)
+          yield* api.sendMessage(token, settings.ownerId, text, button);
+      }),
+  });
+  browser.setManualStepReporter(
+    telegramBrowserReport({
+      browser,
+      requestChat,
+      tokenFor,
+      ownerId: settings.ownerId,
+      api,
+      language: () => vps.language,
+    }),
+  );
   const app = new TelegramMiniApp({
+    mcp,
     publicOrigin: settings.publicOrigin,
     ownerId: settings.ownerId,
     managerToken: settings.token,
     managerId: settings.managerId,
     botToken,
+    connectionGeneration: (id: number) => {
+      if (id === settings.managerId) return directory.managerAgent()?.operationId ?? "manager-unassigned";
+      const entry = connection(id);
+      return chatReady(entry) ? entry.operationId : null;
+    },
     botAgent: (bot) => activeAgentForBot(bot),
     agents: service,
     listAgents: (bot) => {
@@ -169,7 +207,7 @@ export function createTelegramRuntime({
       }));
       // An agent without its own bot can still ask for a password in work that the owner started.
       const names = new Map(service.listAgents().map((agent) => [agent.id, agent.name]));
-      for (const request of service.getRuntimeSnapshot().pendingBrowserTakeovers) {
+      for (const request of service.pendingBrowserTakeovers()) {
         if (listed.some((entry) => entry.agentId === request.agentId)) continue;
         const chat = requestChat(request.agentId, request.turnId);
         if (chat && (bot === settings.managerId || chat.id === bot))
@@ -186,8 +224,7 @@ export function createTelegramRuntime({
     browser,
   });
   const notification = (event: AgentEvent) => {
-    if (event.type !== "browser-takeover-requested") return;
-    app.noteTakeover(event.request);
+    if (event.type !== "browser-takeover-requested" || !event.request.secret) return;
     const { agentId, turnId } = event.request;
     const entry = requestChat(agentId, turnId);
     if (!entry) return;
@@ -269,7 +306,6 @@ export function createTelegramRuntime({
     if (event.type === "turn-started" && event.origin !== "routine") showTyping(event.agentId, event.turnId);
     else if (event.type === "turn-completed") stopTyping(`${event.agentId}:${event.turnId}`);
   };
-  const tokenFor = (id: number) => (id === settings.managerId ? Effect.succeed(settings.token) : botToken(id));
   /** With the token of the chat's bot, or a failure when the bot is not connected now. */
   const withToken = <A>(chat: number, run: (token: string) => Effect.Effect<A, Error>) =>
     Effect.gen(function* () {
@@ -376,6 +412,7 @@ export function createTelegramRuntime({
   let replyEvents: (event: AgentEvent) => void = () => {};
   // One listener for all Telegram views of agent events.
   const onEvent = (event: AgentEvent) => {
+    mcp.observe(event);
     notification(event);
     typingEvents(event);
     status.observe(event);
@@ -442,7 +479,7 @@ export function createTelegramRuntime({
           },
         );
         yield* sendTo(chat.id, notice, false).pipe(Effect.ignore);
-        yield* agents.submit(agent.id, chat.id, settings.ownerId, Date.now(), message);
+        yield* agents.submit(agent.id, chat.id, settings.ownerId, Date.now(), message, [], chat.operationId);
       } else {
         yield* service.sendMessage({ agentId: agent.id, text: message });
       }
@@ -480,7 +517,7 @@ export function createTelegramRuntime({
       const timeout = Math.min(Math.max(Math.trunc(input.timeoutSeconds) || 600, 1), 1800) * 1000;
       const answer = yield* agents.ask(
         agent.id,
-        chat ? { telegramId: chat.id, ownerId: settings.ownerId } : null,
+        chat ? { telegramId: chat.id, ownerId: settings.ownerId, generation: chat.operationId } : null,
         message,
         timeout,
         notice,
@@ -530,6 +567,8 @@ export function createTelegramRuntime({
     }),
     stop: Effect.gen(function* () {
       if (heartbeat) clearTimeout(heartbeat);
+      browser.setManualStepReporter(null);
+      mcp.stop();
       stopReplies();
       stopMirror();
       service.off("event", onEvent);
@@ -537,7 +576,6 @@ export function createTelegramRuntime({
       attention.close();
       for (const key of [...typing.keys()]) stopTyping(key);
       status.close();
-      tokens.clear();
       vps.close();
       yield* delivery.stop();
       yield* vps.awaitPending();

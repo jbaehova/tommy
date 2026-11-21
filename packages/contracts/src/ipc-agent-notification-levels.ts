@@ -25,9 +25,6 @@ export interface AgentNotificationLevelsSnapshot {
   agents: AgentNotificationLevelEntry[];
 }
 
-/** The snapshot of a server without levels: each device uses its own server level. */
-export const EMPTY_AGENT_NOTIFICATION_LEVELS: AgentNotificationLevelsSnapshot = { server: null, agents: [] };
-
 export interface SetOwnServerNotificationLevelInput {
   /** `null` gives each device its own server level again. */
   level: ServerNotificationLevel | null;
@@ -82,11 +79,4 @@ export function parseSetOwnServerNotificationLevelInput(value: unknown): SetOwnS
   )
     throw new Error("Invalid server notification level request.");
   return { level: value.level };
-}
-
-/** The levels of a snapshot by agent. */
-export function agentNotificationLevelMap(
-  snapshot: AgentNotificationLevelsSnapshot,
-): ReadonlyMap<string, ServerNotificationLevel> {
-  return new Map(snapshot.agents.map(({ agentId, level }) => [agentId, level]));
 }

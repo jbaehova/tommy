@@ -7,7 +7,7 @@ import { type AgentSummary, type ConversationMessage, SKILL_DESCRIPTION_MAX_LENG
 import { isLocalLibrarySkill } from "@tommy/contracts/ipc-skill-learning";
 import { Schema } from "effect";
 import type { MemoryReviewBase } from "./agent-memories";
-import { chatTranscript, promptJson } from "./side-question";
+import { chatTranscript, promptJson } from "./chat-transcript";
 import { workSteps } from "./skill-learning-suggestion";
 
 /** The most changes that one review may make. */

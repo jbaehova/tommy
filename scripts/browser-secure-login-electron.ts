@@ -6,12 +6,17 @@ import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { decodeRecord } from "@tommy/contracts/ipc-decoding";
 import { isDynamicRecord } from "@tommy/contracts/runtime-values";
-import { app, BrowserWindow, webContents } from "electron";
+import { Effect } from "effect";
+import { app, BrowserWindow, nativeImage, protocol, webContents } from "electron";
+import { AttentionRegistry } from "../src/backend/agent/attention-registry";
+import { CodexAppServerClient } from "../src/backend/app-server-client";
 import { BrowserHost } from "../src/backend/browser-host";
 import { readBrowserState } from "../src/backend/browser-state";
 import type { BrowserToolCall } from "../src/backend/browser-tools";
 import { runCauseEffect } from "../src/backend/effect-boundary";
 import type { DynamicToolCallParams } from "../src/backend/protocol";
+import { ChatVisualPreviewer } from "../src/main/chat-visual-preview";
+import { telegramBrowserReport } from "../src/main/telegram-browser-report";
 
 const argument = (name: string) => {
   const prefix = `--${name}=`;
@@ -121,6 +126,7 @@ async function main() {
   app.setPath("userData", join(root, "profile"));
   app.setPath("sessionData", join(root, "session"));
   if (process.platform === "darwin") app.setActivationPolicy("accessory");
+  protocol.registerSchemesAsPrivileged([{ scheme: "tommy-visual", privileges: { standard: true, secure: true } }]);
   await app.whenReady();
   window = new BrowserWindow({
     show: false,
@@ -131,6 +137,45 @@ async function main() {
   });
   const browser = new BrowserHost(window, join(root, "downloads"), join(root, "tabs.json"));
   host = browser;
+  await scenario("HTML preview draws the chart into a PNG and detects its interactive control", async () => {
+    const width = 320;
+    const height = 120;
+    const html = `<!doctype html><style>html,body{margin:0;height:120px}canvas{display:block}</style>
+      <canvas width="320" height="120"></canvas><script>
+      const ctx = document.querySelector('canvas').getContext('2d');
+      ctx.fillStyle = 'white'; ctx.fillRect(0, 0, 320, 120);
+      ctx.fillStyle = 'lime'; ctx.fillRect(20, 60, 40, 60); ctx.fillRect(80, 20, 40, 100);
+      </script>`;
+    const previewer = new ChatVisualPreviewer();
+    const staticResult = await Effect.runPromise(previewer.capture({ html, width, appearance: "light" }));
+    assert.equal(staticResult.interactive, false);
+    const result = await Effect.runPromise(
+      previewer.capture({
+        html: `${html}<button style="position:absolute;top:2px;right:2px" onclick="window.print()">Print</button>`,
+        width,
+        appearance: "light",
+      }),
+    );
+    assert.equal(result.interactive, true);
+    assert.equal(result.contentHeight, height);
+    assert.ok(result.imageUrl.startsWith("data:image/png;base64,"));
+    const png = Buffer.from(result.imageUrl.slice("data:image/png;base64,".length), "base64");
+    assert.deepEqual(png.subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    const rendered = nativeImage.createFromBuffer(png);
+    const size = rendered.getSize();
+    assert.ok(size.width >= width);
+    const scale = size.width / width;
+    assert.equal(size.height, height * scale);
+    const pixels = rendered.toBitmap();
+    const checkPixel = (x: number, y: number, target: readonly number[]) => {
+      const offset = (Math.floor(y * scale) * size.width + Math.floor(x * scale)) * 4;
+      // The display color profile can change a channel slightly during PNG capture.
+      assert.ok(target.every((value, channel) => Math.abs(pixels.readUInt8(offset + channel) - value) <= 4));
+    };
+    checkPixel(40, 30, [255, 255, 255, 255]);
+    checkPixel(40, 90, [0, 255, 0, 255]);
+    checkPixel(100, 30, [0, 255, 0, 255]);
+  });
   const owner = { threadId: "login-thread", ownerAgentId: "login-agent", turnId: "login-turn" };
   let sequence = 0;
   const params = (tool: string, args: DynamicToolCallParams["arguments"]): DynamicToolCallParams => ({
@@ -140,14 +185,24 @@ async function main() {
     callId: `login-${++sequence}`,
     ...owner,
   });
+  const tool = (name: string, args: DynamicToolCallParams["arguments"]) =>
+    runCauseEffect(browser.handleDynamicTool(params(name, args)));
+  const text = (result: { contentItems: Array<{ type: string; text?: string }> }) =>
+    result.contentItems.map((item) => item.text ?? "").join(" ");
+
+  const openTab = async (url: string) => {
+    const result = await tool("open", { url });
+    assert.ok(result.success, text(result));
+    const tab = browser.listTabs().findLast((item) => item.url === url && item.ownerThreadId === owner.threadId);
+    assert.ok(tab, "Missing the opened fixture tab.");
+    return tab;
+  };
   // The session of a tab serves the HTTPS pages, so one tab on loopback opens it first.
   const loopback = createServer((_request, response) => response.end("<!doctype html><title>Seed</title>"));
   await new Promise<void>((resolve) => loopback.listen(0, "127.0.0.1", resolve));
   const address = loopback.address();
   assert(address && typeof address === "object", "Missing the loopback address.");
-  const seed = await runCauseEffect(
-    browser.open(`http://127.0.0.1:${address.port}/`, owner.threadId, owner.ownerAgentId),
-  );
+  const seed = await openTab(`http://127.0.0.1:${address.port}/`);
   const seedContents = webContents.getAllWebContents().find((contents) => contents.getURL() === seed.url);
   assert(seedContents, "Missing the session of the fixture.");
   await seedContents.session.protocol.handle("https", async (request) =>
@@ -159,9 +214,65 @@ async function main() {
   loopback.close();
 
   const openLogin = async (path: string) => {
-    const tab = await runCauseEffect(browser.open(`${SITE}${path}`, owner.threadId, owner.ownerAgentId));
+    const tab = await openTab(`${SITE}${path}`);
     return tab.id;
   };
+  await scenario("a manual browser step sends one still and returns without a pending request", async () => {
+    const tabId = await openLogin("/login?manual-report=1");
+    const client = new CodexAppServerClient("unused");
+    const unexpected = () => {
+      throw new Error("A manual step tried to open an attention request.");
+    };
+    const registry = new AttentionRegistry({
+      browser,
+      conversation: {
+        agentForThread: () => owner.ownerAgentId,
+        publicThreadId: () => owner.threadId,
+        emitConversation: unexpected,
+        ensureSnapshot: unexpected,
+      },
+      routines: { markNeedsAttention: unexpected, markRunningForTurn: unexpected },
+      emit: unexpected,
+      emitError: unexpected,
+    });
+    let sends = 0;
+    browser.setManualStepReporter(
+      telegramBrowserReport({
+        browser,
+        requestChat: (agentId, turnId) =>
+          agentId === owner.ownerAgentId && turnId === owner.turnId
+            ? { id: 10, operationId: "fixture-generation" }
+            : undefined,
+        tokenFor: () => Effect.succeed("fixture"),
+        ownerId: 100,
+        api: {
+          sendFile: (_token, chatId, file) =>
+            Effect.sync(() => {
+              assert.equal(chatId, 100);
+              assert.equal(file.mimeType, "image/jpeg");
+              assert.ok(!nativeImage.createFromBuffer(Buffer.from(file.bytes)).isEmpty());
+              assert.ok(file.caption);
+              sends++;
+            }),
+          sendMessage: unexpected,
+        },
+        language: () => "en",
+      }),
+    );
+    try {
+      const request = { id: "manual", method: "item/tool/call", params: params("request_takeover", { tabId }) };
+      const result = await Effect.runPromise(registry.surfaceBrowserTakeover(client, request));
+      assert.ok(result.success, text(result));
+      assert.match(text(result), /"screenshotSent":true/u);
+      assert.equal(sends, 1);
+      assert.deepEqual(registry.pendingBrowserTakeovers(), []);
+      assert.equal(registry.hasBrowserTakeoverForAgent(owner.ownerAgentId), false);
+      assert.ok((await tool("snapshot", { tabId, image: "never" })).success);
+    } finally {
+      browser.setManualStepReporter(null);
+      await runCauseEffect(browser.close(tabId));
+    }
+  });
   const prepare = (tabId: string, extra: Partial<Extract<BrowserToolCall, { tool: "submit_secret" }>["args"]> = {}) =>
     runCauseEffect(
       browser.prepareSecret(
@@ -176,10 +287,32 @@ async function main() {
         }),
       ),
     );
-  const tool = (name: string, args: DynamicToolCallParams["arguments"]) =>
-    runCauseEffect(browser.handleDynamicTool(params(name, args)));
-  const text = (result: { contentItems: Array<{ type: string; text?: string }> }) =>
-    result.contentItems.map((item) => item.text ?? "").join(" ");
+  await scenario("a Telegram still belongs to its exact thread and document, and expires on secure input", async () => {
+    const tabId = await openLogin("/login?manual=1");
+    const request = {
+      agentId: owner.ownerAgentId,
+      threadId: owner.threadId,
+      turnId: owner.turnId,
+      requestId: "sample",
+      tabId,
+    };
+    try {
+      assert.equal(await runCauseEffect(browser.captureOwnerTab(tabId, request.agentId, "other")), null);
+      const frame = await runCauseEffect(browser.captureOwnerTab(tabId, request.agentId, request.threadId));
+      assert.ok(frame?.bytes.length && frame.current(), "A public page must produce an authorized still.");
+      const input = await prepare(tabId);
+      assert.equal(frame.current(), false, "A screenshot from before secret input remained valid.");
+      assert.equal(await runCauseEffect(browser.captureOwnerTab(tabId, request.agentId, request.threadId)), null);
+      input.cancel();
+      const next = await runCauseEffect(browser.captureOwnerTab(tabId, request.agentId, request.threadId));
+      assert.ok(next);
+      assert.ok(next.current());
+      assert.ok((await tool("navigate", { tabId, direction: "reload" })).success);
+      assert.equal(next.current(), false, "Reloading the same URL must invalidate the old frame.");
+    } finally {
+      await runCauseEffect(browser.close(tabId));
+    }
+  });
 
   await scenario(
     "masked password and authenticator fields qualify without admitting SMS or recovery fields",
@@ -337,7 +470,7 @@ async function main() {
       const crashed = new Promise<void>((resolve) => contents.once("render-process-gone", () => resolve()));
       contents.forcefullyCrashRenderer();
       await crashed;
-      await runCauseEffect(browser.reload(second));
+      assert.ok((await tool("navigate", { tabId: second, direction: "reload" })).success);
       const clean = await prepare(second);
       assert.equal(clean.agentScriptedOrigin, false, "A dead renderer still blocked a fresh login.");
       clean.cancel();
@@ -354,7 +487,7 @@ async function main() {
       assert.ok(evaluated.success, text(evaluated));
       const away = await tool("navigate", { tabId, url: `${SITE}/login?history=second` });
       assert.ok(away.success, text(away));
-      await runCauseEffect(browser.navigate(tabId, "back"));
+      assert.ok((await tool("navigate", { tabId, direction: "back" })).success);
       const contents = webContents.getAllWebContents().find((item) => item.getURL().endsWith("?history=first"));
       assert(contents, "Missing the page after back navigation.");
       const retained = await contents.executeJavaScript("window.exampleScriptedPage === true");
@@ -370,12 +503,8 @@ async function main() {
     }
   });
 
-  await scenario("a failed person-opened tab stays available while an agent failure leaves no tab", async () => {
+  await scenario("a failed agent-opened tab releases its slot", async () => {
     const url = `${SITE}/fails`;
-    await assert.rejects(runCauseEffect(browser.open(url, owner.threadId, owner.ownerAgentId)));
-    const kept = browser.listTabs().find((tab) => tab.url === url);
-    assert.ok(kept, "The failed person-opened address was discarded.");
-    await runCauseEffect(browser.close(kept.id));
     const before = browser.listTabs().length;
     const result = await tool("open", { url });
     assert.equal(result.success, false);

@@ -31,6 +31,7 @@ const entrySchema = Schema.Struct({
   offset: nonnegative,
   /** The next file to send after the text. Absent on an entry from before files were sent. */
   file: Schema.optionalKey(nonnegative),
+  fileIds: Schema.optionalKey(Schema.Array(identifier)),
   attempts: nonnegative,
   next: Schema.NullOr(nonnegative),
 });
@@ -143,6 +144,7 @@ export class TelegramDelivery {
     const record = this.#options.directory.get(telegramId);
     if (!chatReady(record) || !this.#allowed(ref, record.operationId)) return;
     const receipt = key(ref);
+    const fileIds = reply.files.flatMap((file) => (file.attachmentId ? [file.attachmentId] : []));
     yield* this.#change((state) => {
       if (
         state.pending.some((item) => key(item.ref) === receipt) ||
@@ -151,7 +153,17 @@ export class TelegramDelivery {
         return state;
       return {
         ...state,
-        pending: [...state.pending, { ref, generation: record.operationId, offset: 0, attempts: 0, next: 0 }],
+        pending: [
+          ...state.pending,
+          {
+            ref,
+            generation: record.operationId,
+            offset: 0,
+            attempts: 0,
+            next: 0,
+            ...(fileIds.length === reply.files.length ? { fileIds } : {}),
+          },
+        ],
       };
     });
     this.#schedule();
@@ -194,7 +206,7 @@ export class TelegramDelivery {
     );
   }
 
-  #allowed(ref: TelegramReplyRef, generation: string) {
+  #allowed(ref: TelegramReplyRef, generation: string, queued = false) {
     const { directory, agents, ownerId } = this.#options;
     const bot = directory.get(ref.telegramId);
     return (
@@ -203,7 +215,7 @@ export class TelegramDelivery {
       chatReady(bot) &&
       bot.agentId === ref.agentId &&
       bot.operationId === generation &&
-      agents.ownsTurn(ref.agentId, ref.turnId, ref.telegramId, ref.ownerId)
+      agents.ownsTurn(ref.agentId, ref.turnId, ref.telegramId, ref.ownerId, queued ? generation : undefined)
     );
   }
 
@@ -250,10 +262,13 @@ export class TelegramDelivery {
     const { ref } = entry;
     // A shutdown retains the cursor. A revoked or rebound destination loses it.
     if (this.#closed) return;
-    if (!this.#allowed(ref, entry.generation)) return yield* this.#update(entry, null, false);
-    const reply = yield* agents.readReply(ref);
+    if (!this.#allowed(ref, entry.generation, true)) return yield* this.#update(entry, null, false);
+    const reply = yield* agents.readReply(ref, entry.generation);
     if (this.#closed) return;
-    if (!reply || !this.#allowed(ref, entry.generation)) return yield* this.#update(entry, null, false);
+    if (!reply || !this.#allowed(ref, entry.generation, true)) return yield* this.#update(entry, null, false);
+    const files = entry.fileIds
+      ? entry.fileIds.map((id) => reply.files.find((file) => file.attachmentId === id))
+      : reply.files;
     const body = redactText(reply.text);
     const chunk = nextChunk(body, entry.offset);
     const hasText = entry.offset < body.length;
@@ -263,7 +278,7 @@ export class TelegramDelivery {
         ref.telegramId === this.#options.managerId
           ? managerToken
           : yield* api.getManagedBotToken(managerToken, ref.telegramId);
-      if (!this.#allowed(ref, entry.generation)) return false;
+      if (this.#closed || !this.#allowed(ref, entry.generation, true)) return false;
       if (hasText) {
         if (chunk.text.trim()) {
           // Formatted first. Telegram rejects HTML it cannot parse with 400: then send plain text.
@@ -272,12 +287,13 @@ export class TelegramDelivery {
             html.length <= textLimit
               ? yield* Effect.result(api.sendMessage(token, ref.ownerId, html, undefined, true))
               : null;
-          if (rich === null || (Result.isFailure(rich) && rich.failure.kind === "api" && rich.failure.status === 400))
+          if (rich === null || (Result.isFailure(rich) && rich.failure.kind === "api" && rich.failure.status === 400)) {
+            if (this.#closed || !this.#allowed(ref, entry.generation, true)) return false;
             yield* api.sendMessage(token, ref.ownerId, chunk.text);
-          else if (Result.isFailure(rich)) return yield* Effect.fail(rich.failure);
+          } else if (Result.isFailure(rich)) return yield* Effect.fail(rich.failure);
         }
       } else {
-        const file = reply.files[entry.file ?? 0];
+        const file = files[entry.file ?? 0];
         if (file) yield* api.sendFile(token, ref.ownerId, file);
       }
       return true;
@@ -295,7 +311,7 @@ export class TelegramDelivery {
     if (!sent.success && this.#closed) return;
     if (!sent.success) return yield* this.#update(entry, null, false);
     const nextFile = hasText ? 0 : (entry.file ?? 0) + 1;
-    const done = hasText ? chunk.end === body.length && reply.files.length === 0 : nextFile >= reply.files.length;
+    const done = hasText ? chunk.end === body.length && files.length === 0 : nextFile >= files.length;
     yield* this.#update(
       entry,
       done ? null : { ...entry, offset: hasText ? chunk.end : entry.offset, file: nextFile, attempts: 0, next: 0 },

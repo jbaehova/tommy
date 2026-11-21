@@ -23,15 +23,20 @@ import {
   type WorkflowNode,
   workflowLoopEdges,
 } from "@tommy/contracts/ipc";
-import { runtimeFields } from "./workflow-graph";
+import { isDiscordNode, runtimeFields } from "./workflow-graph";
 import { isOpenStep, type StoredWorkflowStep } from "./workflow-run-store";
 
-/** Node kinds and settings that this version cannot run. The canvas does not offer them. */
-export function unsupportedNode(node: WorkflowNode): boolean {
-  if (node.kind === "image" || node.kind === "asset") return true;
-  if (node.kind === "trigger") return node.fields.trigger === "message";
-  if (node.kind === "output") return node.fields.target === "file";
-  return false;
+/** The reason a stored workflow step cannot run on this host. */
+export function unsupportedNodeReason(node: WorkflowNode) {
+  if (isDiscordNode(node)) return "error.workflow.discordUnavailable";
+  if (
+    node.kind === "image" ||
+    node.kind === "asset" ||
+    (node.kind === "trigger" && node.fields.trigger === "message") ||
+    (node.kind === "output" && node.fields.target === "file")
+  )
+    return "error.workflow.nodeUnsupported";
+  return null;
 }
 
 export interface RunStart {

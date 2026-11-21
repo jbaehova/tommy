@@ -48,7 +48,12 @@ Tommy needs Node.js 24 too. Use the user's version manager if one is installed (
 `fnm install 24`, `mise use -g node@24`); otherwise install the official build:
 
 ```bash
-curl -fsSL https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.xz -o /tmp/node.tar.xz
+case "$(uname -m)" in
+  x86_64) node_arch=x64 ;;
+  aarch64|arm64) node_arch=arm64 ;;
+  *) echo "This server needs x64 or arm64." >&2; exit 1 ;;
+esac
+curl -fsSL "https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-${node_arch}.tar.xz" -o /tmp/node.tar.xz
 mkdir -p ~/.local/share/node && tar -xJf /tmp/node.tar.xz -C ~/.local/share/node --strip-components=1
 mkdir -p ~/.local/bin && ln -sf ~/.local/share/node/bin/* ~/.local/bin/
 ```
@@ -70,14 +75,19 @@ bun install --frozen-lockfile
 bun run package:linux
 ```
 
-The build takes a few minutes and writes the app to `dist/linux-unpacked`.
+The build writes `dist/linux-unpacked` on x64 and `dist/linux-arm64-unpacked` on arm64.
 
 ### Install the service
 
 Use the domain that the user gave:
 
 ```bash
-sudo bash scripts/hosting/tommy-install dist/linux-unpacked https://<domain>
+case "$(uname -m)" in
+  x86_64) tommy_app=dist/linux-unpacked ;;
+  aarch64|arm64) tommy_app=dist/linux-arm64-unpacked ;;
+  *) echo "This server needs x64 or arm64." >&2; exit 1 ;;
+esac
+sudo bash scripts/hosting/tommy-install "$tommy_app" https://<domain>
 ```
 
 `tommy-install` installs the system packages that Tommy needs (a virtual display, a keyring and
@@ -212,7 +222,23 @@ When an agent asks for a website password or code, its bot's chat gets a message
 **Open Tommy** button. The card opens inside that chat, and the secret goes directly to the VPS.
 An agent that received the work from another agent asks in its own chat, or in the chat where the
 owner started the work if it has no bot. The manager's view shows every request. Messages and
-generated images sent in chat go to Telegram.
+generated images sent in chat go to Telegram. HTML results arrive as a preview image. When the page
+has controls or links, Tommy also sends the HTML file. The agent can include the file on request
+or for custom interactions. If the server cannot draw the page, it sends the original. For a
+browser step that requires a person, the agent can send a still image when the active tab permits
+capture.
+
+For an MCP service that requires sign-in, press the connection button in the chat that requested
+the service. Open the provider from the Mini App. If the provider requires a registered redirect
+URI, use `https://<domain>/tommy/telegram/app/mcp/callback` on this server. The result returns to
+the requesting chat. After a server restart or expiry, ask the agent to test the MCP connection
+again in a new turn to get a new connection button. For an existing nginx installation, apply
+the site template from this release using the `sed`, `nginx -t` and reload steps in [HTTPS](#https).
+The callback location disables access logging so that authorization codes stay out of access logs.
+
+When updating a server that predates per-turn Telegram connection checks, a running turn can finish
+without a Telegram reply. Use `/history` to read recent reply text. Replies already in the delivery queue
+can resume if the same connection still owns them.
 Agents send work to each other inside Tommy, never as Telegram messages between bots. Telegram
 accepts only your own private messages; messages from other people and from bots never reach an
 agent. If the host cannot confirm manager webhook health for 24 hours, an agent bot stops taking
@@ -231,7 +257,12 @@ cd ~/tommy
 git pull
 bun install --frozen-lockfile
 bun run package:linux
-sudo bash scripts/hosting/tommy-install dist/linux-unpacked
+case "$(uname -m)" in
+  x86_64) tommy_app=dist/linux-unpacked ;;
+  aarch64|arm64) tommy_app=dist/linux-arm64-unpacked ;;
+  *) echo "This server needs x64 or arm64." >&2; exit 1 ;;
+esac
+sudo bash scripts/hosting/tommy-install "$tommy_app"
 ```
 
 The data and the settings stay.
@@ -340,6 +371,6 @@ The search uses that Codex account and its usage allowance. It does not change t
 thread or identity. Other providers keep their own search tools.
 
 Skill learning starts with Ask first. It can be automatic or off. Saving creates an immutable local
-skill revision. The skill detail view can restore an older revision as a new revision. A routine
-runs in the main chat by default; its settings can select a separate thread. Each run still starts
+skill revision. A restored skill revision becomes a new revision in the local library. A routine
+runs in the main chat by default. A saved routine can use a separate thread. Each run still starts
 a fresh provider session. A workflow can post a note to a Tommy channel without starting agent work.

@@ -80,13 +80,14 @@ describe("Telegram Mini App owner and browser boundary", () => {
       } satisfies BrowserTakeoverRequest,
     ];
     const app = new TelegramMiniApp({
+      connectionGeneration: () => "fixture-generation",
       publicOrigin: origin,
       managerToken: token,
       ownerId: owner,
       listAgents: () => [{ agentId: pending.agentId, active: true, name: "Agent", username: "example_agent" }],
       ownsTurn: (agentId, turnId) => ownedTurn && agentId === pending.agentId && turnId === pending.turnId,
       agents: {
-        getRuntimeSnapshot: () => ({ pendingBrowserTakeovers: requests }),
+        pendingBrowserTakeovers: () => requests,
         respondToBrowserSecret: (answer) =>
           Effect.sync(() => {
             calls.push(answer);
@@ -130,7 +131,7 @@ describe("Telegram Mini App owner and browser boundary", () => {
     }
   });
 
-  it("sends a no-store still only for a prepared, owned manual takeover, rechecking the grant after capture", async () => {
+  it("sends a no-store still only for the bound agent and current document, rechecking the grant after capture", async () => {
     const handoff: BrowserTakeoverRequest = {
       agentId: "a",
       threadId: "thread",
@@ -148,26 +149,45 @@ describe("Telegram Mini App owner and browser boundary", () => {
       loading: false,
     };
     let permitted = true;
+    let bound: string | null = null;
     let revokeDuringCapture = false;
     let captures = 0;
+    let generation = "first";
+    let version = 1;
+    let reloadAfterCapture = false;
+    let captured = false;
     const app = new TelegramMiniApp({
+      connectionGeneration: () => generation,
+      managerId: 11,
+      botToken: () =>
+        Effect.sync(() => {
+          if (captured && reloadAfterCapture) version++;
+          captured = false;
+          return token;
+        }),
       publicOrigin: origin,
       managerToken: token,
       ownerId: owner,
       listAgents: () => [{ agentId: "a", name: "Agent", username: "example_agent", active: permitted }],
+      botAgent: () => bound,
       ownsTurn: (a, turn) => a === "a" && turn === "turn",
       agents: {
-        getRuntimeSnapshot: () => ({ pendingBrowserTakeovers: requests }),
+        pendingBrowserTakeovers: () => requests,
         respondToBrowserSecret: () => Effect.void,
       },
       browser: {
         listTabs: () => [tab],
-        capturePreview: (id) =>
+        captureOwnerTab: (id) =>
           Effect.sync(() => {
             expect(id).toBe(handoff.tabId);
             captures++;
             if (revokeDuringCapture) permitted = false;
-            return { dataUrl: "data:image/jpeg;base64,/9j/2Q==", width: 960, height: 600 };
+            captured = true;
+            const capturedVersion = version;
+            return {
+              bytes: Buffer.from([255, 216, 255, 217]),
+              current: () => permitted && capturedVersion === version,
+            };
           }),
       },
     });
@@ -181,14 +201,14 @@ describe("Telegram Mini App owner and browser boundary", () => {
       if (!address || typeof address === "string") throw new Error("Missing test port");
       const authorization = launch(owner, Math.floor(Date.now() / 1000));
       const post = (route: string, body: { handle?: string | undefined }, from = origin) =>
-        fetch(`http://127.0.0.1:${address.port}${TELEGRAM_MINI_APP_PATH}/${route}`, {
+        fetch(`http://127.0.0.1:${address.port}${TELEGRAM_MINI_APP_PATH}/${route}?bot=42`, {
           method: "POST",
           headers: { origin: from, authorization, "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
       const getState = async () => stateFromJson(await (await post("state", {})).json());
       expect((await getState()).previews).toEqual([]);
-      app.noteTakeover(handoff);
+      bound = "a";
       const stateResponse = await (await post("state", {})).text();
       expect(stateResponse).not.toContain("example=private");
       expect(stateResponse).not.toContain("Secret title");
@@ -212,8 +232,15 @@ describe("Telegram Mini App owner and browser boundary", () => {
       expect((await post("preview", { handle })).status).toBe(409);
       requests[0] = handoff;
       expect(captures).toBe(1);
+      generation = "replacement";
+      expect((await post("preview", { handle })).status).toBe(409);
+      const nextHandle = (await getState()).previews[0]?.handle;
+      expect(nextHandle).not.toBe(handle);
+      reloadAfterCapture = true;
+      expect((await post("preview", { handle: nextHandle })).status).toBe(409);
+      reloadAfterCapture = false;
       revokeDuringCapture = true;
-      const revoked = await post("preview", { handle });
+      const revoked = await post("preview", { handle: nextHandle });
       expect(revoked.status).toBe(409);
       expect(await revoked.text()).toBe("");
     } finally {
@@ -248,6 +275,7 @@ describe("Telegram Mini App owner and browser boundary", () => {
     ];
     const chatOf = (agentId: string) => (agentId === "agent-child" ? childId : managerId);
     const app = new TelegramMiniApp({
+      connectionGeneration: () => "fixture-generation",
       publicOrigin: origin,
       managerToken: token,
       ownerId: owner,
@@ -261,12 +289,12 @@ describe("Telegram Mini App owner and browser boundary", () => {
         ].filter((agent) => bot === managerId || chatOf(agent.agentId) === bot),
       ownsTurn: (agentId, _turn, bot) => bot === managerId || chatOf(agentId) === bot,
       agents: {
-        getRuntimeSnapshot: () => ({ pendingBrowserTakeovers: [mine, other] }),
+        pendingBrowserTakeovers: () => [mine, other],
         respondToBrowserSecret: () => Effect.void,
       },
       browser: {
         listTabs: () => tabs,
-        capturePreview: () => Effect.succeed({ dataUrl: "data:image/jpeg;base64,/9j/2Q==", width: 1, height: 1 }),
+        captureOwnerTab: () => Effect.succeed({ bytes: Buffer.from([255, 216, 255, 217]), current: () => true }),
       },
     });
     const server = createServer((req, res) => {
@@ -307,6 +335,85 @@ describe("Telegram Mini App owner and browser boundary", () => {
       await new Promise<void>((resolve, reject) => server.close((e) => (e ? reject(e) : resolve())));
     }
   });
+  it("checks the originating chat credential before beginning MCP login and never reflects a callback grant", async () => {
+    const managerId = 100;
+    const childId = 200;
+    const childToken = "sample-child";
+    const callers: number[] = [];
+    let received: string | null = null;
+    const app = new TelegramMiniApp({
+      connectionGeneration: () => "fixture-generation",
+      publicOrigin: origin,
+      ownerId: owner,
+      managerId,
+      managerToken: token,
+      botToken: (id) => Effect.succeed(id === childId ? childToken : null),
+      ownsTurn: () => false,
+      listAgents: () => [],
+      agents: { pendingBrowserTakeovers: () => [], respondToBrowserSecret: () => Effect.void },
+      mcp: {
+        list: (chat) =>
+          chat === childId
+            ? [
+                {
+                  handle: "card",
+                  agentId: "agent",
+                  agentName: "Agent",
+                  name: "Example",
+                  origin: "https://issuer.example.com",
+                },
+              ]
+            : [],
+        start: (chat, handle) =>
+          Effect.sync(() => {
+            callers.push(chat);
+            return chat === childId && handle === "card" ? { url: "https://issuer.example.com/authorize" } : null;
+          }),
+        callback: (query) => {
+          if (received || query.get("state") !== "expected-state" || !query.get("code")) return "invalid";
+          received = query.get("code");
+          return "accepted";
+        },
+      },
+    });
+    const server = createServer((req, res) => {
+      void Effect.runPromise(app.handle(req, res));
+    });
+    server.listen(0, "127.0.0.1");
+    try {
+      await once(server, "listening");
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Missing test port");
+      const base = `http://127.0.0.1:${address.port}${TELEGRAM_MINI_APP_PATH}/mcp`;
+      const post = (id: number, signer: string, user = owner) =>
+        fetch(`${base}?bot=${id}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            origin,
+            authorization: launch(user, Math.floor(Date.now() / 1000), signer),
+          },
+          body: JSON.stringify({ handle: "card" }),
+        });
+      expect((await post(childId, token)).status).toBe(403);
+      expect((await post(childId, childToken, owner + 1)).status).toBe(403);
+      expect(callers).toEqual([]);
+      expect((await post(managerId, token)).status).toBe(409);
+      expect((await post(childId, childToken)).status).toBe(200);
+      const callback = `${base}/callback?state=expected-state&code=private-sample-grant`;
+      expect((await fetch(callback, { method: "POST" })).status).toBe(405);
+      const result = await fetch(callback);
+      expect(result.status).toBe(200);
+      expect(result.headers.get("referrer-policy")).toBe("no-referrer");
+      expect(result.headers.get("cache-control")).toBe("no-store");
+      expect(await result.text()).not.toContain("private-sample-grant");
+      expect((await fetch(callback)).status).toBe(400);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
+  });
+
   it("answers a private prompt only from the bot whose chat owns the turn, with known questions", async () => {
     const managerId = 100;
     const childId = 200;
@@ -335,6 +442,7 @@ describe("Telegram Mini App owner and browser boundary", () => {
     ];
     const chatOf = (agentId: string) => (agentId === "agent-child" ? childId : managerId);
     const app = new TelegramMiniApp({
+      connectionGeneration: () => "fixture-generation",
       publicOrigin: origin,
       managerToken: token,
       ownerId: owner,
@@ -343,7 +451,7 @@ describe("Telegram Mini App owner and browser boundary", () => {
       listAgents: () => [],
       ownsTurn: (agentId, _turn, bot) => bot === managerId || chatOf(agentId) === bot,
       agents: {
-        getRuntimeSnapshot: () => ({ pendingBrowserTakeovers: [] }),
+        pendingBrowserTakeovers: () => [],
         respondToBrowserSecret: () => Effect.void,
         privatePrompts: () => prompts,
         respondToPrompt: (input) => Effect.sync(() => void answered.push(input)),

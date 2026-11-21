@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { WorkflowGitHubCatalog, WorkflowGitHubEvent, WorkflowGitHubRepositoryOptions } from "@tommy/contracts/ipc";
+import type { WorkflowGitHubEvent, WorkflowGitHubRepositoryOptions } from "@tommy/contracts/ipc";
 import { type DynamicRecord, isDynamicRecord } from "@tommy/contracts/runtime-values";
 import { sourceText } from "@tommy/i18n/source";
 import { redactText } from "@tommy/logging";
@@ -34,68 +34,15 @@ function string(value: unknown): string {
 export class WorkflowConnectorGitHub implements WorkflowGitHubApi {
   readonly #connection: GitHubWorkflowConnection;
   readonly #http: WorkflowConnectorHttp;
-  readonly #webhookUrl: string | null;
 
-  constructor(
-    connection: GitHubWorkflowConnection,
-    http: WorkflowConnectorHttp,
-    publicWebhookOrigin: string | null = null,
-  ) {
+  constructor(connection: GitHubWorkflowConnection, http: WorkflowConnectorHttp) {
     this.#connection = connection;
     this.#http = http;
-    this.#webhookUrl = publicWebhookOrigin ? `${publicWebhookOrigin}/hooks/github` : null;
   }
 
   allows(repository: string): boolean {
     return this.#connection.repositories.some((allowed) => allowed.toLowerCase() === repository.toLowerCase());
   }
-
-  readonly catalog = Effect.fn("WorkflowConnectorGitHub.catalog")(function* (this: WorkflowConnectorGitHub) {
-    const repositories = yield* Effect.forEach(
-      this.#connection.repositories,
-      (repository) =>
-        Effect.gen({ self: this }, function* () {
-          const details = record(yield* this.#request(repository, ""));
-          if (!details || typeof details.full_name !== "string" || typeof details.private !== "boolean")
-            return yield* Effect.fail({
-              code: "unreachable" as const,
-              message: sourceText("error.workflow.githubUncertain"),
-            });
-          const permissions = isDynamicRecord(details.permissions) ? details.permissions : null;
-          let events = false;
-          if (this.#webhookUrl) {
-            const hooks = yield* Effect.result(this.#request(repository, "/hooks?per_page=100"));
-            // App installation hooks cannot be inspected through the repository hook API. Do not assert them.
-            if (hooks._tag === "Success")
-              events = records(hooks.success).some(
-                (hook) =>
-                  hook.active === true &&
-                  isDynamicRecord(hook.config) &&
-                  hook.config.url === this.#webhookUrl &&
-                  Array.isArray(hook.events) &&
-                  (hook.events.includes("*") ||
-                    [
-                      "issues",
-                      "issue_comment",
-                      "pull_request",
-                      "pull_request_review",
-                      "pull_request_review_comment",
-                      "check_suite",
-                    ].every((event) => Array.isArray(hook.events) && hook.events.includes(event))),
-              );
-          }
-          return {
-            fullName: repository,
-            private: details.private,
-            canWrite: permissions?.push === true || permissions?.maintain === true || permissions?.admin === true,
-            events,
-          };
-        }),
-      { concurrency: 4 },
-    );
-    repositories.sort((left, right) => left.fullName.localeCompare(right.fullName));
-    return { connected: true, repositories } satisfies WorkflowGitHubCatalog;
-  }).bind(this);
 
   #failure(error: WorkflowConnectorHttpFailure): {
     code: "noAccess" | "noWrite" | "invalid" | "locked" | "unreachable";

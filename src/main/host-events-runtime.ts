@@ -8,8 +8,7 @@ const RETRY_MAX_MS = 15 * 60_000;
 /**
  * Owns the background route syncs of this host. One sync runs at a time. The requests that come
  * while it runs become one more sync, which registers every route when one of them asked for that.
- * A sync that leaves route work (a relay outage) runs again later, so an idle host does not keep a
- * pending URL or an unsent revocation.
+ * A failed sync runs again later to recover pending URLs and revocations.
  */
 export class HostEventsRuntime {
   readonly #service: HostEventsService;
@@ -53,10 +52,6 @@ export class HostEventsRuntime {
         Effect.forkIn(this.#scope, { startImmediately: true }),
       ),
     );
-  }
-
-  setAccountPrincipal(principalId: string | null): void {
-    this.#service.setAccountPrincipal(principalId);
   }
 
   stop(): Effect.Effect<void> {

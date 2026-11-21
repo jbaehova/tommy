@@ -11,8 +11,8 @@ import {
   type RoutineSchedule,
 } from "@tommy/contracts/ipc";
 import { type DynamicRecord, isOneOf, isString } from "@tommy/contracts/runtime-values";
-import { RoutineInputError } from "@tommy/team-client/routine-schedule";
 import { isRecord } from "../protocol";
+import { RoutineInputError } from "../routine-schedule";
 
 export function routineToolArguments(value: unknown, allowedKeys: readonly string[]): DynamicRecord {
   if (!isRecord(value)) throw new RoutineInputError("Routine tool arguments are required.");

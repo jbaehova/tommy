@@ -1,5 +1,10 @@
 import { INPUT_LIMITS } from "@tommy/contracts/input-limits";
-import { BROWSER_TAKEOVER_REASONS, VAULT_TEXT_LIMIT, type VaultContactFields } from "@tommy/contracts/ipc";
+import {
+  BROWSER_TAKEOVER_REASONS,
+  type BrowserTakeoverRequest,
+  VAULT_TEXT_LIMIT,
+  type VaultContactFields,
+} from "@tommy/contracts/ipc";
 import { isDynamicRecord } from "@tommy/contracts/runtime-values";
 import { UI_BLOCK_LIMITS, UI_VAULT_REQUEST_KINDS } from "@tommy/contracts/ui-blocks";
 import { z } from "zod";
@@ -12,6 +17,8 @@ import {
 import { repairBrowserStep, repairBrowserToolInput } from "./browser-tool-input";
 
 export const TOMMY_BROWSER_NAMESPACE = "tommy_browser";
+
+export const MANUAL_BROWSER_STEPS = ["captcha", "passkey", "account-selection", "payment-confirmation"] as const;
 
 const identifier = z.string().min(1).max(INPUT_LIMITS.identifier);
 const requiredString = (max: number) =>
@@ -358,9 +365,13 @@ const BROWSER_TOOL_DEFINITIONS = [
   browserTool({
     name: "request_takeover",
     description:
-      "Ask the user to take over a tab for unclear OAuth account selection, CAPTCHA, passkeys, payment confirmation such as 3-D Secure, or when secure password/code handoff or card fill is unavailable.",
+      "Report a step that requires direct interaction with the page. Send the owner a screenshot when permitted. This ends the request. The owner cannot operate the tab in Telegram.",
     shape: {
       tabId,
+      step: z
+        .enum(MANUAL_BROWSER_STEPS)
+        .optional()
+        .describe("The step the page requires, for the owner's notification."),
       reason: z
         .enum(BROWSER_TAKEOVER_REASONS)
         .optional()
@@ -557,3 +568,5 @@ export function parseBrowserToolArguments(tool: string, value: unknown): Browser
 export function parseBrowserToolArguments(tool: string, value: unknown): BrowserToolCall["args"] {
   return parseBrowserToolCall(tool, value).args;
 }
+
+export type BrowserManualStepRequest = BrowserTakeoverRequest & Pick<BrowserToolArguments<"request_takeover">, "step">;

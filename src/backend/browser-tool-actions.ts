@@ -3,15 +3,12 @@ import { Effect, type Fiber } from "effect";
 import type { BrowserCdpEngine } from "./browser-cdp";
 import { type BrowserOperationError, browserSync } from "./browser-effects";
 import type { BrowserToolCall } from "./browser-tools";
-import type { DynamicToolResult } from "./protocol";
 import type { VaultCardSecret } from "./vault-items";
 
 export interface BrowserDynamicToolHooks {
   onUploadTargetResolved?: (inputId: string, documentId: string) => void;
   onUploadAssigned?: (inputId: string, documentId: string) => void;
   onUploadOperationStarted?: (completion: Fiber.Fiber<void, BrowserOperationError>) => void;
-  /** A person controls the tab. The caller waits for the release and gives the result of the tool call. */
-  onUserControl?: (tabId: string) => Effect.Effect<DynamicToolResult>;
   /** The saved cards that `fill_card` types. With none, `fill_card` fills nothing. */
   cardVault?: BrowserCardVault | undefined;
 }

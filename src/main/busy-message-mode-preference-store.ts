@@ -1,22 +1,19 @@
 import { type BusyMessageModePreference, DEFAULT_BUSY_MESSAGE_MODE, isBusyMessageMode } from "@tommy/contracts/ipc";
 import { isDynamicRecord } from "@tommy/contracts/runtime-values";
-import { Effect, Result, Semaphore } from "effect";
+import { Effect, Result } from "effect";
 import { isMissingFileError } from "../backend/file-errors";
-import { type PreferenceFileFailure, readPreferenceFile, writePreferenceFile } from "./preference-file";
+import { type PreferenceFileFailure, readPreferenceFile } from "./preference-file";
 
 /**
  * The app default for a message sent to a busy agent. The backend reads it for each such message,
  * so it is held in memory after `load` rather than read from disk each time.
  *
  * A file that is missing, unreadable as JSON or names an unknown mode reads as
- * `DEFAULT_BUSY_MESSAGE_MODE`. A saved `queue` stays `queue`. Writes are chained for the reason
- * `update-preference-store.ts` chains its own: an earlier rename that lands last would persist the
- * value the user just changed.
+ * `DEFAULT_BUSY_MESSAGE_MODE`. A saved `queue` stays `queue`.
  */
 export class BusyMessageModePreferenceStore {
   readonly #path: string;
   #preference: BusyMessageModePreference = { mode: DEFAULT_BUSY_MESSAGE_MODE };
-  #writes = Semaphore.makeUnsafe(1);
 
   constructor(path: string) {
     this.#path = path;
@@ -41,22 +38,4 @@ export class BusyMessageModePreferenceStore {
   get(): BusyMessageModePreference {
     return { ...this.#preference };
   }
-
-  readonly set = Effect.fn("BusyMessageModePreference.set")(function* (
-    this: BusyMessageModePreferenceStore,
-    { mode }: BusyMessageModePreference,
-  ) {
-    yield* this.#writes.withPermit(
-      Effect.uninterruptible(
-        writePreferenceFile(this.#path, { version: 1, mode }).pipe(
-          Effect.tap(() =>
-            Effect.sync(() => {
-              this.#preference = { mode };
-            }),
-          ),
-        ),
-      ),
-    );
-    return this.get();
-  });
 }

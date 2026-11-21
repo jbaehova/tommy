@@ -8,25 +8,15 @@ import { randomUUID } from "node:crypto";
 import {
   cardBrand,
   VAULT_FILL_SITE_LIMIT,
-  VAULT_NOTES_LIMIT,
   VAULT_PASSWORD_LIMIT,
   VAULT_TEXT_LIMIT,
   type VaultContactFields,
-  type VaultImportResult,
   type VaultItemSummary,
   type VaultSaveInput,
-  type VaultSecretRequest,
   type VaultState,
   type VaultStatus,
-  type VaultTwoStepCodes,
 } from "@tommy/contracts/ipc";
-import {
-  normalizeTwoStepKey,
-  parseTwoStepKey,
-  twoStepCode,
-  twoStepKeySecret,
-  twoStepRemainingMs,
-} from "@tommy/contracts/two-step-code";
+import { parseTwoStepKey, twoStepCode, twoStepKeySecret, twoStepRemainingMs } from "@tommy/contracts/two-step-code";
 import { type SourceMessages, sourceText } from "@tommy/i18n/source";
 import { registerExpiringSecretValues, registerSecretValues } from "@tommy/logging";
 import { Effect, Result } from "effect";
@@ -40,7 +30,6 @@ import {
   type VaultItems,
   type VaultTypedLogin,
 } from "../backend/vault-items";
-import { parseLoginCsv } from "./vault-csv";
 import { decodeVaultSaveInput, vaultWebsite } from "./vault-inputs";
 import type { StoredApiKey, StoredCard, StoredContact, StoredLogin, VaultRecord, VaultStore } from "./vault-store";
 
@@ -232,9 +221,6 @@ function replaceOrAdd<T extends { id: string }>(items: readonly T[], item: T): T
     ? items.map((current) => (current.id === item.id ? item : current))
     : [...items, item];
 }
-
-/** The CSV file that `importCsv` reads, in bytes. A password export of thousands of logins fits. */
-export const VAULT_CSV_LIMIT = 4 * 1024 * 1024;
 /** Keep expired codes masked while an outstanding fill or delayed diagnostic settles. */
 const TWO_STEP_REDACTION_GRACE_MS = 5 * 60_000;
 
@@ -286,88 +272,6 @@ export class VaultService {
     return this.state();
   });
 
-  /** A saved password, card number, security code or API key, for the user who asked to see or copy it. */
-  reveal({ id, field }: VaultSecretRequest): string {
-    this.#requireReady();
-    const record = this.#store.read();
-    switch (field) {
-      case "password": {
-        const login = record.logins.find((item) => item.id === id);
-        if (login) return login.password;
-        break;
-      }
-      case "number":
-      case "securityCode": {
-        const card = record.cards.find((item) => item.id === id);
-        if (card) return field === "number" ? card.number : card.securityCode;
-        break;
-      }
-      case "key": {
-        const apiKey = record.apiKeys.find((item) => item.id === id);
-        if (apiKey) return apiKey.key;
-        break;
-      }
-    }
-    return refuse("error.vault.itemMissing");
-  }
-
-  /**
-   * Adds the logins of a CSV export. A row is skipped when its website is not HTTPS, it has no
-   * password, or the same login is already saved.
-   */
-  readonly importCsv = Effect.fn("VaultService.importCsv")(function* (this: VaultService, source: string) {
-    const parsed = yield* Effect.try({
-      try: () => parseLoginCsv(source),
-      catch: (cause) => new PasswordVaultError({ cause }),
-    });
-    let imported = 0;
-    let skipped = parsed.otherRows;
-    yield* this.#change((record) => {
-      const logins = [...record.logins];
-      imported = 0;
-      skipped = parsed.otherRows;
-      for (const row of parsed.logins) {
-        const website = vaultWebsite(row.website);
-        const valid =
-          website !== null &&
-          row.password.trim().length > 0 &&
-          website.length <= VAULT_TEXT_LIMIT &&
-          row.username.length <= VAULT_TEXT_LIMIT &&
-          row.password.length <= VAULT_PASSWORD_LIMIT;
-        const duplicate = valid
-          ? logins.find(
-              (login) =>
-                loginTitle(login.website) === loginTitle(website) &&
-                login.username === row.username &&
-                login.password === row.password,
-            )
-          : undefined;
-        const twoStepKey = row.twoStepKey ? normalizeTwoStepKey(row.twoStepKey) : null;
-        if (valid && duplicate && twoStepKey && !duplicate.twoStepKey) {
-          logins[logins.indexOf(duplicate)] = { ...duplicate, twoStepKey };
-          imported += 1;
-          continue;
-        }
-        if (!valid || duplicate || (row.twoStepKey && !twoStepKey)) {
-          skipped += 1;
-          continue;
-        }
-        logins.push({
-          id: randomUUID(),
-          website,
-          username: row.username,
-          password: row.password,
-          notes: row.notes.slice(0, VAULT_NOTES_LIMIT),
-          ...(twoStepKey ? { twoStepKey } : {}),
-        });
-        imported += 1;
-      }
-      return imported > 0 ? { ...record, logins } : record;
-    });
-    const result: VaultImportResult = { imported, skipped, state: this.state() };
-    return result;
-  });
-
   /** Removes the Vault file and every item. The only way out of `unreadable`. */
   readonly reset = Effect.fn("VaultService.reset")(function* (this: VaultService) {
     if (!this.#canPersist()) {
@@ -378,29 +282,6 @@ export class VaultService {
     this.#status = "ready";
     this.#emit();
     return this.state();
-  });
-
-  /** Returns short-lived codes only. Setup keys never leave the host. */
-  readonly codes = Effect.fn("VaultService.codes")(function* (
-    this: VaultService,
-  ): Effect.fn.Return<VaultTwoStepCodes, PasswordVaultError> {
-    yield* Effect.try({ try: () => this.#requireReady(), catch: (cause) => new PasswordVaultError({ cause }) });
-    const at = Date.now();
-    const codes: VaultTwoStepCodes["codes"] = [];
-    for (const login of this.#store.read().logins) {
-      const key = login.twoStepKey ? parseTwoStepKey(login.twoStepKey) : null;
-      if (!key) continue;
-      const code = yield* Effect.tryPromise({
-        try: () => twoStepCode(key, at),
-        catch: (cause) => new PasswordVaultError({ cause }),
-      });
-      codes.push({ id: login.id, code, period: key.period, remainingMs: twoStepRemainingMs(key.period, at) });
-    }
-    registerExpiringSecretValues(
-      codes.map(({ code }) => code),
-      at + codes.reduce((longest, code) => Math.max(longest, code.remainingMs), 0) + TWO_STEP_REDACTION_GRACE_MS,
-    );
-    return { codes };
   });
 
   /** The built-in logins, for the password vault router under the `tommy:` prefix. */
@@ -720,11 +601,6 @@ export class VaultService {
   #find<T extends { id: string }>(items: readonly T[], id: string): T {
     const item = items.find((current) => current.id === id);
     return item ?? refuse("error.vault.itemMissing");
-  }
-
-  #requireReady(): void {
-    if (this.#status === "unavailable") refuse("error.vault.unavailable");
-    if (this.#status === "unreadable") refuse("error.vault.unreadable");
   }
 
   readonly #change = Effect.fn("VaultService.change")(function* (

@@ -7,7 +7,7 @@
  * a row without a second shape. Rows never carry a path: the host resolves a file from its id.
  */
 
-import { MANAGED_RUNTIME_PROVIDERS, type ManagedProviderId } from "./agent-providers";
+import type { ManagedProviderId } from "./agent-providers";
 import { type AttachmentSummary, isAttachmentSummary } from "./ipc-attachments";
 import { isBoundedString, isIdentifier, isNullableBoundedString } from "./ipc-bounded-values";
 import { isBoolean, isDynamicRecord, isNumber, isOneOf, isString } from "./runtime-values";
@@ -130,22 +130,12 @@ export interface GetStorageUsageInput {
   force?: boolean;
 }
 
-/** Client-side save of a managed attachment to Downloads. No renderer path is accepted. */
-export interface SaveStoredFileInput {
-  fileId: string;
-}
-
 export interface DeleteStoredFileInput {
   fileId: string;
 }
 
 export interface ClearStorageInput {
   category: ClearableStorageCategory;
-}
-
-export interface OpenStoredFileInput {
-  fileId: string;
-  action: "open" | "reveal" | "download";
 }
 
 /**
@@ -163,10 +153,6 @@ export interface ProviderRuntimeDownload {
   bytes: number;
   /** How many versions of the CLI those bytes hold. */
   versions: number;
-}
-
-export interface OpenStorageLocationInput {
-  agentId: string;
 }
 
 function invalid(label: string): never {
@@ -213,10 +199,6 @@ export function parseGetStorageUsageInput(value: unknown): GetStorageUsageInput 
   };
 }
 
-export function parseSaveStoredFileInput(value: unknown): SaveStoredFileInput {
-  return parseDeleteStoredFileInput(value);
-}
-
 export function parseDeleteStoredFileInput(value: unknown): DeleteStoredFileInput {
   return { fileId: identifier(record(value, "file request").fileId, "file") };
 }
@@ -225,32 +207,6 @@ export function parseClearStorageInput(value: unknown): ClearStorageInput {
   const input = record(value, "clear request");
   if (!isOneOf(CLEARABLE_STORAGE_CATEGORIES, input.category)) invalid("storage category");
   return { category: input.category };
-}
-
-export function parseOpenStoredFileInput(value: unknown): OpenStoredFileInput {
-  const input = record(value, "file request");
-  if (!isOneOf(["open", "reveal", "download"] as const, input.action)) invalid("file action");
-  return { fileId: identifier(input.fileId, "file"), action: input.action };
-}
-
-export function parseOpenStorageLocationInput(value: unknown): OpenStorageLocationInput {
-  return { agentId: identifier(record(value, "location request").agentId, "agent") };
-}
-
-export function decodeRemovableRuntimes(value: unknown): RemovableRuntimes {
-  const runtimes = record(value, "removable runtimes");
-  const providers = runtimes.providers ?? [];
-  if (!Array.isArray(providers) || !providers.every((provider) => isOneOf(MANAGED_RUNTIME_PROVIDERS, provider)))
-    invalid("removable runtimes");
-  return { bytes: byteCount(runtimes.bytes, "removable runtimes"), providers };
-}
-
-export function decodeProviderRuntimeDownload(value: unknown): ProviderRuntimeDownload {
-  const download = record(value, "provider runtime download");
-  return {
-    bytes: byteCount(download.bytes, "provider runtime download"),
-    versions: byteCount(download.versions, "provider runtime download"),
-  };
 }
 
 function decodeBreakdown(value: unknown): StorageBreakdown {
@@ -338,22 +294,12 @@ export function decodeStorageUsage(value: unknown): StorageUsage {
   };
 }
 
-/** A remote host without `storage-v1` answers null, and the surface says the host needs an update. */
-export function decodeOptionalStorageUsage(value: unknown): StorageUsage | null {
-  return value === null ? null : decodeStorageUsage(value);
-}
-
 export function decodeStorageDisk(value: unknown): StorageDisk {
   const disk = record(value, "disk space");
   return {
     freeBytes: disk.freeBytes === null ? null : byteCount(disk.freeBytes, "free space"),
     totalBytes: disk.totalBytes === null ? null : byteCount(disk.totalBytes, "disk size"),
   };
-}
-
-/** A remote host without `storage-disk-v1` answers null, and the sidebar shows no storage card. */
-export function decodeOptionalStorageDisk(value: unknown): StorageDisk | null {
-  return value === null ? null : decodeStorageDisk(value);
 }
 
 /** A host must answer the scope it was asked for, or a panel shows another agent's files. */

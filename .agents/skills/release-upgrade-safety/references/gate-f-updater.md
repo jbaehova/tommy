@@ -1,33 +1,17 @@
-# Gate F — The updater itself — `electron-builder.yml`, `src/main/update-service.ts`, `package.json`
+# Linux release and installation
 
-Triggered by a change to any of those, to `package.json` dependencies, or to the two files that
-enforce this gate at release time: `scripts/verify-update-artifacts.ts` and
-`.github/workflows/release.yml`. A change that relaxes a size limit, drops a manifest or blockmap
-check, or alters what gets published is exactly the change this gate should stop, and neither file
-lives under the paths above — so without them listed, weakening the safeguard reads as "not
-triggered". Diff the thresholds and the checks themselves, not only the code they guard.
+Audit the release workflow, Electron package settings, the installer and the service scripts. CI
+builds an unpacked application for x64 and arm64 and publishes their archives on a version tag.
+A manual workflow run builds artifacts. See [Releasing](../../../../docs/RELEASING.md).
 
-- `appId`, the `publish` owner and repo, `artifactName` and `electronUpdaterCompatibility` are
-  unchanged. A changed `appId` breaks the update feed and the `safeStorage` files at once — the
-  users who lose their credentials are exactly the ones who successfully updated.
-- **An `electron-updater` version bump means re-verifying the four non-public behaviours**
-  documented on `UpdateAdapter` in `src/main/update-service.ts`: `MacUpdater.updateDownloaded` only
-  asks Squirrel to stage while `autoInstallOnAppQuit` is on, `MacUpdater.quitAndInstall` stages on
-  demand, every available check mints and returns a cancellation token, and
-  `BaseUpdater.quitAndInstall` can return without quitting. Then update the verified version in
-  that doc comment. No test checks these behaviours. If you change that version without
-  re-verifying, you get the failure of issue #152.
-- New `extraResources` or a bundled model breaks the size gates:
-  `scripts/verify-update-artifacts.ts` rejects an update artifact over 700 MiB and a DMG over
-  750 MiB, and `.github/workflows/release.yml` additionally rejects a macOS ZIP that is not smaller
-  than the `v0.1.21` ZIP it downloads to compare against.
+Check both packages for the server executable, sandbox helper, separate database host, driver for
+the architecture, operator CLI, hosting scripts and license files. Preserve the app ID, service user,
+keyring identity, Electron fuses and configured data paths. Compare the target versions and hashes
+of all retained provider and driver files in `native-runtime.lock.json`. Verify existing releases
+can still read the revocations at `provider-runtime-blocklist.json`.
 
-Compare the installed version with the version that the `UpdateAdapter` doc comment names:
-
-```bash
-git diff <tag>..HEAD -- package.json | grep -E '^[-+] +"electron-updater"'
-grep -n 'verified against' src/main/update-service.ts
-```
-
-If the versions are different, read the four behaviours in the installed
-`node_modules/electron-updater` source before you continue.
+When installation, storage or service startup changed, upgrade a disposable Linux installation
+from the released archive. Stop it, install the candidate and restart it. Reopen its existing
+database and keyring. Check attachment ownership, agent sessions, pending Telegram work and service
+shutdown. Verify that the installed Chromium sandbox and AppArmor profile are active. Record any
+untested architecture or missing live credential.

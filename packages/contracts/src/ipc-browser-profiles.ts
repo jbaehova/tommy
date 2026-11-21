@@ -13,21 +13,6 @@ export const BROWSER_PROFILE_LIMIT = 100;
 
 const BROWSER_PROFILE_ID = /^[0-9a-f]{32}$/u;
 
-/**
- * The colors that a new profile gets, in order: the first one with the fewest profiles. Neighbors
- * are far apart on the color wheel, so the first profiles are easy to tell apart. Red is last,
- * because it also marks errors.
- */
-export const BROWSER_PROFILE_HUES = [215, 30, 150, 320, 55, 185, 245, 0] as const satisfies readonly AvatarHue[];
-
-export function nextBrowserProfileHue(used: readonly AvatarHue[]): AvatarHue {
-  const count = (hue: AvatarHue) => used.filter((candidate) => candidate === hue).length;
-  return BROWSER_PROFILE_HUES.reduce<AvatarHue>(
-    (best, hue) => (count(hue) < count(best) ? hue : best),
-    BROWSER_PROFILE_HUES[0],
-  );
-}
-
 export function isBrowserProfileId(value: unknown): value is string {
   return isString(value) && BROWSER_PROFILE_ID.test(value);
 }

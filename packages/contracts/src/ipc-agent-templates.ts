@@ -26,15 +26,6 @@ export interface AgentTemplateSnapshot {
   routines: MarketplaceAgentRoutine[];
 }
 
-export interface AgentTemplateDetail extends AgentTemplateSnapshot {
-  id: string;
-  avatarUrl: string | null;
-  /** The share card image (`AGENT_TEMPLATE_CARD`), or null when the publish sent none. */
-  cardUrl?: string | null;
-  creatorName: string;
-  updatedAt: string;
-}
-
 export interface AgentTemplatePublication {
   templateId: string;
   shareUrl: string;
@@ -68,13 +59,6 @@ export interface InstallAgentTemplateInput {
   /** The `updatedAt` of the template the user reviewed; a newer version is refused, not installed. */
   expectedUpdatedAt: string;
 }
-
-/** The share card: the 1.91:1 image X and other sites show for a link. */
-export const AGENT_TEMPLATE_CARD = {
-  width: 1200,
-  height: 630,
-  maxBytes: 1_500_000,
-} as const;
 
 export const AGENT_TEMPLATE_LIMITS = {
   skills: 32,
@@ -123,57 +107,6 @@ export function isAgentTemplateRoutine(value: unknown): value is MarketplaceAgen
     isBoolean(value.active) &&
     isReleasedRoutineSchedule(value.schedule)
   );
-}
-
-export function isAgentTemplateSnapshot(value: unknown): value is AgentTemplateSnapshot {
-  return (
-    isDynamicRecord(value) &&
-    isString(value.name) &&
-    value.name.trim().length > 0 &&
-    value.name.length <= INPUT_LIMITS.agentName &&
-    isString(value.title) &&
-    value.title.length <= INPUT_LIMITS.agentTitle &&
-    isString(value.description) &&
-    value.description.trim().length > 0 &&
-    value.description.length <= INPUT_LIMITS.agentDescription &&
-    isAvatarSeed(value.avatarSeed) &&
-    (value.avatarHue === null || isAvatarHue(value.avatarHue)) &&
-    Array.isArray(value.skills) &&
-    value.skills.length <= AGENT_TEMPLATE_LIMITS.skills &&
-    value.skills.every(isAgentTemplateSkill) &&
-    value.skills.filter((skill) => skill.kind === "embedded").length <= AGENT_TEMPLATE_LIMITS.embeddedSkills &&
-    Array.isArray(value.routines) &&
-    value.routines.length <= INPUT_LIMITS.agentRoutines &&
-    value.routines.every(isAgentTemplateRoutine) &&
-    new TextEncoder().encode(JSON.stringify(value)).byteLength <= AGENT_TEMPLATE_LIMITS.snapshotBytes
-  );
-}
-
-export function isAgentTemplateDetail(value: unknown): value is AgentTemplateDetail {
-  return (
-    isAgentTemplateSnapshot(value) &&
-    isDynamicRecord(value) &&
-    isString(value.id) &&
-    (value.avatarUrl === null || isString(value.avatarUrl)) &&
-    (value.cardUrl === undefined || value.cardUrl === null || isString(value.cardUrl)) &&
-    isString(value.creatorName) &&
-    isString(value.updatedAt)
-  );
-}
-
-/**
- * A template from `GET /v1/agent-templates/<id>`, with only the known fields. `avatarUrl` stays as the
- * account service sent it: a path on the service's origin.
- */
-export function decodeAgentTemplateDetail(value: unknown): AgentTemplateDetail {
-  if (!isAgentTemplateDetail(value) || !isAgentTemplateId(value.id)) throw new Error("Invalid agent template.");
-  return {
-    ...toAgentTemplateSnapshot(value),
-    id: value.id,
-    creatorName: value.creatorName,
-    updatedAt: value.updatedAt,
-    avatarUrl: value.avatarUrl,
-  };
 }
 
 /** Copies only the known fields, so an extra key from the wire never reaches storage or the renderer. */

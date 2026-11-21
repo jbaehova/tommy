@@ -80,15 +80,6 @@ export function foreignProvider(provider: AgentProviderRef): ForeignProviderId |
   return isKnownAgentProvider(provider) ? undefined : provider;
 }
 
-/**
- * The provider name to put in front of a user. A foreign provider shows the name its host sends,
- * else its id.
- */
-export function providerDisplayName(provider: AgentProviderRef, hostLabel?: string): string {
-  if (isAgentProvider(provider)) return agentProviderName(provider);
-  return hostLabel?.trim() || provider;
-}
-
 export interface AgentProviderDescriptor {
   readonly id: AgentProviderId;
   /** The account brand the user recognises. One name per provider, used on every surface. */
@@ -323,14 +314,6 @@ export const AGENT_PROVIDER_DESCRIPTORS: readonly AgentProviderDescriptor[] = AG
 
 export function agentProviderDescriptor(provider: AgentProviderId): AgentProviderDescriptor {
   return AGENT_PROVIDER_DESCRIPTOR_TABLE[provider];
-}
-
-/**
- * Whether the provider can take a queued message into its running turn. A provider that this build
- * does not know can: its host decides, and refuses the message when it cannot.
- */
-export function providerSteersTurns(provider: AgentProviderRef): boolean {
-  return !isKnownAgentProvider(provider) || agentProviderDescriptor(provider).steer === "native";
 }
 
 /** The provider name to put in front of a user. */

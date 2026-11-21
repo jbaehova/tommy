@@ -67,73 +67,9 @@ export type AgentExclusionChange =
   | { outcome: "covered"; path: string; folder: string; list: AgentFolderList }
   | { outcome: "refused"; path: string; refusal: AgentExclusionRefusal; list: AgentFolderList };
 
-/** Opens the folder picker. With `replace`, the picked folder takes the place of that one (Locate…). */
-export interface ChooseAgentFolderInput {
-  agentId: string;
-  replace?: string;
-}
-
 export interface AgentFolderInput {
   agentId: string;
   path: string;
-}
-
-function separatorAt(path: string, index: number): boolean {
-  return path[index] === "/" || path[index] === "\\";
-}
-
-/** Whether `path` is `root` or below it. Both are absolute and normalized. */
-export function folderInside(root: string, path: string): boolean {
-  if (path === root) return true;
-  const trimmed = separatorAt(root, root.length - 1) ? root.slice(0, -1) : root;
-  return path.startsWith(trimmed) && separatorAt(path, trimmed.length);
-}
-
-/** Whether a folder that the agent can already change holds `path`. */
-export function agentFolderCoverage(
-  path: string,
-  roots: { workspace: string; shared: string; folders: readonly string[] },
-): AgentFolderCoverage | null {
-  if (roots.folders.includes(path)) return { reason: "already-added", folder: path };
-  if (folderInside(roots.workspace, path)) return { reason: "in-workspace", folder: roots.workspace };
-  if (folderInside(roots.shared, path)) return { reason: "in-shared", folder: roots.shared };
-  const parent = roots.folders.find((folder) => folderInside(folder, path));
-  return parent === undefined ? null : { reason: "in-folder", folder: parent };
-}
-
-/** The last part of a folder path, for a row title. */
-export function agentFolderName(path: string): string {
-  const parts = path.split(/[\\/]+/).filter(Boolean);
-  return parts.at(-1) ?? path;
-}
-
-/** Where the folder is: its parent, or the root for a folder directly in it. */
-export function agentFolderParent(path: string): string {
-  const end = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-  if (end === 0) return path.slice(0, 1);
-  return end > 0 ? path.slice(0, end) : path;
-}
-
-/**
- * The folder that holds an excluded folder, as the Folders page names it, with the path below it.
- * Null when no folder of the list holds it: a folder that the user removed no longer holds it.
- */
-export function agentExclusionPlace(
-  path: string,
-  list: AgentFolderList,
-  names: { workspace: string; shared: string },
-): string | null {
-  const holders: [string, string][] = [
-    [list.workspace, names.workspace],
-    [list.shared, names.shared],
-    ...list.folders.map((folder): [string, string] => [folder.path, agentFolderName(folder.path)]),
-  ];
-  const holder = holders.find(([root]) => folderInside(root, path));
-  if (!holder) return null;
-  const below = agentFolderParent(path)
-    .slice(holder[0].length)
-    .replace(/^[/\\]+/, "");
-  return below ? `${holder[1]}/${below}` : holder[1];
 }
 
 export function isAgentAdditionalFolders(value: unknown): value is string[] {
@@ -142,11 +78,6 @@ export function isAgentAdditionalFolders(value: unknown): value is string[] {
     value.length <= AGENT_FOLDER_LIMIT &&
     value.every((path) => isBoundedString(path, INPUT_LIMITS.path) && path.length > 0)
   );
-}
-
-/** The excluded folder that is or holds `path`. */
-export function agentExclusionCoverage(path: string, excluded: readonly string[]): string | null {
-  return excluded.find((folder) => folderInside(folder, path)) ?? null;
 }
 
 function isFolderPaths(value: unknown): value is string[] {
@@ -214,13 +145,6 @@ export function decodeAgentFolderChangeFromMain(value: unknown): AgentFolderChan
 export function decodeAgentExclusionChangeFromMain(value: unknown): AgentExclusionChange {
   if (!isDynamicRecord(value) || !isAgentExclusionChange(value)) throw new Error("Invalid agent folder change.");
   return value;
-}
-
-export function parseChooseAgentFolderInput(value: unknown): ChooseAgentFolderInput {
-  if (!isDynamicRecord(value) || !isIdentifier(value.agentId)) throw new Error("Invalid agent folder input.");
-  if (value.replace === undefined) return { agentId: value.agentId };
-  if (!isBoundedString(value.replace, INPUT_LIMITS.path)) throw new Error("Invalid agent folder input.");
-  return { agentId: value.agentId, replace: value.replace };
 }
 
 export function parseAgentFolderInput(value: unknown): AgentFolderInput {

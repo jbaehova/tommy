@@ -25,10 +25,6 @@ export const WORKFLOW_GITHUB_EVENTS = [
 ] as const;
 export type WorkflowGitHubEvent = (typeof WORKFLOW_GITHUB_EVENTS)[number];
 
-/** The filters of a GitHub trigger, besides its labels. `title` and `branch` read a field of the same name. */
-export const WORKFLOW_GITHUB_FILTERS = ["notBot", "firstTime", "title", "branch"] as const;
-export type WorkflowGitHubFilter = (typeof WORKFLOW_GITHUB_FILTERS)[number];
-
 /** What a GitHub output can do. */
 export const WORKFLOW_GITHUB_ACTIONS = [
   "comment",
@@ -277,18 +273,5 @@ export function isWorkflowGitHubRepositoryOptions(value: unknown): value is Work
     Array.isArray(value.people) &&
     value.people.length <= WORKFLOW_GITHUB_OPTION_LIMIT &&
     value.people.every((login) => isBoundedString(login, LOGIN) && login.length > 0)
-  );
-}
-
-export function isWorkflowGitHubRepositoryInput(value: unknown): value is WorkflowGitHubRepositoryInput {
-  return isDynamicRecord(value) && isGitHubRepositoryName(value.repository);
-}
-
-export function isWorkflowGitHubLastEventInput(value: unknown): value is WorkflowGitHubLastEventInput {
-  return (
-    isDynamicRecord(value) &&
-    isIdentifier(value.workflowId) &&
-    isIdentifier(value.nodeId) &&
-    isIdentifier(value.requestId)
   );
 }

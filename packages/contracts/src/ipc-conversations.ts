@@ -52,14 +52,6 @@ export interface ConversationWithReadState extends ConversationSnapshot {
   readState?: ConversationReadState;
 }
 
-export function isConversationWithReadState(value: unknown): value is ConversationWithReadState {
-  return (
-    isDynamicRecord(value) &&
-    isConversationSnapshot(value) &&
-    (value.readState === undefined || isConversationReadState(value.readState))
-  );
-}
-
 export type ConversationPageAnchor =
   | { type: "latest" }
   | { type: "before"; cursor: string }
@@ -94,23 +86,6 @@ export interface ConversationPage {
   readState?: ConversationReadState;
 }
 
-/** A link in an agent's conversation that the user opened. */
-export interface OpenMessageLinkInput {
-  agentId: string;
-  url: string;
-}
-
-/** The address that the browser shows at the end of a relayed sign-in link. */
-export interface PasteMessageLinkInput {
-  url: string;
-  address: string;
-}
-
-/** A relayed sign-in link that the user stopped. */
-export interface CancelMessageLinkInput {
-  url: string;
-}
-
 export interface SearchConversationMessagesInput {
   query: string;
   agentId?: string;
@@ -136,13 +111,6 @@ export interface ConversationSearchPage {
   nextCursor: string | null;
 }
 
-/** A file name search across the local agent chats. An empty query lists the newest files. */
-export interface SearchConversationFilesInput {
-  query: string;
-  cursor?: string;
-  limit?: number;
-}
-
 /** One file that a message in an agent chat carries. */
 export interface ConversationFileSearchResult {
   agentId: string;
@@ -159,12 +127,6 @@ export interface ConversationFileSearchPage {
 export interface MarkConversationReadInput {
   agentId: string;
   throughMessageId: string | null;
-}
-
-/** Marks `fromMessageId` and the messages after it unread, for this computer's reader. */
-export interface MarkConversationUnreadInput {
-  agentId: string;
-  fromMessageId: string;
 }
 
 export interface SendMessageInput {

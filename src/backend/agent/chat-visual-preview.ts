@@ -12,6 +12,7 @@ export interface ChatVisualPreviewResult {
   /** A PNG data URL of the page at its content height, which the agent reads as an image. */
   imageUrl: string;
   contentHeight: number;
+  interactive: boolean;
   console: string[];
 }
 

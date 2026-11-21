@@ -82,12 +82,7 @@
   },
   "overrides": [
     {
-      "includes": [
-        "packages/contracts/src/**/*.ts",
-        "packages/team-client/src/**/*.ts",
-        "!packages/contracts/src/**/*.test.ts",
-        "!packages/team-client/src/**/*.test.ts"
-      ],
+      "includes": ["packages/contracts/src/**/*.ts", "!packages/contracts/src/**/*.test.ts"],
       "linter": {
         "rules": {
           "correctness": {
@@ -97,16 +92,7 @@
       }
     },
     {
-      "includes": [
-        "src/**/*.ts",
-        "src/**/*.tsx",
-        "scripts/**/*.ts",
-        "packages/**/*.ts",
-        "!scripts/build-remote-desktop-runtime.ts",
-        "!scripts/create-remote-desktop-release-manifest.ts",
-        "!scripts/package-remote-desktop-runtime.ts",
-        "!scripts/remote-desktop-runtime-release.ts"
-      ],
+      "includes": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts", "packages/**/*.ts"],
       "linter": {
         "rules": {
           "suspicious": {

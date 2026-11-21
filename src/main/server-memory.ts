@@ -32,8 +32,6 @@ const STOP_GRACE_MS = 5_000;
 const STOP_MIN_AGE_MS = 5_000;
 
 export interface ServerMemoryOptions {
-  /** True on a hosted server, whose plan sets the memory. */
-  hostedPlan: boolean;
   /** Called one time when the memory files cannot be read (the level then stays "ok"), and when a listener fails. */
   onError: (message: string, error: unknown) => void;
   /** Called for each leftover agent process that the server signals to free memory. */
@@ -92,11 +90,8 @@ export class ServerMemory implements HostMemory {
   #readErrorLogged = false;
   #noCgroupLogged = false;
 
-  readonly hostedPlan: boolean;
-
   constructor(options: ServerMemoryOptions) {
     this.#options = options;
-    this.hostedPlan = options.hostedPlan;
   }
 
   start(): void {

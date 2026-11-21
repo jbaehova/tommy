@@ -102,14 +102,6 @@ export interface UpdateRoutineFlowLinkInput {
 /** The largest coordinate a node may take; far beyond any canvas a person would build. */
 export const ROUTINE_FLOW_MAX_COORDINATE = 1_000_000;
 
-export function routineFlowAgentKey(agentId: string): string {
-  return `agent:${agentId}`;
-}
-
-export function routineFlowRoutineKey(routineId: string): string {
-  return `routine:${routineId}`;
-}
-
 export function isRoutineFlowNodeKey(value: unknown): value is string {
   if (!isString(value)) return false;
   const [kind, id, ...rest] = value.split(":");
@@ -196,41 +188,5 @@ export function isRoutineFlowCanvas(value: unknown): value is RoutineFlowCanvas 
     value.positions.every(isRoutineFlowPosition) &&
     Array.isArray(value.placedAgentIds) &&
     value.placedAgentIds.every(isIdentifier)
-  );
-}
-
-export function isSaveRoutineFlowPositionInput(value: unknown): value is SaveRoutineFlowPositionInput {
-  return (
-    isDynamicRecord(value) &&
-    isIdentifier(value.agentId) &&
-    isRoutineFlowNodeKey(value.nodeKey) &&
-    isCoordinate(value.x) &&
-    isCoordinate(value.y)
-  );
-}
-
-export function isRemoveRoutineFlowPositionInput(value: unknown): value is RemoveRoutineFlowPositionInput {
-  return isDynamicRecord(value) && isIdentifier(value.agentId) && isRoutineFlowNodeKey(value.nodeKey);
-}
-
-export function isConnectRoutineFlowInput(value: unknown): value is ConnectRoutineFlowInput {
-  return (
-    isDynamicRecord(value) &&
-    isIdentifier(value.routineId) &&
-    isIdentifier(value.fromAgentId) &&
-    isIdentifier(value.toAgentId) &&
-    (value.instruction === undefined || isBoundedString(value.instruction, INPUT_LIMITS.routineInstruction))
-  );
-}
-
-export function isDisconnectRoutineFlowInput(value: unknown): value is DisconnectRoutineFlowInput {
-  return isDynamicRecord(value) && isIdentifier(value.linkId);
-}
-
-export function isUpdateRoutineFlowLinkInput(value: unknown): value is UpdateRoutineFlowLinkInput {
-  return (
-    isDynamicRecord(value) &&
-    isIdentifier(value.linkId) &&
-    isBoundedString(value.instruction, INPUT_LIMITS.routineInstruction)
   );
 }

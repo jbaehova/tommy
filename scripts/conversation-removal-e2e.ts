@@ -155,14 +155,9 @@ const browser: AgentBrowserHost = {
   },
   agentTab: () => null,
   listTabs: () => [],
-  beginTakeover: unused,
-  endTakeover: () => {},
   resolveUploadTarget: unused,
   handleDynamicTool: unused,
-  userControlTabFor: () => null,
-  awaitUserControlRelease: unused,
   onChanged: () => () => {},
-  onControlChanged: () => () => {},
   onDocumentChanged: () => () => {},
   clearControls: () => {},
   endControl: () => {},
@@ -690,6 +685,59 @@ try {
   checked(
     "Channel history clears stopped requests and old assignment copies. A stale running row refuses before archiving; failed cleanup retries preserve later channel work.",
   );
+  const recordingBytes = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x42, 0x86]);
+  const recording = await runCauseEffect(
+    mailbox.stageGeneratedBytes({
+      bytes: recordingBytes,
+      name: "voice.webm",
+      mimeType: "audio/webm",
+      ownerAgentId: other.id,
+      ownerThreadId: threadOf(other),
+    }),
+  );
+  const transcript: ConversationMessage = {
+    id: randomUUID(),
+    author: "user",
+    text: "Saved voice transcript.",
+    turnId: randomUUID(),
+    status: "completed",
+    createdAt: new Date().toISOString(),
+    voiceRecording: recording,
+  };
+  const original = snapshot(other);
+  const answer: ConversationMessage = {
+    id: randomUUID(),
+    author: "assistant",
+    text: "Received.",
+    turnId: transcript.turnId,
+    createdAt: transcript.createdAt,
+    status: "completed",
+  };
+  mailbox.persistGeneratedAttachmentsWith([recording.id], "conversation-removal.saved-voice", () =>
+    database.persistConversation(
+      { ...original, messages: [...original.messages, transcript, answer] },
+      "thread.restored",
+    ),
+  );
+  const branch = await runCauseEffect(
+    agents.branchTask({ agentId: other.id, taskId: null, messageId: answer.id, requestId: randomUUID() }, "owner"),
+  );
+  const copy = agents.readTask(other.id, branch.id).messages.find((message) => message.text === transcript.text);
+  assert.ok(copy?.voiceRecording);
+  assert.notEqual(copy.voiceRecording.id, recording.id);
+  const copies = [
+    snapshot(other).messages.find((message) => message.id === transcript.id)?.voiceRecording,
+    copy.voiceRecording,
+  ];
+  for (const file of copies) {
+    assert.ok(file);
+    assert.equal(file.name, "voice.webm");
+    assert.equal(file.mimeType, "audio/webm");
+    const stored = await runCauseEffect(mailbox.resolveAttachment(file.id));
+    assert.ok(stored);
+    assert.deepEqual(await readFile(stored.path), Buffer.from(recordingBytes));
+  }
+  checked("The saved voice transcript and WebM bytes survive a conversation branch.");
   report.passed = true;
 } catch (cause) {
   report.error = cause instanceof Error ? (cause.stack ?? cause.message) : String(cause);

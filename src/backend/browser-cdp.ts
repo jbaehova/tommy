@@ -12,7 +12,7 @@ import type {
 import { type DynamicRecord, isBoolean, isDynamicRecord, isNumber, isString } from "@tommy/contracts/runtime-values";
 import { sourceText } from "@tommy/i18n/source";
 import { redactText } from "@tommy/logging";
-import { Deferred, Effect, Exit, Fiber, Scope } from "effect";
+import { Deferred, Effect, Exit, Scope } from "effect";
 import type { NativeImage, WebContents } from "electron";
 import {
   BROWSER_CARD_FIELDS,
@@ -30,15 +30,7 @@ import {
   LOADED_FROM_NETWORK,
   parseCardFieldDescription,
 } from "./browser-card-fill";
-import {
-  buttonMask,
-  dispatchMouseClick,
-  dispatchShortcut,
-  dispatchTextKey,
-  modifierMask,
-  namedKey,
-  SHIFT_MODIFIER,
-} from "./browser-cdp-input";
+import { dispatchMouseClick, dispatchShortcut, dispatchTextKey, modifierMask } from "./browser-cdp-input";
 import {
   boundSerializedSnapshot,
   CardValueScrub,
@@ -82,7 +74,6 @@ import {
   fillPreparedFields,
 } from "./browser-fill-fields";
 import { describeBrowserTarget, stopLoadingAndWait, waitForLoading } from "./browser-navigation";
-import { createFramePacer } from "./browser-screencast-pacing";
 import type { VaultCardSecret } from "./vault-items";
 
 const ACTION_TIMEOUT_MS = 10_000;
@@ -122,80 +113,6 @@ export interface SnapshotContext {
   actions: BrowserActionHistoryEntry[];
 }
 
-export interface BrowserScreencastOptions {
-  quality: number;
-  maxWidth: number;
-  maxHeight: number;
-  /**
-   * The page size, in CSS pixels, that the viewer asks the page to keep while it watches. A tab that
-   * fills the panel otherwise changes size with the host's window. A tab with a size of its own
-   * keeps that size.
-   */
-  viewport?: { width: number; height: number };
-}
-
-export interface BrowserScreencastFrame {
-  sequence: number;
-  width: number;
-  height: number;
-  image: Uint8Array;
-}
-
-/** Pointer and key input in the page's own CSS pixels. */
-export type BrowserViewportInput =
-  | {
-      type: "pointer";
-      action: "move" | "down" | "up" | "wheel";
-      x: number;
-      y: number;
-      button: "left" | "middle" | "right";
-      clickCount: number;
-      deltaX: number;
-      deltaY: number;
-      modifiers: number;
-    }
-  | { type: "key"; action: "down" | "up" | "char"; key: string; code: string; text: string; modifiers: number }
-  | { type: "paste"; text: string }
-  | { type: "cut"; text: string };
-
-/**
- * The focused element and its document, past open shadow roots and into frames of the page's own
- * origin. A frame of another origin is closed to the automation world, so focus there stops at the
- * frame. An element in a frame belongs to that frame's realm, so it is known by its tag, not by
- * `instanceof`. A field's selection is not part of `getSelection()`, and a password field gives
- * nothing, as it does for a user's copy.
- */
-const FOCUSED_SELECTION = `
-  let doc = document;
-  let active = doc.activeElement;
-  for (;;) {
-    if (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
-    else if (active?.tagName === "IFRAME" && active.contentDocument?.activeElement) {
-      doc = active.contentDocument;
-      active = doc.activeElement;
-    } else break;
-  }
-  const isField = active?.tagName === "TEXTAREA" || active?.tagName === "INPUT";
-  const selected = () => {
-    if (active?.tagName === "INPUT" && active.type === "password") return "";
-    if (isField) {
-      const start = active.selectionStart;
-      const end = active.selectionEnd;
-      return typeof start === "number" && typeof end === "number" ? active.value.slice(start, end) : "";
-    }
-    const root = active?.getRootNode() ?? doc;
-    const selection = typeof root.getSelection === "function" ? root.getSelection() : doc.getSelection();
-    return selection?.toString() ?? "";
-  };`;
-
-/**
- * The frame element that holds focus when this world cannot look inside it, or null when the focus
- * is in reach. A same-origin frame is walked into by `FOCUSED_SELECTION` itself.
- */
-const FOCUSED_FRAME_SCRIPT = `(() => {${FOCUSED_SELECTION}
-  return active?.tagName === "IFRAME" || active?.tagName === "FRAME" ? active : null;
-})()`;
-
 /** Frames inside frames. Past this the focus is treated as in the last frame reached. */
 const MAX_FOCUSED_FRAME_DEPTH = 8;
 
@@ -212,47 +129,6 @@ const HOLDS_FOCUS_FUNCTION = `function() {
     node = root.host;
   }
 }`;
-
-/**
- * The page's selection, read in the automation world so the page's own scripts cannot answer for it.
- * A selection longer than `max` answers null. An `email` or `number` input has no selection to read.
- */
-const SELECTION_TEXT_SCRIPT = `(max) => {${FOCUSED_SELECTION}
-  const text = selected();
-  return text.length > max ? null : text;
-}`;
-
-/**
- * The second half of a cut, once its text is on the member's clipboard. It deletes only the same
- * selection, and only where the user could have typed over it: a selection that changed meanwhile
- * is not the text the member has.
- */
-const CUT_SCRIPT = `(expected) => {${FOCUSED_SELECTION}
-  const editable = isField ? !active.readOnly && !active.disabled : active?.isContentEditable === true;
-  if (!editable || selected() !== expected) return false;
-  return doc.execCommand("delete");
-}`;
-
-/**
- * A paste event on the focused element, carrying the member's text, as a real paste fires one. A page
- * that handles it - an editor that formats the text, a code form split over several fields - cancels
- * it, and the text is inserted only when nothing did.
- */
-const PASTE_EVENT_SCRIPT = `(text) => {${FOCUSED_SELECTION}
-  const data = new DataTransfer();
-  data.setData("text/plain", text);
-  const event = new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true, composed: true });
-  return (active ?? doc.body).dispatchEvent(event);
-}`;
-
-/** The letter of a shortcut. On a layout whose letters are not Latin, it is the key's place. */
-function shortcutLetter(key: string, code: string): string {
-  if (/^[a-z]$/iu.test(key)) return key.toLowerCase();
-  return /^Key[A-Z]$/u.test(code) ? code.slice(3).toLowerCase() : "";
-}
-
-/** Ctrl or Meta: either one is the command modifier, whichever system the client runs. */
-const COMMAND_MODIFIERS = 2 | 4;
 
 type BrowserDialogType = "alert" | "confirm";
 
@@ -285,20 +161,13 @@ const CANCEL_DIALOGS_EVENT = "-cancel-dialogs";
 // Electron shows its box in this listener, in the same task as the CDP event but after it.
 const RUN_DIALOG_EVENT = "-run-dialog";
 const DIALOG_CLOSED_ERROR = "This dialog is closed. A person answered it, or the page closed it. Read the tab again.";
-const DIALOG_FOR_PERSON_ERROR = "Only a person can answer this dialog in the tab. Ask the user to answer it.";
+const DIALOG_OWNER_ERROR = "This turn cannot answer the page dialog. Report the blocked step or close the tab.";
 
 export class BrowserCdpEngine {
   readonly #contents: WebContents;
-  /**
-   * The button a live view holds down. Chromium ends a drag at a move that names no button, so a
-   * move between a press and a release names this one.
-   */
-  #viewButton: "left" | "middle" | "right" | null = null;
   #targets = new Map<string, TargetRecord>();
   #lastSnapshot: BrowserSnapshot | null = null;
   #environment: BrowserEnvironment | null = null;
-  /** The page sizes of the open views that asked for one. The newest one applies. */
-  readonly #viewViewports: Array<{ width: number; height: number }> = [];
   #navigationGeneration = 0;
   readonly #cardScrub: CardValueScrub;
 
@@ -369,7 +238,9 @@ export class BrowserCdpEngine {
         const usernameNode = usernameTarget ? nodes.at(-1) : undefined;
         const inFrame = (index: number) =>
           browserFailure(
-            new Error(`${labels[index]} is inside a frame. Secure input does not support frames, so use takeover.`),
+            new Error(
+              `${labels[index]} is inside a frame. Secure input does not support frames. Report the blocked step with request_takeover.`,
+            ),
           );
         for (const [index, node] of nodes.entries()) {
           if (node.sessionId) return yield* inFrame(index);
@@ -629,7 +500,7 @@ export class BrowserCdpEngine {
           if (text === null)
             return yield* unavailable(
               field,
-              "has no saved value on this card. Leave it to the user with request_takeover.",
+              "has no saved value on this card. Report the blocked step with request_takeover.",
             );
           const fingerprint = yield* this.#callOnNode(
             send,
@@ -1084,7 +955,7 @@ export class BrowserCdpEngine {
                       else if (!preflightEmpty) yield* dispatchShortcut(send, "Backspace");
                       // An already dispatched command must drain before its queue slot can end.
                       // Acknowledgment alone does not prove which field kept the text.
-                      // Closing or takeover can start inside the input acknowledgment callback.
+                      // Closing or secure input can start inside the input acknowledgment callback.
                       // Do not send a new confirmation command to that withdrawn tab.
                       yield* browserSync(checkPolicy);
                       if (generation !== this.#navigationGeneration)
@@ -1696,7 +1567,7 @@ export class BrowserCdpEngine {
   /**
    * Pages such as GitHub's comment box make their file input only when a button is clicked, so there
    * is no input to target. Click the target with the chooser intercepted and set the files on the input
-   * that opened it. Interception is on only for this click: a person's own clicks keep the dialog.
+   * that opened it. Interception is active only for this click.
    */
   readonly #uploadThroughChooserEffect = Effect.fn("BrowserCdp.uploadThroughChooser")(function* (
     this: BrowserCdpEngine,
@@ -1712,8 +1583,8 @@ export class BrowserCdpEngine {
       true,
       resolved.sessionId,
     );
-    // Interception needs the Page domain, and turning it off again on the root session would also end
-    // the live view's screencast. The root frame's chooser is intercepted on a session of its own.
+    // Intercept the root frame's chooser in its own session so teardown cannot disable Page events
+    // that other operations on the root debugger session use.
     const attachOwnSession = Effect.gen(function* () {
       if (sessionId !== undefined) return undefined;
       const info = yield* send("Target.getTargetInfo");
@@ -1934,7 +1805,7 @@ export class BrowserCdpEngine {
     owner: BrowserDialogOwner,
   ): Effect.fn.Return<void, BrowserOperationError> {
     if (this.#dialog?.id !== id) return yield* browserFailure(new Error(DIALOG_CLOSED_ERROR));
-    if (!this.dialogOwnedBy(owner)) return yield* browserFailure(new Error(DIALOG_FOR_PERSON_ERROR));
+    if (!this.dialogOwnedBy(owner)) return yield* browserFailure(new Error(DIALOG_OWNER_ERROR));
     const answered = yield* browserCall(() =>
       this.#contents.debugger.sendCommand("Page.handleJavaScriptDialog", { accept }).then(() => {
         // In the same task as the answer, before the page can open its next dialog.
@@ -1953,10 +1824,9 @@ export class BrowserCdpEngine {
   });
 
   /**
-   * The agent turn ended. Its dialog stays open in Electron's box for a person, and the engine still
-   * sees it close. Without `turnId`, every turn of the thread; without `threadId`, every turn.
+   * A turn that ends loses the right to answer its dialog. With no thread or turn, clear all owners.
    */
-  handOffDialogs(threadId?: string, turnId?: string): void {
+  endDialogOwnership(threadId?: string, turnId?: string): void {
     const matches = (owner: BrowserDialogOwner) =>
       (threadId === undefined || owner.threadId === threadId) && (turnId === undefined || owner.turnId === turnId);
     let changed = false;
@@ -2056,12 +1926,12 @@ export class BrowserCdpEngine {
         (send) =>
           Effect.gen({ self: this }, function* () {
             yield* Effect.gen({ self: this }, function* () {
-              yield* this.#applyEnvironmentEffect(send, this.#appliedEnvironment(environment) ?? environment);
+              yield* this.#applyEnvironmentEffect(send, environment);
             }).pipe(
               Effect.catch((operationFailure) =>
                 Effect.gen({ self: this }, function* () {
                   const error = operationFailure.cause;
-                  const previous = this.#appliedEnvironment(previousEnvironment);
+                  const previous = previousEnvironment;
                   if (previous) yield* this.#applyEnvironmentEffect(send, previous);
                   else yield* this.#clearEnvironmentEffect(send);
                   return yield* browserFailure(error);
@@ -2092,7 +1962,7 @@ export class BrowserCdpEngine {
     return yield* this.#leaseEffect((send) =>
       Effect.gen({ self: this }, function* () {
         const clip = target ? yield* this.#elementClipEffect(send, target, deadline) : undefined;
-        const environment = this.#appliedEnvironment(this.#environment);
+        const environment = this.#environment;
         const fill = !environment || environment.viewport.mode === "fill";
         if (fill) {
           // Hidden views need a capture surface. Preserve the page's full viewport,
@@ -2123,299 +1993,6 @@ export class BrowserCdpEngine {
         );
       }),
     );
-  });
-
-  readonly startScreencast = Effect.fn("BrowserCdp.startScreencast")(function* (
-    this: BrowserCdpEngine,
-    options: BrowserScreencastOptions,
-    onFrame: (frame: BrowserScreencastFrame) => void,
-    onEnded?: (error: unknown) => void,
-  ): Effect.fn.Return<() => Effect.Effect<void>, BrowserOperationError> {
-    let live = false;
-    let stopRequested = false;
-    const stopped = Deferred.makeUnsafe<void>();
-    const stop = () => {
-      stopRequested = true;
-      Deferred.doneUnsafe(stopped, Effect.void);
-    };
-    const ready = Deferred.makeUnsafe<void, BrowserOperationError>();
-    const started = () => Deferred.doneUnsafe(ready, Effect.void);
-    // The size goes in before the first lease, which applies it with the rest of the environment.
-    const viewport = options.viewport ? { ...options.viewport } : null;
-    if (viewport) this.#viewViewports.push(viewport);
-    let viewportHeld = viewport !== null;
-    const releaseViewport = () => {
-      if (!viewportHeld || !viewport) return false;
-      viewportHeld = false;
-      this.#viewViewports.splice(this.#viewViewports.indexOf(viewport), 1);
-      return true;
-    };
-    let sequence = 0;
-    // The number counts the frames the client is given, not the ones the page drew.
-    const pacer = createFramePacer<Omit<BrowserScreencastFrame, "sequence">>((frame) => {
-      sequence += 1;
-      onFrame({ ...frame, sequence });
-    });
-    const listener = (_event: unknown, method: string, params?: DynamicRecord | unknown, sessionId?: string): void => {
-      if (method !== "Page.screencastFrame" || !isDynamicRecord(params)) return;
-      const metadata = recordValue(params.metadata);
-      const data = stringValue(params.data);
-      const frameSessionId = numberValue(params.sessionId);
-      // The page is told it may send the next frame whether or not this one could be read, so a
-      // frame the client cannot use never ends the stream.
-      // The root session is reported as an empty string, which `sendCommand` refuses: sending it
-      // would fail every acknowledgement, and the page stops after the few frames it may hold
-      // unacknowledged.
-      void this.#contents.debugger
-        .sendCommand("Page.screencastFrameAck", { sessionId: frameSessionId }, sessionId || undefined)
-        .catch(() => undefined);
-      if (!data) return;
-      pacer.offer({
-        image: Buffer.from(data, "base64"),
-        // The device size is the CSS viewport the fractional input coordinates are measured against.
-        width: Math.max(1, Math.round(numberValue(metadata?.deviceWidth))),
-        height: Math.max(1, Math.round(numberValue(metadata?.deviceHeight))),
-      });
-    };
-    // A stalled agent operation can detach the debugger under the stream, which ends the screencast
-    // without a word. The stream then starts again on a new lease, so the view does not freeze.
-    const running = yield* Effect.forkIn(
-      Effect.gen({ self: this }, function* () {
-        yield* Effect.gen({ self: this }, function* () {
-          while (!stopRequested) {
-            const detached = Deferred.makeUnsafe<void>();
-            const onDetach = () => {
-              Deferred.doneUnsafe(detached, Effect.void);
-            };
-            yield* this.#leaseEffect(
-              (send) =>
-                Effect.gen({ self: this }, function* () {
-                  this.#contents.debugger.on("message", listener);
-                  this.#contents.debugger.on("detach", onDetach);
-                  yield* Effect.gen({ self: this }, function* () {
-                    yield* send("Page.startScreencast", {
-                      format: "jpeg",
-                      quality: options.quality,
-                      maxWidth: options.maxWidth,
-                      maxHeight: options.maxHeight,
-                      everyNthFrame: 1,
-                    });
-                    live = true;
-                    started();
-                    yield* Effect.raceFirst(Deferred.await(stopped), Deferred.await(detached));
-                  }).pipe(
-                    Effect.ensuring(
-                      Effect.gen({ self: this }, function* () {
-                        this.#contents.debugger.off("message", listener);
-                        this.#contents.debugger.off("detach", onDetach);
-                        if (!stopRequested) return;
-                        yield* send("Page.stopScreencast").pipe(Effect.ignore);
-                        // The debugger can stay attached for an agent, and the page keeps an
-                        // emulated size until it is told otherwise.
-                        if (!releaseViewport()) return;
-                        const environment = this.#appliedEnvironment(this.#environment);
-                        yield* (
-                          environment
-                            ? this.#applyEnvironmentEffect(send, environment)
-                            : this.#clearEnvironmentEffect(send)
-                        ).pipe(Effect.ignore);
-                      }).pipe(Effect.orDie),
-                    ),
-                  );
-                }),
-              false,
-            );
-          }
-        }).pipe(
-          Effect.ensuring(
-            Effect.sync(() => {
-              pacer.stop();
-              // After a failed stream, the next lease applies the environment without this size.
-              releaseViewport();
-            }),
-          ),
-        );
-      }).pipe(
-        Effect.catch((error) =>
-          Effect.sync(() => {
-            if (!live) Deferred.doneUnsafe(ready, Effect.fail(error));
-            else if (!stopRequested) onEnded?.(error.cause);
-          }),
-        ),
-      ),
-      this.#scope,
-      { startImmediately: true },
-    );
-    running.addObserver(() => {
-      if (!live) Deferred.doneUnsafe(ready, Effect.fail(browserFailure(new Error("Browser tab was closed."))));
-    });
-
-    yield* Deferred.await(ready).pipe(
-      Effect.onInterrupt(() =>
-        Effect.gen(function* () {
-          stop();
-          yield* Fiber.interrupt(running);
-        }),
-      ),
-    );
-    return () =>
-      Effect.gen(function* () {
-        stop();
-        yield* Fiber.await(running);
-      });
-  });
-
-  readonly dispatchViewportInput = Effect.fn("BrowserCdp.dispatchViewportInput")(function* (
-    this: BrowserCdpEngine,
-    input: BrowserViewportInput,
-  ): Effect.fn.Return<void, BrowserOperationError> {
-    yield* this.#leaseEffect(
-      (send) =>
-        Effect.gen({ self: this }, function* () {
-          // The page sees a paste event first, as with a real paste. The text never touches the
-          // host's clipboard.
-          if (input.type === "paste") {
-            const world = yield* this.#focusedWorld(send);
-            const result = yield* send(
-              "Runtime.evaluate",
-              {
-                expression: `(${PASTE_EVENT_SCRIPT})(${JSON.stringify(input.text)})`,
-                contextId: world.contextId,
-                returnByValue: true,
-              },
-              world.sessionId,
-            );
-            if (recordValue(result.result)?.value !== false) yield* send("Input.insertText", { text: input.text });
-            return;
-          }
-          if (input.type === "cut") {
-            const world = yield* this.#focusedWorld(send);
-            yield* send(
-              "Runtime.evaluate",
-              {
-                expression: `(${CUT_SCRIPT})(${JSON.stringify(input.text)})`,
-                contextId: world.contextId,
-                returnByValue: true,
-              },
-              world.sessionId,
-            );
-            return;
-          }
-          if (input.type === "key") {
-            if (input.action === "char") {
-              yield* send("Input.dispatchKeyEvent", { type: "char", modifiers: input.modifiers, text: input.text });
-              return;
-            }
-            // A client sends a character event only for a printable key, so Enter's `\r` is added here.
-            // A command modifier gets none, as in `dispatchShortcut`: `Ctrl+Enter` is not a line break.
-            const { text, ...keyCodes } = namedKey(input.key);
-            const character = input.action === "down" && (input.modifiers & ~SHIFT_MODIFIER) === 0 ? text : undefined;
-            // A letter has no key code here, so Chromium finds no editing command for Ctrl+A. The
-            // command is named instead, which also reads a Mac client's Cmd+A on a Linux host.
-            const selectAll =
-              input.action === "down" &&
-              shortcutLetter(input.key, input.code) === "a" &&
-              (input.modifiers & COMMAND_MODIFIERS) !== 0 &&
-              (input.modifiers & ~COMMAND_MODIFIERS) === 0;
-            yield* send("Input.dispatchKeyEvent", {
-              type: input.action === "up" ? "keyUp" : character === undefined ? "rawKeyDown" : "keyDown",
-              modifiers: input.modifiers,
-              key: input.key,
-              code: input.code,
-              ...keyCodes,
-              ...(character === undefined ? {} : { text: character, unmodifiedText: character }),
-              ...(selectAll ? { commands: ["selectAll"] } : {}),
-            });
-            return;
-          }
-          if (input.action === "wheel") {
-            yield* send("Input.dispatchMouseEvent", {
-              type: "mouseWheel",
-              x: input.x,
-              y: input.y,
-              deltaX: input.deltaX,
-              deltaY: input.deltaY,
-              modifiers: input.modifiers,
-            });
-            return;
-          }
-          const held = this.#viewButton;
-          if (input.action === "down") this.#viewButton = input.button;
-          if (input.action === "up") this.#viewButton = null;
-          yield* send("Input.dispatchMouseEvent", {
-            type: input.action === "move" ? "mouseMoved" : input.action === "down" ? "mousePressed" : "mouseReleased",
-            x: input.x,
-            y: input.y,
-            button: input.action === "move" ? (held ?? "none") : input.button,
-            buttons:
-              input.action === "down"
-                ? buttonMask(input.button)
-                : input.action === "move" && held
-                  ? buttonMask(held)
-                  : 0,
-            clickCount: input.action === "move" ? 0 : input.clickCount,
-            modifiers: input.modifiers,
-          });
-        }),
-      // A paste or a cut works in the focused frame, which can be a frame in another process.
-      input.type === "paste" || input.type === "cut",
-    );
-  });
-
-  /**
-   * The text a member's copy takes from the page, or null when it is longer than `max`. It goes back
-   * to the member's own clipboard; the host's clipboard belongs to whoever sits at the host, and a
-   * copy must neither read nor replace it.
-   */
-  readonly viewportSelectionText = Effect.fn("BrowserCdp.viewportSelectionText")(function* (
-    this: BrowserCdpEngine,
-    max: number,
-  ): Effect.fn.Return<string | null, BrowserOperationError> {
-    return yield* this.#leaseEffect((send) =>
-      Effect.gen({ self: this }, function* () {
-        const world = yield* this.#focusedWorld(send);
-        const result = yield* send(
-          "Runtime.evaluate",
-          { expression: `(${SELECTION_TEXT_SCRIPT})(${max})`, contextId: world.contextId, returnByValue: true },
-          world.sessionId,
-        );
-        // Null is a selection longer than `max`, which is not sent.
-        const value = recordValue(result.result)?.value;
-        return value === null ? null : stringValue(value);
-      }),
-    );
-  });
-
-  /**
-   * The automation world of the frame that holds focus. The page's own world cannot reach into a
-   * frame of another origin, so each frame the focus passes through names the next: the focused
-   * `<iframe>` element gives its frame ID, which is a target of its own when the frame runs in
-   * another process. The lease must attach frames, or such a target has no session.
-   */
-  readonly #focusedWorld = Effect.fn("BrowserCdp.focusedWorld")(function* (this: BrowserCdpEngine, send: SendCommand) {
-    let sessionId: string | undefined;
-    let contextId = yield* automationContextId(send);
-    for (let depth = 0; depth < MAX_FOCUSED_FRAME_DEPTH; depth += 1) {
-      const probe = yield* send(
-        "Runtime.evaluate",
-        { expression: FOCUSED_FRAME_SCRIPT, contextId, returnByValue: false },
-        sessionId,
-      );
-      const objectId = stringValue(recordValue(probe.result)?.objectId);
-      if (!objectId) break;
-      const described = yield* send("DOM.describeNode", { objectId }, sessionId);
-      yield* send("Runtime.releaseObject", { objectId }, sessionId).pipe(Effect.ignore);
-      const frameId = stringValue(recordValue(described.node)?.frameId);
-      if (!frameId) break;
-      const target = this.#targetSessions.get(frameId);
-      if (target) {
-        sessionId = target.sessionId;
-        contextId = yield* automationContextId(send, sessionId);
-      } else {
-        contextId = yield* frameAutomationContextId(send, frameId, sessionId);
-      }
-    }
-    return { contextId, sessionId };
   });
 
   /**
@@ -2478,14 +2055,6 @@ export class BrowserCdpEngine {
     }
     return yield* browserFailure(new Error(sourceText("error.backend.browserTypingFocusMoved")));
   });
-
-  /**
-   * Forgets the button a live view held. A view that closes during a drag sends no release, and the
-   * next view's first move would otherwise drag. That move names no button, so the page ends its drag.
-   */
-  releaseViewButton(): void {
-    this.#viewButton = null;
-  }
 
   readonly navigate = Effect.fn("BrowserCdp.navigate")(function* (
     this: BrowserCdpEngine,
@@ -3336,7 +2905,7 @@ export class BrowserCdpEngine {
           filter: [{ type: "iframe", exclude: false }],
         }).pipe(Effect.ignore);
       }
-      const environment = this.#appliedEnvironment(this.#environment);
+      const environment = this.#environment;
       if (environment) yield* this.#applyEnvironmentEffect(send, environment);
       return yield* operation(send);
     }).pipe(
@@ -3400,21 +2969,6 @@ export class BrowserCdpEngine {
     yield* send("Emulation.clearDeviceMetricsOverride");
     yield* send("Emulation.setEmulatedMedia", { features: [] });
   });
-
-  /**
-   * The environment the page gets: the tab's own, with the page size of the newest view that asked
-   * for one when the tab fills its panel. A size the agent set for the tab is not replaced.
-   */
-  #appliedEnvironment(environment: BrowserEnvironment | null): BrowserEnvironment | null {
-    const viewport = this.#viewViewports.at(-1);
-    if (!viewport || environment?.viewport.mode === "custom") return environment;
-    return {
-      colorScheme: environment?.colorScheme ?? "system",
-      reducedMotion: environment?.reducedMotion ?? false,
-      // A scale of 0 keeps the display's own, so the page stays sharp on the host's screen.
-      viewport: { mode: "custom", width: viewport.width, height: viewport.height, deviceScaleFactor: 0, preset: null },
-    };
-  }
 }
 
 function assertTypingProgressBeforeDeadline(deadline: number | undefined, sent: number, total: number): void {

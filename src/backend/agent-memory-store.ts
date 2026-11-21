@@ -81,23 +81,6 @@ export class AgentMemoryStore extends MemoryStore {
     return { ...super.createManual(agentId, text), agentId };
   }
 
-  override duplicate(sourceAgentId: string, targetAgentId: string): AgentMemory[] {
-    return this.withMemoryTransaction(() => {
-      const source = this.listSelections(sourceAgentId);
-      const originals = this.list(sourceAgentId);
-      const copied = super.duplicate(sourceAgentId, targetAgentId);
-      for (const [index, memory] of copied.entries()) {
-        const selection = source.find((entry) => entry.memoryId === originals[index]?.id);
-        if (selection)
-          this.database.connection
-            .prepare("UPDATE agent_memory_selections SET inclusion = ?, user_controlled = ? WHERE memory_id = ?")
-            .run(selection.inclusion, Number(selection.userControlled), memory.id);
-      }
-      this.#assertBudget(targetAgentId);
-      return copied.map((memory) => ({ ...memory, agentId: targetAgentId }));
-    });
-  }
-
   override updateManual(agentId: string, memoryId: string, text: string): AgentMemory {
     return { ...super.updateManual(agentId, memoryId, text), agentId };
   }

@@ -332,27 +332,6 @@ export class CodexAppServerClient extends EventEmitter<ClientEvents> {
     }
   });
 
-  /** Voice starts turns itself, so publish the current context without starting a typed turn. */
-  readonly prepareLiveVoiceThread = Effect.fn("CodexAppServer.prepareLiveVoiceThread")(function* (
-    this: CodexAppServerClient,
-    threadId: string,
-  ) {
-    const blocks = this.#turnContext.take(threadId);
-    if (blocks.length === 0) return;
-    yield* this.request(
-      "thread/inject_items",
-      {
-        threadId,
-        items: blocks.map((text) => ({
-          type: "message",
-          role: "developer",
-          content: [{ type: "input_text", text }],
-        })),
-      },
-      decodeRecordResponse,
-    ).pipe(Effect.onError(() => Effect.sync(() => this.#turnContext.resend(threadId))));
-  });
-
   readonly request = Effect.fn("CodexAppServer.request")(function* <T>(
     this: CodexAppServerClient,
     method: string,

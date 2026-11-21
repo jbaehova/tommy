@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
-import type { WorkflowGitHubCatalog, WorkflowIntegrationCatalog } from "@tommy/contracts/ipc";
 import { isDynamicRecord } from "@tommy/contracts/runtime-values";
 import { WEBHOOK_DELIVERY_BODY_BYTES_LIMIT } from "@tommy/contracts/signal-protocol/messages";
 import { WEBHOOK_DELIVERY_ID_PATTERN } from "@tommy/contracts/signal-protocol/webhook-route";
 import { redactText } from "@tommy/logging";
 import { Effect, Schema } from "effect";
-import type { MessagingPostFailure } from "../backend/workflows/discord-types";
-import type { MessagingSlackSend, MessagingTelegramSend } from "../backend/workflows/workflow-chat-types";
+import type {
+  MessagingPostFailure,
+  MessagingSlackSend,
+  MessagingTelegramSend,
+} from "../backend/workflows/workflow-chat-types";
 import type { WorkflowsHandle } from "../backend/workflows/workflows";
 import {
   registerWorkflowConnectorSecrets,
@@ -98,8 +100,6 @@ export interface WorkflowConnectorsOptions {
   config: WorkflowConnectorConfig;
   workflows(): Pick<WorkflowsHandle, "receiveGitHub" | "receiveSlack" | "receiveTelegram"> | null;
   request?: WorkflowConnectorFetch;
-  /** Used only to confirm repository hook subscriptions in the GitHub catalog. */
-  publicWebhookOrigin?: string | null;
 }
 
 type PostResult = { posted: true } | { failure: MessagingPostFailure };
@@ -147,9 +147,7 @@ export class WorkflowConnectors {
     this.#options = options;
     registerWorkflowConnectorSecrets(options.config);
     this.#http = new WorkflowConnectorHttp(options.request);
-    this.#github = options.config.github
-      ? new WorkflowConnectorGitHub(options.config.github, this.#http, options.publicWebhookOrigin ?? null)
-      : null;
+    this.#github = options.config.github ? new WorkflowConnectorGitHub(options.config.github, this.#http) : null;
   }
 
   readonly start = Effect.fn("WorkflowConnectors.start")(function* (this: WorkflowConnectors) {
@@ -170,11 +168,6 @@ export class WorkflowConnectors {
     return this.#options.config.github?.appSlug ?? null;
   }
 
-  readonly githubCatalog = Effect.fn("WorkflowConnectors.githubCatalog")(function* (this: WorkflowConnectors) {
-    if (!this.#github) return { connected: false, repositories: [] } satisfies WorkflowGitHubCatalog;
-    return yield* this.#github.catalog();
-  }).bind(this);
-
   connectionOn(connectionId: string): boolean {
     return (
       this.#running &&
@@ -182,42 +175,6 @@ export class WorkflowConnectors {
         (connection) => connection.id === connectionId,
       )
     );
-  }
-
-  /** This is the only connector metadata allowed to cross IPC or WSS. It contains no credential. */
-  catalog(): WorkflowIntegrationCatalog {
-    const slack = this.#options.config.slack ?? [];
-    const telegram = this.#options.config.telegram ?? [];
-    return {
-      github: this.#github !== null,
-      slack: slack.map((connection) => ({
-        connectionId: connection.id,
-        name: connection.name,
-        channels: connection.channels.map((channel) => ({ id: channel.id, name: channel.name })),
-      })),
-      telegram: telegram.map((connection) => ({ connectionId: connection.id, name: connection.name })),
-      discord: [],
-      places: [
-        ...slack.flatMap((connection) =>
-          connection.channels.map((channel) => ({
-            connectionId: connection.id,
-            placeId: channel.id,
-            label: `${connection.name} / ${channel.name}`,
-            platform: "slack" as const,
-            connection: connection.name,
-            name: channel.name,
-          })),
-        ),
-        ...telegram.map((connection) => ({
-          connectionId: connection.id,
-          placeId: connection.chatId,
-          label: connection.name,
-          platform: "telegram" as const,
-          connection: connection.name,
-          name: connection.name,
-        })),
-      ],
-    };
   }
 
   readonly post = Effect.fn("WorkflowConnectors.post")(function* (
@@ -413,8 +370,7 @@ export class WorkflowConnectors {
     if (envelope.type !== "event_callback" || envelope.team_id !== connection.workspaceId) return { status: 403 };
     const channel = connection.channels.find((candidate) => candidate.id === event?.channel);
     if (
-      !event ||
-      event.type !== "app_mention" ||
+      event?.type !== "app_mention" ||
       !channel ||
       !event.user ||
       event.user === connection.serviceUserId ||

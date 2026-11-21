@@ -193,49 +193,11 @@ export interface BrowserDisplayState {
   activeTabId: string | null;
 }
 
-export type BrowserPictureInPictureEvent =
-  | { type: "bounds-changed"; bounds: BrowserBounds }
-  | { type: "dock" }
-  | { type: "hide" };
-
 export interface BrowserOpenInput {
   url: string;
   ownerThreadId?: string | null;
   ownerAgentId?: string | null;
   focus?: boolean;
-}
-
-/**
- * A sign-in on this computer for a tab of the active remote server. Tommy opens the tab's address
- * in a local window with its own session in memory; Done sends the cookies of that site to the tab.
- * When the site looks signed in, the window ends its wait before the person selects Done.
- */
-export interface BrowserLocalSignInInput {
-  tabId: string;
-  url: string;
-}
-
-/** How the wait for the local sign-in window ends. */
-export interface BrowserLocalSignInEnd {
-  signedIn: boolean;
-}
-
-/**
- * `send: false` discards the local sign-in. `check: true` keeps it when the server tab still shows a
- * sign-in step after the send, so the person can finish the sign-in in the window.
- */
-export interface BrowserLocalSignInFinish {
-  send: boolean;
-  check?: boolean | undefined;
-}
-
-/**
- * The count of cookies that the server set in the tab's session. `signedIn` is false when a checked
- * send left the server tab on a sign-in step.
- */
-export interface BrowserLocalSignInResult {
-  cookies: number;
-  signedIn: boolean;
 }
 
 export type BrowserNavigationDirection = "back" | "forward";
@@ -282,17 +244,3 @@ export type BrowserLiveViewInput =
   | { type: "copy" }
   /** Deletes the remote selection after a cut, once `text` is on the user's clipboard. */
   | { type: "cut"; text: string };
-
-/** The longest paste a live view sends, the same bound the Team protocol puts on one. */
-export const BROWSER_LIVE_VIEW_MAX_PASTE_TEXT = 100_000;
-
-/**
- * What a live view sends the renderer. The image is the host's own JPEG, not a data URL. `copied`
- * is the remote page's selection, for the renderer to put on the user's clipboard, and
- * `copyTooLarge` says the selection was longer than one copy carries.
- */
-export type BrowserLiveViewEvent =
-  | { type: "frame"; tabId: string; sequence: number; width: number; height: number; image: Uint8Array }
-  | { type: "stopped"; tabId: string; reason: string }
-  | { type: "copied"; tabId: string; text: string }
-  | { type: "copyTooLarge"; tabId: string };

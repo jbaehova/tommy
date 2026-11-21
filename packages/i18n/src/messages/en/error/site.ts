@@ -1,5 +1,0 @@
-import { defineMessages } from "../../../message";
-
-export const messages = defineMessages("error.site", {
-  // Hosted site errors.
-});

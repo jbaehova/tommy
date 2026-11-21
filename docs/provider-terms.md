@@ -19,15 +19,7 @@ publishes.
   change the executable. It turns off the CLI's own updater for that copy only. With
   `TOMMY_CLAUDE_PATH`, Tommy runs that executable instead. With no downloaded copy, it runs a
   `claude` that you installed.
-- Connect on the Claude row runs `claude auth login --claudeai`, which opens Anthropic's sign-in
-  page in your browser. You can also run `claude auth login` in a terminal. The CLI stores the
-  credentials; Tommy does not read, copy or store them. Tommy runs `claude auth status` to show
-  whether Claude is ready.
-- On a Linux host with no browser, a host admin can sign in Claude from another computer: the host
-  runs `claude auth login --claudeai`, and Tommy sends the code that Anthropic's page shows to the
-  CLI on the host. See hosted servers.
-- Team members can send messages to the Claude agents on your computer or host. These turns use your
-  Claude sign-in.
+- The operator runs Anthropic's own CLI to sign in under the server's service account. The Linux installation guide gives the setup command and the restricted service environment file for the long-lived token. Tommy uses that account when its agents run Claude. See [provider setup](INSTALL.md).
 
 ### What Anthropic says
 

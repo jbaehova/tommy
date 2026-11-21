@@ -9,7 +9,7 @@ import {
 import { type AgentSummary, type InstalledSkill, SKILL_DESCRIPTION_MAX_LENGTH } from "@tommy/contracts/ipc";
 import { sourceText } from "@tommy/i18n/source";
 import { Effect } from "effect";
-import { HOME_SKILL_FOLDER, homeSkillTagId, listHomeSkills } from "../backend/home-skills";
+
 import { readSkillFrontmatter } from "../backend/skill-frontmatter";
 import { type ArchiveOperationError, archiveCall, archiveResult } from "./archive-effects";
 import { OWNERSHIP_MARKER } from "./managed-skill-service";
@@ -54,32 +54,6 @@ export const listFolderSkills = Effect.fn("SkillFolder.listFolderSkills")(functi
     );
   }
   return skills.sort((left, right) => left.name.localeCompare(right.name));
-});
-
-/**
- * The user's skills in `~/.agents/skills` for the `$` list, with the `home:<slug>` id that the
- * provider text resolves to the skill's `SKILL.md`. Every provider can use them: see `homeSkills` of
- * the provider descriptor. `exclude` holds the slugs that the list already has.
- */
-export const listHomeFolderSkills = Effect.fn("SkillFolder.listHomeFolderSkills")(function* (
-  exclude: ReadonlySet<string>,
-) {
-  return (yield* listHomeSkills())
-    .filter((skill) => !exclude.has(skill.slug))
-    .map(
-      (skill): InstalledSkill => ({
-        skillId: homeSkillTagId(skill.slug),
-        slug: skill.slug,
-        name: skill.slug,
-        installedVersion: 1,
-        availableVersion: 1,
-        state: "installed",
-        enabled: true,
-        origin: "workspace",
-        description: skill.description,
-        location: `~/${HOME_SKILL_FOLDER}/${skill.slug}`,
-      }),
-    );
 });
 
 /** Maps each skill folder name to the skill folders that hold it, in the order given. */

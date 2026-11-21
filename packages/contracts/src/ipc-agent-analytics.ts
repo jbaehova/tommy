@@ -56,14 +56,6 @@ export interface AnalyticsProviderDay {
   cachedInput?: number | null;
   estimatedCostUsd: number | null;
 }
-/**
- * The tokens a report shows: processed tokens without cache reads. Each request of an agent
- * turn reads the whole cached conversation again, so cache reads repeat the same context once
- * per request and can be ten times the rest (#2747). Unknown cache reads subtract nothing.
- */
-export function analyticsTokens(row: { processedTokens: number; cachedInput?: number | null }): number {
-  return Math.max(0, row.processedTokens - (row.cachedInput ?? 0));
-}
 export interface AgentAnalytics {
   agentId: string;
   startDate: string;
@@ -99,14 +91,6 @@ export function analyticsDate(date: Date, timeZone: string): string {
   const parts = dateFormatter(timeZone).formatToParts(date);
   const part = (type: string) => parts.find((value) => value.type === type)?.value;
   return `${part("year")}-${part("month")}-${part("day")}`;
-}
-
-export function analyticsRange(agentId: string, days = 30, now = new Date()): AgentAnalyticsInput {
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const endDate = analyticsDate(now, timeZone);
-  const start = new Date(`${endDate}T12:00:00Z`);
-  start.setUTCDate(start.getUTCDate() - days + 1);
-  return { agentId, startDate: start.toISOString().slice(0, 10), endDate, timeZone };
 }
 
 export class AnalyticsInputError extends Error {}
@@ -267,10 +251,6 @@ export function decodeAnalyticsProviderDays(value: unknown): AnalyticsProviderDa
 
 export function decodeAgentAnalytics(value: unknown): AgentAnalytics {
   return { ...decodeAnalyticsReport(value), ...parseAgentAnalyticsInput(value) };
-}
-
-export function decodeOptionalAgentAnalytics(value: unknown): AgentAnalytics | null {
-  return value === null ? null : decodeAgentAnalytics(value);
 }
 
 export function assertAnalyticsScope(result: AgentAnalytics, input: AgentAnalyticsInput): AgentAnalytics {

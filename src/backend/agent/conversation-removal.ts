@@ -20,7 +20,6 @@ import type { ContextCompaction } from "./context-compaction";
 import type { ConversationRuntime } from "./conversation-runtime";
 import type { DrainScheduler } from "./drain-scheduler";
 import type { MemoryReview } from "./memory-review";
-import type { ThreadFileHistory } from "./thread-file-history";
 import type { ThreadLifecycle } from "./thread-lifecycle";
 import type { AgentBrowserHost } from "./turn-lifecycle";
 
@@ -43,9 +42,7 @@ export interface ConversationRemovalOptions {
   threads: ThreadLifecycle;
   compaction: ContextCompaction;
   memoryReview: MemoryReview;
-  fileHistory: Pick<ThreadFileHistory, "forgetThread">;
   browser: AgentBrowserHost;
-  stopVoice(agentId: string): Effect.Effect<void>;
   isDeleting(agentId: string): boolean;
   emit(event: AgentEvent): void;
 }
@@ -161,7 +158,6 @@ export class ConversationRemoval {
                 throw new MessageDeleteRefused({ reason: "busy" });
             };
             yield* removalStep(guard);
-            yield* options.stopVoice(input.agentId);
             yield* options.memoryReview.forgetThread(input.agentId, null);
             yield* removalStep(() => {
               guard();
@@ -182,7 +178,6 @@ export class ConversationRemoval {
               ),
             );
             options.browser.unshareThread(threadId);
-            options.fileHistory.forgetThread(threadId);
           }
           // A retry uses only the IDs in the original receipt. Later deliveries stay intact.
           const cleaned = yield* options.mailbox
@@ -257,7 +252,6 @@ export class ConversationRemoval {
         if (cleaned === "busy")
           return yield* new ConversationRemovalFailed({ cause: new MessageDeleteRefused({ reason: "busy" }) });
       }
-      options.fileHistory.forgetThread(threadId);
       options.browser.unshareThread(threadId);
     }
     yield* options.mailbox

@@ -162,16 +162,3 @@ export function sidebarFolderTreeOrder(order: readonly string[], parents: Readon
   for (const sectionId of order) visit(sectionId);
   return result;
 }
-
-/** The names from the top folder down to `sectionId`, such as `["Acme", "Engineering"]`. */
-export function sidebarFolderPath(
-  layout: Pick<SidebarLayoutSnapshot, "sections">,
-  parents: ReadonlyMap<string, string>,
-  sectionId: string,
-): string[] {
-  const names = new Map(layout.sections.map((section) => [section.id, section.name]));
-  return [...sidebarFolderAncestors(parents, sectionId), sectionId].flatMap((id) => {
-    const name = names.get(id);
-    return name === undefined ? [] : [name];
-  });
-}

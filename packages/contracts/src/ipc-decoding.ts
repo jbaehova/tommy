@@ -42,21 +42,9 @@ export function requiredBoolean(record: DynamicRecord, field: string): boolean {
   return value;
 }
 
-export function nullableBoolean(record: DynamicRecord, field: string): boolean | null {
-  const value = record[field];
-  if (value === null || isBoolean(value)) return value;
-  throw new Error(`Invalid ${field}.`);
-}
-
 export function nullableString(record: DynamicRecord, field: string): string | null {
   const value = record[field];
   if (value === null || isString(value)) return value;
-  throw new Error(`Invalid ${field}.`);
-}
-
-export function nullableNumber(record: DynamicRecord, field: string): number | null {
-  const value = record[field];
-  if (value === null || isNumber(value)) return value;
   throw new Error(`Invalid ${field}.`);
 }
 
@@ -93,14 +81,5 @@ export function guardedListDecoder<T>(guard: (value: unknown) => value is T, lab
   return (value) => {
     if (!Array.isArray(value) || !value.every(guard)) throw new Error(`Invalid ${label}.`);
     return value;
-  };
-}
-
-// A channel that answers with nothing has to reject a payload rather than ignore it: data where none
-// was expected means the two sides disagree about the channel.
-export function emptyDecoder(message: string): (value: unknown) => undefined {
-  return (value) => {
-    if (value !== undefined && value !== null) throw new Error(message);
-    return undefined;
   };
 }

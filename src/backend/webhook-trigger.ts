@@ -2,7 +2,7 @@ import type { EventEnvelope, EventFilter, EventJsonValue, WebhookReceiptReason }
 import { isEventFilter } from "@tommy/contracts/ipc-events";
 import { isDynamicRecord } from "@tommy/contracts/runtime-values";
 import { sourceText } from "@tommy/i18n/source";
-import { RoutineInputError } from "@tommy/team-client/routine-schedule";
+import { RoutineInputError } from "./routine-schedule";
 
 export const WEBHOOK_EVENT_TYPE_MAX_LENGTH = 256;
 export const WEBHOOK_FILTERS_LIMIT = 128;

@@ -1,11 +1,4 @@
-/**
- * The plural category of a count in a locale.
- *
- * `Intl.PluralRules` is used where the runtime has it. The mobile app runs on Hermes, which may not
- * ship it (not confirmed on a device), so each translated language also has its CLDR rule written
- * out here. A new language adds its rule to `BUILT_IN_RULES`; see docs/i18n.md.
- */
-
+/** Use CLDR rules for supported locales when Intl.PluralRules is unavailable. */
 type PluralCategory = "zero" | "one" | "two" | "few" | "many" | "other";
 
 type PluralRule = (count: number) => PluralCategory;

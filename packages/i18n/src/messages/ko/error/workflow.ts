@@ -10,6 +10,7 @@ export const messages = {
   "error.workflow.conditionBranch": "조건에서 나가는 각 연결은 ‘예’ 또는 ‘아니요’여야 해요.",
   "error.workflow.duplicateEdge": "이 두 단계에는 이미 이 연결이 있어요.",
   "error.workflow.nodeUnsupported": "이 버전의 Tommy는 아직 이미지, 파일, 메시지 단계를 실행할 수 없어요.",
+  "error.workflow.discordUnavailable": "이 서버에서는 Discord 워크플로 단계를 사용할 수 없어요.",
   "error.workflow.interrupted": "이 단계가 실행되는 동안 Tommy가 중지됐어요. 다시 실행해 주세요.",
   "error.workflow.agentMissing": "이 단계의 에이전트를 선택하세요.",
   "error.workflow.handoffFailed": "Tommy가 이 단계를 에이전트에 보내지 못했어요.",

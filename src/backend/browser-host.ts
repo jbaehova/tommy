@@ -6,8 +6,6 @@ import type { BrowserProfileProxyConnection } from "@tommy/contracts/browser-pro
 import { INPUT_LIMITS } from "@tommy/contracts/input-limits";
 import type {
   AgentBrowserProfile,
-  BrowserBounds,
-  BrowserControlState,
   BrowserElement,
   BrowserEnvironment,
   BrowserImageMode,
@@ -18,53 +16,29 @@ import type {
   BrowserSnapshot,
   BrowserTab,
   BrowserTarget,
-  BrowserViewTarget,
-  BrowserVisibilityInput,
 } from "@tommy/contracts/ipc";
 import { isNumber, isString } from "@tommy/contracts/runtime-values";
-import {
-  type BrowserSignInCookie,
-  browserSignInCookieFitsHost,
-} from "@tommy/contracts/team-protocol/browser-sign-in-v1";
-import {
-  BROWSER_VIEW_CONTEXT_MENU_URL_MAX_LENGTH,
-  type BrowserViewContextMenu,
-  type BrowserViewCursor,
-  type BrowserViewViewport,
-} from "@tommy/contracts/team-protocol/browser-view-v1";
 import { sourceText } from "@tommy/i18n/source";
 import { createTommyLogger, redactText, toLogValue } from "@tommy/logging";
 import { Deferred, Effect, Exit, Fiber, Option, Result, Scope, Semaphore } from "effect";
 import {
   app,
-  BrowserWindow,
+  type BrowserWindow,
   type BrowserWindowConstructorOptions,
-  clipboard,
   type Event as ElectronEvent,
-  type Input,
-  Menu,
   type NativeImage,
   nativeImage,
-  type Rectangle,
   type Session,
   session,
   type WebContents,
   WebContentsView,
   type WebContentsWillFrameNavigateEventParams,
-  webContents,
 } from "electron";
 import { writeJsonFileAtomically } from "./atomic-json-file";
 import type { BrowserCardFillResult } from "./browser-card-fill";
-import {
-  BrowserCdpEngine,
-  type BrowserScreencastFrame,
-  type BrowserUploadAssignment,
-  type BrowserViewportInput,
-  type SnapshotReadResult,
-} from "./browser-cdp";
+import { BrowserCdpEngine, type BrowserUploadAssignment, type SnapshotReadResult } from "./browser-cdp";
 import { refuseCookieBanners, stopCookieBanners } from "./browser-consent";
 import { BrowserControlSessions } from "./browser-control-sessions";
-import { browserViewCursor } from "./browser-cursor";
 import { BrowserDiagnostics } from "./browser-diagnostics";
 import { type BrowserOperationError, browserCall, browserFailure, browserSync } from "./browser-effects";
 import {
@@ -73,7 +47,6 @@ import {
   currentTabUrl,
   hasHistoryEntry,
   type KeepQueueBlocked,
-  restoreWebContentsFocus,
   toPublicTab,
 } from "./browser-host-tab";
 import { sessionBrowserUserAgent } from "./browser-identity";
@@ -90,22 +63,7 @@ import {
 } from "./browser-policy";
 import { type BrowserProxyRelay, openBrowserProxyRelay, socksExit } from "./browser-profiles/browser-proxy-relay";
 import { BrowserRecorder } from "./browser-recorder";
-import {
-  BROWSER_SCRIPT_USER_CONTROL_ERROR,
-  type BrowserScriptResult,
-  type BrowserStepOutcome,
-  runBrowserScript,
-} from "./browser-script";
-import {
-  type BrowserContextMenuItem,
-  browserContextMenuItems,
-  EDITABLE_FOCUS_SCRIPT,
-  isBrowserViewShortcut,
-  isCloseBrowserTabShortcut,
-  isCollapseBrowserShortcut,
-  isGlobalSearchShortcut,
-  isToggleDevToolsShortcut,
-} from "./browser-shortcuts";
+import { type BrowserScriptResult, type BrowserStepOutcome, runBrowserScript } from "./browser-script";
 import {
   agentBrowserSessionKey,
   type BrowserTabOwner,
@@ -126,9 +84,7 @@ import {
   type ActionResultReader,
   BrowserDialogTurn,
   type BrowserFillFieldsResult,
-  BrowserToolHold,
   BrowserToolQueueWait,
-  BrowserUserControlHeld,
   boundEngineOperation,
   type DialogTabResult,
   dialogTabResult,
@@ -153,7 +109,7 @@ import {
   browserInputAction,
   browserToolTimeout,
 } from "./browser-tool-actions";
-import { repairBrowserToolInput } from "./browser-tool-input";
+import type { BrowserManualStepRequest } from "./browser-tools";
 import {
   BROWSER_SCRIPT_DEFAULT_TIMEOUT_MS,
   BROWSER_SCRIPT_EVALUATE_MAX_BYTES,
@@ -172,21 +128,7 @@ import { TimeoutError, withTimeout } from "./with-timeout";
 
 interface BrowserHostEvents {
   changed: [tabs: BrowserTab[], activeTabId: string | null];
-  controlChanged: [state: BrowserControlState];
   documentChanged: [tabId: string, documentIds: ReadonlySet<string>];
-  siteVisited: [visit: BrowserSiteVisit];
-}
-
-/**
- * A tab reached a page on a new host. Only the hostname leaves the browser: never the path, query,
- * fragment or title. It feeds the local host's product analytics, which reduces it further.
- */
-interface BrowserSiteVisit {
-  tabId: string;
-  hostname: string;
-  /** `agent` while an agent turn is driving this tab with browser tools. */
-  actor: "agent" | "user";
-  agentId: string | null;
 }
 
 const MAX_ENCODED_CAPTURE_PIXELS = 4_194_304;
@@ -195,15 +137,6 @@ const MAX_ENCODED_CAPTURE_PIXELS = 4_194_304;
  * side, and the image stays in the session, so each later turn fails too (#6188).
  */
 const MIN_CAPTURE_SIDE = 64;
-
-/** Certificate failures use Chromium codes -200 through -299. Never bypass its certificate checks. */
-function certificateLoadFailure(failure: BrowserOperationError): BrowserOperationError {
-  const raw = /\((-\d+)\)/u.exec(String(failure.cause))?.[1];
-  const code = raw === undefined ? undefined : Number(raw);
-  return code !== undefined && code <= -200 && code > -300
-    ? browserFailure(new Error(sourceText("error.backend.browserCertificateUntrusted")))
-    : failure;
-}
 /**
  * How long enumerating a tab's documents may take before it is unwound. It runs off a navigation
  * rather than a tool call, so no caller is waiting on it and nothing else supplies a deadline -- but
@@ -219,18 +152,6 @@ const CACHE_PURGE_TIMEOUT_MS = 10_000;
  */
 const PREVIEW_STALE_AFTER_MS = 1_000;
 /**
- * The live view's frames. The quality is what a page of text survives on a slow link, and the size
- * is the client's panel rather than the host's monitor: a frame larger than the panel that draws it
- * is bytes nobody sees.
- */
-const VIEW_FRAME_QUALITY = 60;
-const VIEW_FRAME_MAX_WIDTH = 1_280;
-const VIEW_FRAME_MAX_HEIGHT = 800;
-/** The agent browser tools that read or change the agent's tab set, and not one tab. */
-const TAB_SET_TOOLS: ReadonlySet<string> = new Set(["open", "list_tabs", "status"]);
-/** How long after a live view's right-click the page's menu still belongs to that view. */
-const VIEW_CONTEXT_MENU_MS = 1_500;
-/**
  * How long `handle_dialog` waits for the action that opened the dialog. After it, the status read waits
  * in the tab queue for the action, under the action's own deadline.
  */
@@ -241,8 +162,6 @@ const DIALOG_ACTION_WAIT_MS = 10_000;
  * cannot finish, such as a command that a page dialog holds.
  */
 const TOOL_QUEUE_WAIT_MS = 120_000;
-/** The `keyCode` of `sendInputEvent` for a key whose `Input.key` name is different. */
-const FORWARDED_KEY_CODES: Partial<Record<string, string>> = { ArrowLeft: "Left", ArrowRight: "Right" };
 /**
  * The download limits of one browser session, so that a page cannot fill the disk. A session
  * starts no new download while `MAX_ACTIVE_DOWNLOADS` are in progress, and a download larger
@@ -250,38 +169,6 @@ const FORWARDED_KEY_CODES: Partial<Record<string, string>> = { ArrowLeft: "Left"
  */
 const MAX_ACTIVE_DOWNLOADS = 4;
 const MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024 * 1024;
-
-export interface BrowserViewOptions {
-  /** Hears the page's mouse cursor when it changes. Not called while a secret is on the page. */
-  onCursor?: (cursor: BrowserViewCursor) => void;
-  /** The page size, in CSS pixels, that the page keeps while the view is open. */
-  viewport?: BrowserViewViewport;
-}
-
-/** A web address a member may copy from a menu. Other schemes and long addresses are left out. */
-function menuAddress(value: string): string | undefined {
-  if (!value || value.length > BROWSER_VIEW_CONTEXT_MENU_URL_MAX_LENGTH) return undefined;
-  return /^https?:\/\//iu.test(value) ? value : undefined;
-}
-
-function viewContextMenu(
-  items: readonly BrowserContextMenuItem[],
-  linkUrl: string,
-  srcUrl: string,
-): BrowserViewContextMenu {
-  const link = menuAddress(linkUrl);
-  const image = menuAddress(srcUrl);
-  return {
-    items: items.filter(
-      (item): item is BrowserViewContextMenu["items"][number] =>
-        item !== "separator" &&
-        (item !== "copy-link" || link !== undefined) &&
-        (item !== "copy-image-address" || image !== undefined),
-    ),
-    ...(link === undefined ? {} : { link }),
-    ...(image === undefined ? {} : { image }),
-  };
-}
 /**
  * An agent's tab that nobody used for this long unloads its page, and loads it again on its next use,
  * so a long run does not keep in memory the page of each tab an agent left open. The tab keeps a
@@ -403,36 +290,17 @@ function urlCarriesSecret(url: string, secret: string): boolean {
   }
 }
 
-function rejectTakeoverTool(): Effect.Effect<DynamicToolResult, BrowserOperationError> {
-  return Effect.fail(
-    browserFailure(new Error("Browser takeover is handled by the agent service, not the browser host.")),
-  );
-}
-
-/** Who controls a tab: the person at this computer, or one session of a team member. */
-export type BrowserUserControlHolder = { kind: "local" } | { kind: "member"; memberId: string; sessionId: string };
-/** The holds to release when a window, a session or a member ends. */
-export type BrowserUserControlOwner =
-  | { kind: "local" }
-  | { kind: "session"; sessionId: string }
-  | { kind: "member"; memberId: string };
-
-/** The page that the main window shows, in window pixels, and the zoom of the window. */
-export interface BrowserMainPage {
-  tabId: string;
-  bounds: Rectangle;
-  zoomFactor: number;
+function rejectAgentServiceTool(): Effect.Effect<DynamicToolResult, BrowserOperationError> {
+  return Effect.fail(browserFailure(new Error("This browser tool requires the agent service.")));
 }
 
 export class BrowserHost {
-  static readonly CONTROL_IDLE_GRACE_MS = BrowserControlSessions.IDLE_GRACE_MS;
   readonly #window: BrowserWindow;
   readonly #session: Session;
   /** The persistent sessions other than the shared one, by partition directory name. */
   readonly #tabSessions = new Map<string, Session>();
   readonly #browserProfile: (agentId: string) => AgentBrowserProfile;
   readonly #profileExists: (profileId: string) => boolean;
-  readonly #quitShortcut: (input: Input) => boolean;
   readonly #downloadsRoot: string;
   readonly #statePath: string;
   readonly #tabs = new Map<string, BrowserHostTab>();
@@ -441,26 +309,12 @@ export class BrowserHost {
   readonly #closingTabDrains = new Map<string, Fiber.Fiber<void, BrowserOperationError>>();
   readonly #listeners = new Set<(...args: BrowserHostEvents["changed"]) => void>();
   readonly #documentListeners = new Set<(...args: BrowserHostEvents["documentChanged"]) => void>();
-  readonly #siteVisitListeners = new Set<(...args: BrowserHostEvents["siteVisited"]) => void>();
   readonly #controls = new BrowserControlSessions();
   readonly #reservedDownloadPaths = new Set<string>();
   /** Downloads in progress in all sessions, so an agent's own session does not add to the limit. */
   #activeDownloads = 0;
   readonly #recorder: BrowserRecorder;
   #activeTabId: string | null = null;
-  #visible = false;
-  #bounds: BrowserBounds | null = null;
-  #attachedView: WebContentsView | null = null;
-  #pictureInPictureWindow: BrowserWindow | null = null;
-  #pictureInPictureOverlayView: WebContentsView | null = null;
-  #mainPageListener: ((page: BrowserMainPage | null) => void) | null = null;
-  #target: BrowserViewTarget = "main";
-  readonly #mountedViews = new Map<WebContentsView, BrowserWindow>();
-  readonly #takeoverTabIds = new Set<string>();
-  /** The tabs that a person controls, with who took each one, so a closed session releases its own. */
-  readonly #userControlTabIds = new Map<string, BrowserUserControlHolder>();
-  /** The agent tool calls that wait for the release of a tab. */
-  readonly #userControlWaiters = new Map<string, Set<Deferred.Deferred<void>>>();
   /**
    * The origins, per session, whose Cache Storage an agent script could write since the last purge.
    * A service worker can serve those entries to a later document as page code. Each tab's
@@ -502,8 +356,6 @@ export class BrowserHost {
       profileExists?: (profileId: string) => boolean;
       /** Host-owned address lookup. A failure prevents the profile from loading. */
       profileProxy?: (profileId: string) => BrowserProfileProxyConnection | null;
-      /** True when the key is part of the Mac quit shortcut, which a focused tab must not give to the menu. */
-      quitShortcut?: (input: Input) => boolean;
     } = {},
   ) {
     this.#window = window;
@@ -511,7 +363,6 @@ export class BrowserHost {
     this.#browserProfile = options.browserProfile ?? (() => ({ kind: "shared" }));
     this.#profileExists = options.profileExists ?? (() => false);
     this.#profileProxy = options.profileProxy ?? (() => null);
-    this.#quitShortcut = options.quitShortcut ?? (() => false);
     this.#downloadsRoot = downloadsRoot;
     this.#statePath = statePath;
     this.#session = session.fromPartition("persist:tommy-browser", { cache: true });
@@ -520,6 +371,7 @@ export class BrowserHost {
       (tabId, recording) => {
         const tab = this.#tabs.get(tabId);
         if (!tab) return;
+        if (tab.recording !== recording) this.#invalidatePreviews(tab);
         tab.recording = recording;
         this.#emitChanged();
       },
@@ -572,7 +424,6 @@ export class BrowserHost {
         stored.ownerAgentId,
         stored.environment,
         undefined,
-        undefined,
         tabSession,
       );
       if (stored.sharedThreadIds) tab.sharedThreadIds = new Set(stored.sharedThreadIds);
@@ -582,7 +433,6 @@ export class BrowserHost {
       tabs.push(tab);
     }
     this.#activeTabId = this.#tabs.has(state.activeTabId ?? "") ? state.activeTabId : (tabs[0]?.id ?? null);
-    this.#syncAttachedView();
     this.#emitChanged();
 
     for (const tab of tabs) tab.pendingRestore = () => loadSavedPage(tab);
@@ -599,12 +449,10 @@ export class BrowserHost {
     if (!pending) return;
     tab.pendingRestore = undefined;
     tab.sleeping = undefined;
-    // An agent tool can wake a tab that a person holds. The restore is the host's work, so the hold does
-    // not stop it, and it waits for its turn with no tool limit.
+    // Restore in queue order before the next agent operation.
     yield* Effect.forkIn(
       enqueueTabOperation(tab, pending, true).pipe(
         Effect.ignore,
-        Effect.provideService(BrowserToolHold, () => false),
         Effect.provideService(BrowserToolQueueWait, undefined),
       ),
       tab.scope,
@@ -644,13 +492,10 @@ export class BrowserHost {
       this.#activeTabId === tab.id ||
       // A preview capture is not a use. An unload that starts during one waits behind it on the queue.
       tab.pendingOperations > (tab.previewCapture ? 1 : 0) ||
-      tab.viewInvalidations.size > 0 ||
       tab.recording ||
       tab.secret !== undefined ||
       tab.secretDocument === true ||
       tab.filledCard === true ||
-      this.#takeoverTabIds.has(tab.id) ||
-      this.#userControlTabIds.has(tab.id) ||
       tab.contents.isCurrentlyAudible()
     );
   }
@@ -661,6 +506,7 @@ export class BrowserHost {
    * history and unsent form input, is lost, as when a browser discards a background tab.
    */
   readonly #sleep = Effect.fn("BrowserHost.sleep")(function* (this: BrowserHost, tab: BrowserHostTab) {
+    const page = currentPreviewPage(tab);
     const saved = savedPreview(tab);
     const capture = saved ? undefined : yield* this.#previewCapture(tab);
     const sleeping: NonNullable<BrowserHostTab["sleeping"]> = { title: tab.contents.getTitle(), preview: null };
@@ -672,10 +518,11 @@ export class BrowserHost {
         tab,
         () =>
           Effect.gen({ self: this }, function* () {
-            sleeping.preview =
+            const preview =
               saved ??
               (capture ? yield* Deferred.await(capture.frame).pipe(Effect.catch(() => Effect.succeed(null))) : null);
             if (tab.sleeping !== sleeping || tab.closing || tab.contents.isDestroyed()) return;
+            sleeping.preview = showsCurrentPage(tab, page) && this.#canShowOwner(tab) ? preview : null;
             unloaded = true;
             yield* this.#closeRenderer(tab);
           }),
@@ -708,8 +555,6 @@ export class BrowserHost {
       this.#unmountView(view);
       if (!contents.isDestroyed()) contents.close();
       this.#releaseScriptedDocument(tab);
-      // A person can open the tab while the engine stops, which shows the old view.
-      this.#syncAttachedView();
     });
   });
 
@@ -718,56 +563,24 @@ export class BrowserHost {
     return () => this.#listeners.delete(listener);
   }
 
-  onControlChanged(listener: (...args: BrowserHostEvents["controlChanged"]) => void): () => void {
-    return this.#controls.onChanged(listener);
-  }
-
   onDocumentChanged(listener: (...args: BrowserHostEvents["documentChanged"]) => void): () => void {
     this.#documentListeners.add(listener);
     return () => this.#documentListeners.delete(listener);
   }
 
-  onSiteVisited(listener: (...args: BrowserHostEvents["siteVisited"]) => void): () => void {
-    this.#siteVisitListeners.add(listener);
-    return () => this.#siteVisitListeners.delete(listener);
-  }
-
-  getControlState(): BrowserControlState {
-    return this.#controls.state();
-  }
-
   endControl(threadId: string, turnId: string): void {
     this.#controls.end(threadId, turnId);
-    // A dialog that the turn did not answer stays open in Electron's box for a person.
-    for (const tab of this.#tabs.values()) tab.engine.handOffDialogs(threadId, turnId);
+    // A later turn cannot answer the previous turn's dialog.
+    for (const tab of this.#tabs.values()) tab.engine.endDialogOwnership(threadId, turnId);
   }
 
   clearControls(): void {
     this.#controls.clear();
-    for (const tab of this.#tabs.values()) tab.engine.handOffDialogs();
-  }
-
-  /** Whether `openPrivate` opened this tab, or a popup of one: it holds a sign-in that is not for every member. */
-  isPrivate(tabId: string): boolean {
-    return Boolean(this.#tabs.get(tabId)?.privateSession);
-  }
-
-  /** The newest open tab of the private session that `openPrivate` opened as `tabId`: a sign-in popup while it is open. */
-  privateTab(tabId: string): string | null {
-    const privateSession = this.#tabs.get(tabId)?.privateSession;
-    if (!privateSession) return null;
-    return (
-      [...this.#tabs.values()].findLast((tab) => tab.privateSession === privateSession && !tab.closing)?.id ?? null
-    );
+    for (const tab of this.#tabs.values()) tab.engine.endDialogOwnership();
   }
 
   listTabs(): BrowserTab[] {
-    return [...this.#tabs.values()]
-      .filter((tab) => !tab.closing && !tab.contents.isDestroyed())
-      .map((tab) => {
-        const publicTab = toPublicTab(tab);
-        return this.#userControlTabIds.has(tab.id) ? { ...publicTab, userControl: true as const } : publicTab;
-      });
+    return [...this.#tabs.values()].filter((tab) => !tab.closing && !tab.contents.isDestroyed()).map(toPublicTab);
   }
 
   /** The renderer process of each open tab, so the resource monitor can count tabs apart from windows. */
@@ -778,98 +591,12 @@ export class BrowserHost {
       .filter((pid) => pid > 0);
   }
 
-  get activeTabId(): string | null {
-    return this.#activeTabId;
-  }
-
-  get visible(): boolean {
-    return this.#visible;
-  }
-
-  getDisplayState(): { tabs: BrowserTab[]; activeTabId: string | null } {
-    return { tabs: this.listTabs(), activeTabId: this.#activeTabId };
-  }
-
-  setPictureInPictureWindow(window: BrowserWindow | null): void {
-    this.#pictureInPictureWindow = window;
-    if (!window && this.#target === "picture-in-picture") {
-      this.#visible = false;
-      this.#target = "main";
-      if (this.#attachedView) this.#mountView(this.#attachedView, this.#window);
-    }
-    this.#syncAttachedView();
-  }
-
-  /**
-   * Calls `listener` each time the page of the main window moves, and with null when the main window
-   * shows no page. It runs after the page view is raised, so the listener can raise its own views above it.
-   */
-  setMainPageListener(listener: ((page: BrowserMainPage | null) => void) | null): void {
-    this.#mainPageListener = listener;
-    this.#syncAttachedView();
-  }
-
-  /**
-   * The keys of the window that work while the dock over the page has the focus: DevTools, search, and
-   * the keys of the full view. True when the window takes the key.
-   */
-  forwardDockShortcut(input: Input): boolean {
-    if (this.#window.isDestroyed()) return false;
-    if (isToggleDevToolsShortcut(input)) {
-      this.#window.webContents.toggleDevTools();
-      return true;
-    }
-    if (!isGlobalSearchShortcut(input) && !isBrowserViewShortcut(input, process.platform === "darwin")) return false;
-    this.#forwardKeyToWindow(input);
-    return true;
-  }
-
-  setPictureInPictureOverlayView(view: WebContentsView | null): void {
-    const previous = this.#pictureInPictureOverlayView;
-    const window = this.#pictureInPictureWindow;
-    if (previous && window && !window.isDestroyed()) window.contentView.removeChildView(previous);
-    this.#pictureInPictureOverlayView = view;
-    if (view && window && !window.isDestroyed()) window.contentView.addChildView(view);
-  }
-
-  readonly open = Effect.fn("BrowserHost.open")(function* (
-    this: BrowserHost,
-    url: string,
-    ownerThreadId: string | null = null,
-    ownerAgentId: string | null = null,
-    focus = false,
-  ): Effect.fn.Return<BrowserTab, BrowserOperationError> {
-    return yield* this.#open(url, ownerThreadId, ownerAgentId, focus, false);
-  }).bind(this);
-
-  /**
-   * Opens a sign-in page that a member watches in a live view, in a session of its own. The page
-   * gets no cookie of the shared browser and leaves none there, the tab is not saved, and no agent
-   * owns it, so no agent tool can reach it.
-   */
-  readonly openPrivate = Effect.fn("BrowserHost.openPrivate")(function* (
-    this: BrowserHost,
-    url: string,
-  ): Effect.fn.Return<BrowserTab, BrowserOperationError> {
-    const privateSession = session.fromPartition(`tommy-private-${randomUUID()}`, { cache: false });
-    this.#configureSession(privateSession);
-    return yield* this.#open(url, null, null, false, true, privateSession);
-  }).bind(this);
-
-  /**
-   * With `closeOnFailure` false, a tab whose first page does not load stays open on that address, as
-   * a tab does when a later page does not load, so the person sees where it failed and can try again.
-   * The open tool of an agent closes its tab, so that failed attempts do not fill the tab limit, and
-   * a private sign-in page closes its tab, as its callers expect.
-   */
+  /** An agent open either loads its first page or releases the tab. */
   readonly #open = Effect.fn("BrowserHost.openTab")(function* (
     this: BrowserHost,
     url: string,
     ownerThreadId: string | null,
     ownerAgentId: string | null,
-    focus: boolean,
-    closeOnFailure: boolean,
-    privateSession?: Session,
   ): Effect.fn.Return<BrowserTab, BrowserOperationError> {
     if (!this.#hasTabCapacity(ownerThreadId, ownerAgentId)) {
       return yield* browserFailure(
@@ -879,8 +606,7 @@ export class BrowserHost {
     // Each tab is its own renderer process.
     if (this.#memoryLow()) return yield* browserFailure(new Error(sourceText("error.backend.browserLowMemory")));
     const normalizedUrl = yield* browserSync(() => normalizeBrowserUrl(url));
-    const previouslyFocused = focus ? null : this.#focusedContentsOutsideTabs();
-    const tabSession = privateSession || !ownerAgentId ? undefined : yield* this.#agentTabSession(ownerAgentId);
+    const tabSession = !ownerAgentId ? undefined : yield* this.#agentTabSession(ownerAgentId);
     yield* this.#applyProfileProxy(tabSession);
     const tab = this.#createTab(
       randomUUID(),
@@ -889,53 +615,31 @@ export class BrowserHost {
       ownerAgentId,
       defaultBrowserEnvironment(),
       undefined,
-      privateSession,
       tabSession,
     );
 
     this.#tabs.set(tab.id, tab);
     this.#bindTabEvents(tab);
     this.#activeTabId = tab.id;
-    tab.focusOnVisible = focus;
-    // A view without a document cannot hold focus, so the first commit gives it.
-    tab.focusOnCommit = focus;
-    this.#syncAttachedView();
-    if (!focus) restoreWebContentsFocus(previouslyFocused, tab.contents);
     this.#emitChanged();
     return yield* Effect.gen({ self: this }, function* () {
       yield* this.#persistState();
 
-      const loadGeneration = tab.loadGeneration;
-      yield* Effect.gen({ self: this }, function* () {
-        // The first load of a new tab has no deadline, as with `loadURL` alone.
-        yield* navigateAndWait(tab.contents, () => tab.contents.loadURL(normalizedUrl, browserLoadOptions()), null);
-        if (focus) {
-          this.#focusTab(tab);
-          setImmediate(() => this.#focusTab(tab));
-        } else restoreWebContentsFocus(previouslyFocused, tab.contents);
-      }).pipe(
+      yield* navigateAndWait(tab.contents, () => tab.contents.loadURL(normalizedUrl, browserLoadOptions()), null).pipe(
         Effect.catch((operationFailure) =>
           Effect.gen({ self: this }, function* () {
             const error = operationFailure.cause;
-            // The user entered an address before the first page loaded: that load is the tab's page now.
-            if (this.#tabs.get(tab.id) === tab && tab.loadGeneration !== loadGeneration) return;
-            if (this.#tabs.get(tab.id) === tab && (closeOnFailure || tab.contents.isDestroyed())) {
+            if (this.#tabs.get(tab.id) === tab) {
               this.#unmountView(tab.view);
               this.#tabs.delete(tab.id);
-              this.#userControlTabIds.delete(tab.id);
-              this.#completeUserControlWaiters(tab.id);
               yield* tab.engine.destroy();
               tab.contents.close();
               if (this.#activeTabId === tab.id) {
                 this.#activeTabId = this.#tabs.keys().next().value ?? null;
               }
-              this.#syncAttachedView();
             }
             this.#emitChanged();
             yield* this.#persistState();
-            // An agent keeps the Chromium reason so it can identify the failed certificate check.
-            const certificateFailure = closeOnFailure ? operationFailure : certificateLoadFailure(operationFailure);
-            if (certificateFailure !== operationFailure) return yield* certificateFailure;
             return yield* browserFailure(
               new Error(sourceText("error.backend.browserOpenFailed", { url: normalizedUrl, reason: String(error) })),
             );
@@ -962,138 +666,6 @@ export class BrowserHost {
     return tabs.length < INPUT_LIMITS.browserTabs;
   }
 
-  readonly activate = Effect.fn("BrowserHost.activate")(function* (
-    this: BrowserHost,
-    tabId: string,
-  ): Effect.fn.Return<void, BrowserOperationError> {
-    yield* this.#requireTab(tabId);
-    this.#activeTabId = tabId;
-    this.#syncAttachedView();
-    this.#emitChanged();
-    yield* this.#persistState();
-  }).bind(this);
-
-  readonly navigate = Effect.fn("BrowserHost.navigate")(function* (
-    this: BrowserHost,
-    tabId: string,
-    direction: BrowserNavigationDirection,
-  ): Effect.fn.Return<void, BrowserOperationError> {
-    yield* this.#enqueue(tabId, (tab) =>
-      Effect.gen({ self: this }, function* () {
-        yield* untilStopped(
-          tab,
-          navigateAndWait(tab.contents, () => navigateHistory(tab.contents, direction)),
-        );
-      }),
-    );
-  }).bind(this);
-
-  readonly loadUrl = Effect.fn("BrowserHost.loadUrl")(function* (
-    this: BrowserHost,
-    tabId: string,
-    url: string,
-  ): Effect.fn.Return<void, BrowserOperationError> {
-    const normalizedUrl = yield* browserSync(() => normalizeBrowserUrl(url));
-    yield* this.#enqueue(
-      tabId,
-      (tab) =>
-        Effect.gen({ self: this }, function* () {
-          tab.loadGeneration += 1;
-          // The person entered this address, so the page keeps the focus that its document takes when it
-          // commits. The view can be hidden under the address suggestions, and then `#focusTab` does nothing.
-          tab.focusOnCommit = true;
-          yield* untilStopped(
-            tab,
-            navigateAndWait(tab.contents, () => tab.contents.loadURL(normalizedUrl, browserLoadOptions())),
-          ).pipe(
-            Effect.mapError(certificateLoadFailure),
-            // A same-document load or a load that does not start leaves the flag for the next navigation.
-            Effect.ensuring(
-              Effect.sync(() => {
-                tab.focusOnCommit = false;
-              }),
-            ),
-          );
-          this.#focusTab(tab);
-        }),
-      true,
-    );
-  }).bind(this);
-
-  readonly reload = Effect.fn("BrowserHost.reload")(function* (
-    this: BrowserHost,
-    tabId: string,
-  ): Effect.fn.Return<void, BrowserOperationError> {
-    yield* this.#enqueue(
-      tabId,
-      (tab) =>
-        Effect.gen({ self: this }, function* () {
-          return yield* untilStopped(
-            tab,
-            navigateAndWait(tab.contents, () => {
-              tab.contents.reload();
-              return true;
-            }),
-          );
-        }),
-      true,
-    );
-  }).bind(this);
-
-  /**
-   * Sets the cookies of a sign-in that a member made on their own device, then loads the page again.
-   * Only the cookies of the site that the tab shows go in: its host, its parent domains, and its
-   * subdomains. Chromium refuses a public suffix domain. The answer is the count that Chromium set.
-   */
-  readonly importSignIn = Effect.fn("BrowserHost.importSignIn")(function* (
-    this: BrowserHost,
-    tabId: string,
-    cookies: readonly BrowserSignInCookie[],
-  ): Effect.fn.Return<number, BrowserOperationError> {
-    const tab = yield* this.#requireTab(tabId);
-    const page = URL.canParse(tab.contents.getURL()) ? new URL(tab.contents.getURL()) : null;
-    if (!page || (page.protocol !== "https:" && page.protocol !== "http:")) return 0;
-    const target = this.#tabSession(tab);
-    const results = yield* Effect.forEach(
-      cookies.filter((cookie) => browserSignInCookieFitsHost(cookie.domain, page.hostname)),
-      (cookie) =>
-        browserCall(() =>
-          target.cookies.set({
-            url: `${cookie.secure ? "https" : "http"}://${cookie.domain.replace(/^\./u, "")}${cookie.path}`,
-            name: cookie.name,
-            value: cookie.value,
-            // A cookie with no leading dot is for one host only, so it has no domain attribute.
-            ...(cookie.domain.startsWith(".") ? { domain: cookie.domain } : {}),
-            path: cookie.path,
-            secure: cookie.secure,
-            httpOnly: cookie.httpOnly,
-            sameSite: cookie.sameSite,
-            ...(cookie.expirationDate === null ? {} : { expirationDate: cookie.expirationDate }),
-          }),
-        ).pipe(Effect.match({ onSuccess: () => 1, onFailure: () => 0 })),
-    );
-    const count = results.reduce((total, set) => total + set, 0);
-    if (count === 0) return 0;
-    yield* browserCall(() => target.cookies.flushStore());
-    // The cookies are set. A page that does not load again shows its own error in the tab.
-    yield* this.reload(tabId).pipe(Effect.ignore);
-    return count;
-  }).bind(this);
-
-  /**
-   * Stops the load of the tab now, not after the queued tab operations: a person stops a page that
-   * does not finish. The load that it ends counts as done, not as failed.
-   */
-  readonly stop = Effect.fn("BrowserHost.stop")(function* (
-    this: BrowserHost,
-    tabId: string,
-  ): Effect.fn.Return<void, BrowserOperationError> {
-    const tab = yield* this.#requireTab(tabId);
-    if (!tab.contents.isLoading()) return;
-    tab.loadGeneration += 1;
-    yield* browserSync(() => tab.contents.stop());
-  }).bind(this);
-
   readonly close = Effect.fn("BrowserHost.close")(function* (
     this: BrowserHost,
     tabId: string,
@@ -1108,18 +680,12 @@ export class BrowserHost {
     }
     const tabIds = [...this.#tabs.keys()];
     const closedIndex = tabIds.indexOf(tabId);
-    const browserHadFocus = tab.focusedAtPageClose === true || this.#tabHasFocus();
     this.#unmountView(tab.view);
     this.#releaseScriptedDocument(tab);
     this.#tabs.delete(tabId);
-    // A popup that a private page opened without an opener is not its child, but it holds the same sign-in.
-    const signInSession = tab.popup ? undefined : tab.privateSession;
     const childDrains = [...this.#tabs.values()]
-      .filter((child) => child.openerTabId === tabId || (signInSession && child.privateSession === signInSession))
+      .filter((child) => child.openerTabId === tabId)
       .map((child) => this.close(child.id));
-    this.#takeoverTabIds.delete(tabId);
-    this.#userControlTabIds.delete(tabId);
-    this.#completeUserControlWaiters(tabId);
 
     if (this.#activeTabId === tabId) {
       this.#activeTabId =
@@ -1131,13 +697,8 @@ export class BrowserHost {
           .find((id) => this.#tabs.has(id)) ??
         null;
       const active = this.#activeTabId ? this.#tabs.get(this.#activeTabId) : undefined;
-      if (active) {
-        // An agent or a page can close the tab while the person types in the app.
-        active.focusOnVisible = browserHadFocus;
-        yield* this.#wake(active);
-      }
+      if (active) yield* this.#wake(active);
     }
-    this.#syncAttachedView();
     this.#emitChanged();
     tab.closing = true;
     // An open dialog holds the tab queue until it closes.
@@ -1152,9 +713,6 @@ export class BrowserHost {
         yield* browserSync(() => {
           if (!tab.contents.isDestroyed()) tab.contents.close();
         });
-        const privateSession = tab.privateSession;
-        if (privateSession && ![...this.#tabs.values()].some((other) => other.privateSession === privateSession))
-          yield* browserCall(() => privateSession.clearStorageData()).pipe(Effect.ignore);
         if (Exit.isFailure(discarded)) return yield* Effect.failCause(discarded.cause);
       }),
       this.#scope,
@@ -1168,137 +726,6 @@ export class BrowserHost {
     const failure = results.find(Exit.isFailure);
     if (failure) return yield* Effect.failCause(failure.cause);
   }, Effect.uninterruptible).bind(this);
-
-  readonly beginTakeover = Effect.fn("BrowserHost.beginTakeover")(function* (
-    this: BrowserHost,
-    tabId: string,
-  ): Effect.fn.Return<void, BrowserOperationError> {
-    const tab = this.#tabs.get(tabId);
-    if (!tab) return yield* browserFailure(new Error(sourceText("error.backend.browserTabNotFound")));
-    tab.engine.invalidateReferences();
-    this.#takeoverTabIds.add(tabId);
-    stopCookieBanners(tab.contents);
-    this.#syncAttachedView();
-    tab.diagnostics.clearDiagnostics();
-    this.#emitChanged();
-    yield* Effect.gen({ self: this }, function* () {
-      yield* this.#enqueue(tabId, () => this.#recorder.discard(tabId, "tab-closed"), true);
-    }).pipe(
-      Effect.catch((operationFailure) =>
-        Effect.gen({ self: this }, function* () {
-          const error = operationFailure.cause;
-          tab.diagnostics.clearDiagnostics();
-          this.#takeoverTabIds.delete(tabId);
-          return yield* browserFailure(error);
-        }),
-      ),
-    );
-  }).bind(this);
-
-  /**
-   * A person takes the tab. The agent tool calls on it wait for the release. An operation that already
-   * runs ends first, because the take waits for its place in the tab queue.
-   */
-  readonly takeUserControl = Effect.fn("BrowserHost.takeUserControl")(function* (
-    this: BrowserHost,
-    tabId: string,
-    holder: BrowserUserControlHolder,
-  ): Effect.fn.Return<void, BrowserOperationError> {
-    const tab = this.#tabs.get(tabId);
-    if (!tab || tab.closing) return yield* browserFailure(new Error(sourceText("error.backend.browserTabNotFound")));
-    if (tab.secret) return yield* browserFailure(new Error(sourceText("error.backend.browserUserControlBusy")));
-    if (this.#userControlTabIds.has(tabId)) return;
-    tab.engine.invalidateReferences();
-    this.#userControlTabIds.set(tabId, holder);
-    stopCookieBanners(tab.contents);
-    tab.diagnostics.clearDiagnostics();
-    this.#emitChanged();
-    yield* this.#enqueue(tabId, () => this.#recorder.discard(tabId, "tab-closed"), true).pipe(
-      Effect.catch((operationFailure) =>
-        Effect.gen({ self: this }, function* () {
-          if (this.#userControlTabIds.get(tabId) === holder) this.#endUserControl(tabId);
-          return yield* browserFailure(operationFailure.cause);
-        }),
-      ),
-    );
-  }).bind(this);
-
-  /** Any caller that can see the tab gives it back. A tab that nobody holds stays as it is. */
-  releaseUserControl(tabId: string): void {
-    if (!this.#userControlTabIds.has(tabId)) return;
-    const tab = this.#tabs.get(tabId);
-    if (tab) {
-      tab.engine.invalidateReferences();
-      tab.diagnostics.clearDiagnostics();
-    }
-    this.#endUserControl(tabId);
-  }
-
-  /** Releases the tabs of a closed window, session or member. */
-  releaseUserControlHeldBy(owner: BrowserUserControlOwner): void {
-    for (const [tabId, holder] of [...this.#userControlTabIds]) {
-      if (
-        (owner.kind === "local" && holder.kind === "local") ||
-        (owner.kind === "session" && holder.kind === "member" && holder.sessionId === owner.sessionId) ||
-        (owner.kind === "member" && holder.kind === "member" && holder.memberId === owner.memberId)
-      )
-        this.releaseUserControl(tabId);
-    }
-  }
-
-  /**
-   * The tab of this agent tool call while a person controls it, or null. A call for the agent's tab
-   * set, such as `list_tabs`, waits while the person controls any tab that the agent can use.
-   */
-  userControlTabFor(params: DynamicToolCallParams): string | null {
-    if (TAB_SET_TOOLS.has(params.tool))
-      return (
-        this.listTabs().find((tab) => this.#userControlTabIds.has(tab.id) && this.#canUseToolTab(params, tab))?.id ??
-        null
-      );
-    // The tool reads the repaired arguments, so this check does too: a call with tab_id names the tab.
-    const args = repairBrowserToolInput(params.tool, params.arguments).value;
-    const tabId = isRecord(args) ? args.tabId : undefined;
-    if (!isString(tabId) || !this.#userControlTabIds.has(tabId)) return null;
-    const tab = this.listTabs().find((candidate) => candidate.id === tabId);
-    return tab && this.#canUseToolTab(params, tab) ? tabId : null;
-  }
-
-  /** Waits until nobody controls the tab: a release, a tab close or the host shutdown. */
-  awaitUserControlRelease(tabId: string): Effect.Effect<void> {
-    return Effect.suspend(() => {
-      if (!this.#userControlTabIds.has(tabId)) return Effect.void;
-      const released = Deferred.makeUnsafe<void>();
-      const waiters = this.#userControlWaiters.get(tabId) ?? new Set<Deferred.Deferred<void>>();
-      this.#userControlWaiters.set(tabId, waiters);
-      waiters.add(released);
-      return Deferred.await(released).pipe(
-        Effect.ensuring(
-          Effect.sync(() => {
-            waiters.delete(released);
-            if (waiters.size === 0 && this.#userControlWaiters.get(tabId) === waiters)
-              this.#userControlWaiters.delete(tabId);
-          }),
-        ),
-      );
-    });
-  }
-
-  #heldByUser(tabId: string): boolean {
-    return this.#userControlTabIds.has(tabId);
-  }
-
-  #endUserControl(tabId: string): void {
-    this.#userControlTabIds.delete(tabId);
-    this.#completeUserControlWaiters(tabId);
-    this.#emitChanged();
-  }
-
-  #completeUserControlWaiters(tabId: string): void {
-    const waiters = this.#userControlWaiters.get(tabId);
-    this.#userControlWaiters.delete(tabId);
-    for (const released of waiters ?? []) Deferred.doneUnsafe(released, Exit.void);
-  }
 
   readonly prepareSecret = Effect.fn("BrowserHost.prepareSecret")(function* (
     this: BrowserHost,
@@ -1339,8 +766,7 @@ export class BrowserHost {
     const protection = { origin: url.origin, submitted: false, replaced: false, running: false };
     tab.secret = protection;
     stopCookieBanners(tab.contents);
-    this.#invalidateViews(tab);
-    this.#syncAttachedView();
+    this.#invalidatePreviews(tab);
     return yield* Effect.gen({ self: this }, function* () {
       const entry = yield* this.#enqueue(
         args.tabId,
@@ -1381,7 +807,6 @@ export class BrowserHost {
         cancel: () => {
           if (tab.secret === protection && !protection.submitted) {
             tab.secret = undefined;
-            this.#syncAttachedView();
             this.#emitChanged();
           }
         },
@@ -1394,9 +819,8 @@ export class BrowserHost {
             if (args.method !== "password" && !new RegExp(`^[0-9]{${args.digits}}$`, "u").test(secret))
               return yield* browserFailure(new Error(sourceText("error.backend.authDigitsRequired")));
             protection.submitted = true;
-            this.#invalidateViews(tab);
+            this.#invalidatePreviews(tab);
             protection.running = true;
-            this.#syncAttachedView();
             let kept = false;
             let leaked = false;
             let failure: string | null = null;
@@ -1498,11 +922,9 @@ export class BrowserHost {
                   if (protection.replaced) {
                     tab.contents.navigationHistory.clear();
                     tab.secret = undefined;
-                    this.#syncAttachedView();
                   } else if (kept) {
                     tab.secretDocument = true;
                     tab.secret = undefined;
-                    this.#syncAttachedView();
                   }
                   this.#emitChanged();
                 }),
@@ -1520,11 +942,12 @@ export class BrowserHost {
       Effect.catch((error) =>
         Effect.gen({ self: this }, function* () {
           tab.secret = undefined;
-          this.#syncAttachedView();
           // A reason can end in a selector, so end it with a period before the next sentence.
           const reason = error.cause instanceof Error ? ` ${error.cause.message.replace(/\.?\s*$/u, ".")}` : "";
           return yield* browserFailure(
-            new Error(`Secure authentication is unavailable.${reason} Correct the request, or use browser takeover.`),
+            new Error(
+              `Secure authentication is unavailable.${reason} Correct the request, or report the blocked step with request_takeover.`,
+            ),
           );
         }),
       ),
@@ -1548,7 +971,7 @@ export class BrowserHost {
         )
       )
         throw new Error(
-          "Secure input is unavailable while a connected popup or opener tab shows the same site. Use takeover.",
+          "Secure input is unavailable while a connected popup or opener tab shows the same site. Close that tab before retrying.",
         );
     }
   }
@@ -1705,45 +1128,6 @@ export class BrowserHost {
     return connected;
   }
 
-  endTakeover(tabId: string): void {
-    const tab = this.#tabs.get(tabId);
-    if (tab) {
-      tab.engine.invalidateReferences();
-      tab.diagnostics.clearDiagnostics();
-    }
-    this.#takeoverTabIds.delete(tabId);
-    this.#syncAttachedView();
-    this.#emitChanged();
-  }
-
-  readonly setVisible = Effect.fn("BrowserHost.setVisible")(function* (
-    this: BrowserHost,
-    input: BrowserVisibilityInput,
-  ) {
-    const active = this.#activeTabId ? this.#tabs.get(this.#activeTabId) : undefined;
-    if (active) yield* this.#wake(active);
-    yield* browserSync(() => {
-      const restoreRendererFocus = !input.visible && this.#attachedView?.webContents.isFocused();
-      this.#visible = input.visible;
-      if (input.bounds) this.#bounds = validateBounds(input.bounds);
-      if (input.target) this.#target = input.target;
-      this.#syncAttachedView();
-      if (restoreRendererFocus) this.#window.webContents.focus();
-    });
-  }).bind(this);
-
-  readonly snapshot = Effect.fn("BrowserHost.snapshot")(function* (
-    this: BrowserHost,
-    tabId: string,
-  ): Effect.fn.Return<BrowserSnapshot, BrowserOperationError> {
-    return yield* this.#enqueue(tabId, (tab, keepQueueBlocked) =>
-      Effect.gen({ self: this }, function* () {
-        const revision = tab.revision + 1;
-        return (yield* readTabSnapshot(tab, revision, keepQueueBlocked)).snapshot;
-      }),
-    );
-  }).bind(this);
-
   readonly act = Effect.fn("BrowserHost.act")(function* (
     this: BrowserHost,
     tabId: string,
@@ -1854,13 +1238,89 @@ export class BrowserHost {
     );
   }).bind(this);
 
-  readonly capturePreview = Effect.fn("BrowserHost.capturePreview")(function* (
+  #manualStepLifetime = new AbortController();
+  #manualStepReporter: ((request: BrowserManualStepRequest, signal?: AbortSignal) => Effect.Effect<boolean>) | null =
+    null;
+
+  setManualStepReporter(reporter: typeof this.reportManualStep | null): void {
+    this.#manualStepLifetime.abort();
+    this.#manualStepLifetime = new AbortController();
+    this.#manualStepReporter = reporter;
+  }
+
+  reportManualStep(request: BrowserManualStepRequest, signal?: AbortSignal): Effect.Effect<boolean> {
+    const lifetime = this.#manualStepLifetime.signal;
+    return (
+      this.#manualStepReporter?.(request, signal ? AbortSignal.any([signal, lifetime]) : lifetime) ??
+      Effect.succeed(false)
+    );
+  }
+
+  #canShowOwner(tab: BrowserHostTab): boolean {
+    return (
+      !tab.closing &&
+      ![...this.#connectedTabs(tab)].some(
+        (item) => item.secret || item.secretDocument || item.filledCard || item.recording,
+      )
+    );
+  }
+
+  /** Pin the document as well as its URL. A reload, a new owner or protected input invalidates the bytes. */
+  readonly captureOwnerTab = Effect.fn("BrowserHost.captureOwnerTab")(function* (
+    this: BrowserHost,
+    tabId: string,
+    agentId: string,
+    threadId?: string,
+  ) {
+    const tab = this.#tabs.get(tabId);
+    if (!tab || tab.ownerAgentId !== agentId || (threadId !== undefined && tab.ownerThreadId !== threadId)) return null;
+    const ownerThread = tab.ownerThreadId;
+    const owned = () =>
+      this.#tabs.get(tab.id) === tab &&
+      tab.ownerAgentId === agentId &&
+      tab.ownerThreadId === ownerThread &&
+      this.#canShowOwner(tab);
+    if (!owned()) return null;
+    const expected = currentTabUrl(tab);
+    const url = URL.parse(expected);
+    if (
+      url?.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      /(?:^|\.)(?:telegram\.org|telegram\.me|telegram\.dog|t\.me)$/u.test(
+        url.hostname.toLowerCase().replace(/\.$/u, ""),
+      )
+    )
+      return null;
+    if (tab.pendingRestore && !tab.sleeping?.preview) {
+      yield* this.#wake(tab);
+      yield* Deferred.await(tab.queue);
+    }
+    const sleeping = tab.sleeping;
+    const page = currentPreviewPage(tab);
+    const current = () =>
+      owned() &&
+      page.url === expected &&
+      showsCurrentPage(tab, page) &&
+      tab.sleeping === sleeping &&
+      (Boolean(sleeping?.preview) || tab.contents.getURL() === page.url);
+    if (!current()) return null;
+    const preview = yield* this.#capturePreview(tab.id);
+    const prefix = "data:image/jpeg;base64,";
+    if (!current() || !preview.dataUrl.startsWith(prefix) || preview.dataUrl.length > 2 * 1024 * 1024) return null;
+    const bytes = Buffer.from(preview.dataUrl.slice(prefix.length), "base64");
+    if (bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes.at(-2) !== 0xff || bytes.at(-1) !== 0xd9) return null;
+    return { bytes, current };
+  }).bind(this);
+
+  readonly #capturePreview = Effect.fn("BrowserHost.capturePreview")(function* (
     this: BrowserHost,
     tabId: string,
   ): Effect.fn.Return<BrowserPreview, BrowserOperationError> {
     const tab = this.#tabs.get(tabId);
     if (!tab) return yield* browserFailure(new Error(`Unknown browser tab: ${tabId}`));
-    // A preview card on screen does not keep a sleeping tab loaded.
+    if (!this.#canShowOwner(tab)) return yield* browserFailure(new Error("Browser preview is protected."));
+    // The last still of a sleeping tab does not require a renderer.
     if (tab.sleeping?.preview) return tab.sleeping.preview;
     yield* this.#wake(tab);
     if (tab.secret?.submitted)
@@ -1871,17 +1331,21 @@ export class BrowserHost {
     const started = yield* this.#previewCapture(tab);
     const capture = Effect.gen({ self: this }, function* () {
       const frame = yield* Deferred.await(started.frame);
-      if (showsCurrentPage(tab, started)) return frame;
+      if (this.#canShowOwner(tab) && showsCurrentPage(tab, started)) return frame;
       const retry = yield* this.#previewCapture(tab);
       const retried = yield* Deferred.await(retry.frame);
-      if (!showsCurrentPage(tab, retry))
+      if (!this.#canShowOwner(tab) || !showsCurrentPage(tab, retry))
         return yield* browserFailure(new Error(sourceText("error.backend.browserPreviewPageChanged")));
       return retried;
     });
     if (!cached) return yield* capture;
     // A stale frame is usable only if navigation has not changed its page.
     const stale = Effect.sleep(PREVIEW_STALE_AFTER_MS).pipe(
-      Effect.andThen(Effect.suspend(() => (savedPreview(tab) === cached ? Effect.succeed(cached) : Effect.never))),
+      Effect.andThen(
+        Effect.suspend(() =>
+          this.#canShowOwner(tab) && savedPreview(tab) === cached ? Effect.succeed(cached) : Effect.never,
+        ),
+      ),
     );
     return yield* Effect.raceFirst(capture, stale);
   }).bind(this);
@@ -1942,130 +1406,20 @@ export class BrowserHost {
     return capture;
   });
 
-  /**
-   * A live view of a tab, for a member who is not at this computer.
-   *
-   * The frames do not go through the tab's operation queue. A queued frame is a frame that arrives
-   * after whatever the agent is doing has finished, which is exactly the picture the still-image
-   * route already gave; the point of the view is that the page moves while the agent works.
-   */
-  #invalidateViews(tab: BrowserHostTab): void {
-    tab.captureGeneration += 1;
-    for (const invalidate of [...tab.viewInvalidations]) invalidate();
-  }
-
-  readonly startView = Effect.fn("BrowserHost.startView")(function* (
-    this: BrowserHost,
-    tabId: string,
-    onFrame: (frame: BrowserScreencastFrame) => void,
-    onEnded?: (reason: string) => void,
-    options: BrowserViewOptions = {},
-  ): Effect.fn.Return<() => Effect.Effect<void>, BrowserOperationError> {
-    const { onCursor, viewport } = options;
-    const tab = yield* this.#requireTab(tabId);
-    if (tab.secret?.submitted)
-      return yield* browserFailure(new Error(sourceText("error.backend.browserViewProtected")));
-    yield* browserSync(() => this.#requireNoFilledCard(tab, "Browser view"));
-    const generation = tab.captureGeneration;
-    let invalidated = false;
-    // Chromium reports the cursor of the input it dispatches, the live view's pointer included.
-    let lastCursor: BrowserViewCursor | null = null;
-    const cursorChanged = (_event: unknown, type: string) => {
-      if (tab.secret?.submitted || tab.captureGeneration !== generation) return;
-      const cursor = browserViewCursor(type);
-      if (cursor === lastCursor) return;
-      lastCursor = cursor;
-      onCursor?.(cursor);
-    };
-    const stopCursor = () => {
-      if (onCursor && !tab.contents.isDestroyed()) tab.contents.off("cursor-changed", cursorChanged);
-    };
-    const invalidate = () => {
-      invalidated = true;
-      tab.viewInvalidations.delete(invalidate);
-      stopCursor();
-      onEnded?.("Authentication changed the browser view. Open a new view to continue.");
-    };
-    tab.viewInvalidations.add(invalidate);
-    if (onCursor) tab.contents.on("cursor-changed", cursorChanged);
-    return yield* Effect.gen({ self: this }, function* () {
-      const stop = yield* tab.engine.startScreencast(
-        {
-          quality: VIEW_FRAME_QUALITY,
-          maxWidth: VIEW_FRAME_MAX_WIDTH,
-          maxHeight: VIEW_FRAME_MAX_HEIGHT,
-          ...(viewport ? { viewport } : {}),
-        },
-        (frame) => {
-          if (!tab.secret?.submitted && !tab.filledCard && tab.captureGeneration === generation) onFrame(frame);
-        },
-        (error) => {
-          tab.viewInvalidations.delete(invalidate);
-          stopCursor();
-          logger.warn("The live browser view stopped.", { error: toLogValue(error) });
-          onEnded?.("The live browser view stopped. Open a new view to continue.");
-        },
-      );
-      let stopped = false;
-      const stopOnce = () =>
-        Effect.gen({ self: this }, function* () {
-          tab.viewInvalidations.delete(invalidate);
-          stopCursor();
-          if (stopped) return;
-          stopped = true;
-          tab.engine.releaseViewButton();
-          yield* stop();
-        });
-      if (invalidated) yield* stopOnce();
-      return stopOnce;
-    }).pipe(
-      Effect.catch((operationFailure) =>
-        Effect.gen({ self: this }, function* () {
-          const error = operationFailure.cause;
-          tab.viewInvalidations.delete(invalidate);
-          stopCursor();
-          return yield* browserFailure(error);
-        }),
-      ),
-    );
-  }).bind(this);
-
-  readonly dispatchViewInput = Effect.fn("BrowserHost.dispatchViewInput")(function* (
-    this: BrowserHost,
-    tabId: string,
-    input: BrowserViewportInput,
-    /** Hears the menu of this right-click, which then does not open on this screen. */
-    onContextMenu?: (menu: BrowserViewContextMenu) => void,
-  ): Effect.fn.Return<void, BrowserOperationError> {
-    const tab = yield* this.#requireTab(tabId);
-    if (tab.secret?.submitted)
-      return yield* browserFailure(new Error(sourceText("error.backend.browserInputProtected")));
-    if (input.type !== "pointer" || input.action !== "move") tab.engine.invalidateReferences();
-    if (input.type === "pointer" && input.action === "down") {
-      tab.viewContextMenu =
-        input.button === "right" && onContextMenu
-          ? { deliver: onContextMenu, until: Date.now() + VIEW_CONTEXT_MENU_MS }
-          : null;
+  /** Invalidate any saved or pending still before allowing protected input. */
+  #invalidatePreviews(tab: BrowserHostTab): void {
+    for (const connected of this.#connectedTabs(tab)) {
+      connected.captureGeneration += 1;
+      connected.preview = undefined;
+      connected.previewCapture = undefined;
+      if (connected.sleeping) connected.sleeping.preview = null;
     }
-    yield* tab.engine.dispatchViewportInput(input);
-  }).bind(this);
-
-  /** A live view's copy. A protected tab refuses it as it refuses input: its fields hold a secret. */
-  readonly copyViewSelection = Effect.fn("BrowserHost.copyViewSelection")(function* (
-    this: BrowserHost,
-    tabId: string,
-    max: number,
-  ): Effect.fn.Return<string | null, BrowserOperationError> {
-    const tab = yield* this.#requireTab(tabId);
-    if (tab.secret?.submitted)
-      return yield* browserFailure(new Error(sourceText("error.backend.browserInputProtected")));
-    return yield* tab.engine.viewportSelectionText(max);
-  }).bind(this);
+  }
 
   readonly #toolHandlers: BrowserToolHandlers = {
     open: ({ args }, params) =>
       Effect.gen({ self: this }, function* () {
-        const tab = yield* this.#open(args.url, params.threadId, params.ownerAgentId ?? null, false, true);
+        const tab = yield* this.#open(args.url, params.threadId, params.ownerAgentId ?? null);
         this.#controls.updateTab(params, tab.id);
         return textResult({ tab });
       }),
@@ -2073,7 +1427,7 @@ export class BrowserHost {
     status: (_call, params) =>
       Effect.gen({ self: this }, function* () {
         const control = {
-          sessions: this.getControlState().sessions.filter((session) => session.threadId === params.threadId),
+          sessions: this.#controls.state().sessions.filter((session) => session.threadId === params.threadId),
         };
         return textResult({ ...this.#toolTabs(params), control });
       }),
@@ -2266,25 +1620,18 @@ export class BrowserHost {
           maxSteps: BROWSER_SCRIPT_MAX_STEPS,
           runStep: (step) => this.#runStep(params, tabId, step, hooks),
         });
-        let result: BrowserScriptResult = run;
+        const result: BrowserScriptResult = run;
         let snapshot: BrowserSnapshot | undefined;
         let snapshotError: string | undefined;
         // The page waits for its dialog, so a snapshot would wait too.
-        if (
-          args.finalSnapshot !== false &&
-          run.status !== "user_control" &&
-          run.status !== "tab_closed" &&
-          run.status !== "dialog"
-        ) {
+        if (args.finalSnapshot !== false && run.status !== "tab_closed" && run.status !== "dialog") {
           // The steps are done when the final snapshot fails, so the result keeps their value and log.
           // Otherwise the agent sees only an error and can run the same clicks or submits again.
           const read = yield* Effect.result(this.#finalStepsSnapshot(params, tabId));
           if (Result.isSuccess(read)) snapshot = read.success;
           else {
             const error = read.failure.cause;
-            if (error instanceof BrowserUserControlHeld)
-              result = { ...run, status: "user_control", error: BROWSER_SCRIPT_USER_CONTROL_ERROR };
-            else snapshotError = redactText(error instanceof Error ? error.message : String(error));
+            snapshotError = redactText(error instanceof Error ? error.message : String(error));
           }
         }
         // The steps before a failure stay done. Without a snapshot, the URL shows the agent where the
@@ -2344,17 +1691,14 @@ export class BrowserHost {
         yield* this.close(tabId);
         return textResult({ closed: true });
       }),
-    // Published in BROWSER_TOOL_DEFINITIONS like every other tool, but answered by the agent
-    // service, which intercepts the namespace before the call reaches a host. Reaching here
-    // means a caller bypassed that, and silently succeeding would tell the model the user had
-    // been asked for control when nobody was.
-    submit_secret: rejectTakeoverTool,
-    request_takeover: rejectTakeoverTool,
-    list_logins: rejectTakeoverTool,
-    list_vault_items: rejectTakeoverTool,
-    save_vault_item: rejectTakeoverTool,
-    request_vault_item: rejectTakeoverTool,
-    delete_vault_item: rejectTakeoverTool,
+    // The agent service owns these tools and validates the requesting turn.
+    submit_secret: rejectAgentServiceTool,
+    request_takeover: rejectAgentServiceTool,
+    list_logins: rejectAgentServiceTool,
+    list_vault_items: rejectAgentServiceTool,
+    save_vault_item: rejectAgentServiceTool,
+    request_vault_item: rejectAgentServiceTool,
+    delete_vault_item: rejectAgentServiceTool,
   };
 
   readonly handleDynamicTool = Effect.fn("BrowserHost.handleDynamicTool")(function* (
@@ -2362,45 +1706,21 @@ export class BrowserHost {
     params: DynamicToolCallParams,
     hooks: BrowserDynamicToolHooks = {},
   ): Effect.fn.Return<DynamicToolResult, BrowserOperationError> {
-    const outcome = yield* Effect.gen({ self: this }, function* () {
+    return yield* Effect.gen({ self: this }, function* () {
       const call = yield* browserSync(() => parseBrowserToolCall(params.tool, params.arguments));
       yield* browserSync(() => this.#controls.begin(params, call));
-      return { result: yield* runBrowserTool(this.#toolHandlers, call.tool, call, params, hooks) };
-    })
-      .pipe(
-        Effect.provideService(BrowserToolHold, (tabId: string) => this.#heldByUser(tabId)),
-        Effect.provideService(BrowserToolQueueWait, TOOL_QUEUE_WAIT_MS),
-        Effect.provideService(BrowserDialogTurn, { threadId: params.threadId, turnId: params.turnId }),
-        Effect.catch((operationFailure) =>
-          Effect.sync((): { result: DynamicToolResult } | { heldTabId: string } => {
-            const error = operationFailure.cause;
-            if (error instanceof BrowserUserControlHeld) return { heldTabId: error.tabId };
-            return {
-              result: {
-                success: false,
-                // The single place every browser tool failure reaches a provider. A page exception carries
-                // the page's own message -- `throw new Error("password=hunter2")` -- so this gets the same
-                // redaction the diagnostics ring applies, and the diagnostic copy stays the redacted one.
-                contentItems: [{ type: "inputText", text: redactText(String(error)) }],
-              },
-            };
-          }),
-        ),
-      )
-      .pipe(
-        Effect.ensuring(
-          Effect.sync(() => {
-            this.#controls.finish(params);
-          }),
-        ),
-      );
-    if ("result" in outcome) return outcome.result;
-    // The agent's control of the tab ended above, so the wait does not show the agent at work.
-    if (hooks.onUserControl) return yield* hooks.onUserControl(outcome.heldTabId);
-    return {
-      success: false,
-      contentItems: [{ type: "inputText", text: new BrowserUserControlHeld(outcome.heldTabId).message }],
-    };
+      return yield* runBrowserTool(this.#toolHandlers, call.tool, call, params, hooks);
+    }).pipe(
+      Effect.provideService(BrowserToolQueueWait, TOOL_QUEUE_WAIT_MS),
+      Effect.provideService(BrowserDialogTurn, { threadId: params.threadId, turnId: params.turnId }),
+      Effect.catch((failure) =>
+        Effect.succeed<DynamicToolResult>({
+          success: false,
+          contentItems: [{ type: "inputText", text: redactText(String(failure.cause)) }],
+        }),
+      ),
+      Effect.ensuring(Effect.sync(() => this.#controls.finish(params))),
+    );
   }).bind(this);
 
   #toolTabs(params: DynamicToolCallParams): { tabs: BrowserTab[]; activeTabId: string | null } {
@@ -2470,7 +1790,7 @@ export class BrowserHost {
               onFill: () => {
                 markDispatched();
                 current.filledCard = true;
-                this.#invalidateViews(current);
+                this.#invalidatePreviews(current);
               },
             },
             deadline,
@@ -2677,15 +1997,11 @@ export class BrowserHost {
     });
     return yield* run.pipe(
       Effect.catch((failure) =>
-        Effect.succeed<BrowserStepOutcome>(
-          failure.cause instanceof BrowserUserControlHeld
-            ? { status: "user_control" }
-            : {
-                status: "error",
-                // run_script raises the message as a script Error, which adds its own "Error: " prefix.
-                error: redactText(failure.cause instanceof Error ? failure.cause.message : String(failure.cause)),
-              },
-        ),
+        Effect.succeed<BrowserStepOutcome>({
+          status: "error",
+          // run_script raises the message as a script Error, which adds its own "Error: " prefix.
+          error: redactText(failure.cause instanceof Error ? failure.cause.message : String(failure.cause)),
+        }),
       ),
     );
   });
@@ -2738,10 +2054,7 @@ export class BrowserHost {
         "Browser upload target resolution timed out.",
         keepQueueBlocked,
       ),
-    ).pipe(
-      Effect.provideService(BrowserToolHold, (heldTabId: string) => this.#heldByUser(heldTabId)),
-      Effect.provideService(BrowserToolQueueWait, TOOL_QUEUE_WAIT_MS),
-    );
+    ).pipe(Effect.provideService(BrowserToolQueueWait, TOOL_QUEUE_WAIT_MS));
   }).bind(this);
 
   readonly destroy = Effect.fn("BrowserHost.destroy")(function* (this: BrowserHost) {
@@ -2770,12 +2083,9 @@ export class BrowserHost {
           );
         }
         this.#tabs.clear();
-        this.#userControlTabIds.clear();
-        for (const tabId of [...this.#userControlWaiters.keys()]) this.#completeUserControlWaiters(tabId);
         this.#listeners.clear();
-        this.#controls.dispose();
+        this.#controls.clear();
         this.#documentListeners.clear();
-        this.#siteVisitListeners.clear();
         const results = yield* Effect.all(
           [
             browserCall(() => Promise.all(this.#persistentSessions().map((target) => target.cookies.flushStore()))),
@@ -2806,15 +2116,6 @@ export class BrowserHost {
     yield* Deferred.done(done, result);
     return yield* result;
   }, Effect.uninterruptible).bind(this);
-
-  readonly flushPersistentStorage = Effect.fn("BrowserHost.flushPersistentStorage")(function* (
-    this: BrowserHost,
-  ): Effect.fn.Return<void, BrowserOperationError> {
-    const sessions = this.#persistentSessions();
-    for (const target of sessions) target.flushStorageData();
-    yield* browserCall(() => Promise.all(sessions.map((target) => target.cookies.flushStore())));
-    yield* this.#persistState();
-  }).bind(this);
 
   /**
    * Deletes the cookies, storage and cache of an agent's own session, for a deleted agent. Its tabs
@@ -2861,13 +2162,6 @@ export class BrowserHost {
       })
       .map((tab) => tab.id);
     return [...loaded, ...deferred];
-  }
-
-  /** The session of each open tab that is not in the shared session or a private one. */
-  listTabSessions(): { tabId: string; tabSession: BrowserTabSession }[] {
-    return [...this.#tabs.values()].flatMap((tab) =>
-      tab.tabSession && !tab.closing ? [{ tabId: tab.id, tabSession: tab.tabSession }] : [],
-    );
   }
 
   /** The session for a new tab of this agent. A profile that does not exist fails: no fallback. */
@@ -2986,8 +2280,8 @@ export class BrowserHost {
     return [this.#session, ...this.#tabSessions.values()];
   }
 
-  #tabSession(tab: Pick<BrowserHostTab, "privateSession" | "tabSession">): Session {
-    return tab.privateSession ?? (tab.tabSession ? this.#persistentTabSession(tab.tabSession) : this.#session);
+  #tabSession(tab: Pick<BrowserHostTab, "tabSession">): Session {
+    return tab.tabSession ? this.#persistentTabSession(tab.tabSession) : this.#session;
   }
 
   #persistentTabSession(tabSession: BrowserTabSession): Session {
@@ -3007,14 +2301,12 @@ export class BrowserHost {
     ownerAgentId: string | null,
     environment: BrowserEnvironment = defaultBrowserEnvironment(),
     popupOptions?: BrowserWindowConstructorOptions,
-    privateSession?: Session,
     tabSession?: BrowserTabSession,
   ): BrowserHostTab {
     if (this.#destroying) throw new Error("BrowserHost is shutting down.");
     const view = this.#createView(
       popupOptions,
       this.#tabSession({
-        ...(privateSession ? { privateSession } : {}),
         ...(tabSession ? { tabSession } : {}),
       }),
     );
@@ -3027,7 +2319,6 @@ export class BrowserHost {
       view,
       contents: view.webContents,
       popup: popupOptions !== undefined,
-      ...(privateSession ? { privateSession } : {}),
       ...(tabSession ? { tabSession } : {}),
       requestedUrl,
       ownerThreadId,
@@ -3036,16 +2327,12 @@ export class BrowserHost {
       queue,
       scope: Scope.makeUnsafe(),
       pendingOperations: 0,
-      focusOnVisible: false,
       environment,
       engine: new BrowserCdpEngine(view.webContents),
       diagnostics,
       recording: false,
       captureGeneration: 0,
-      loadGeneration: 0,
       documents: 0,
-      viewInvalidations: new Set(),
-      viewContextMenu: null,
       lastUsedAt: Date.now(),
     };
   }
@@ -3172,7 +2459,6 @@ export class BrowserHost {
       // `#closeRenderer` closes the old contents of a tab that stays open.
       if (tab.contents !== contents) return;
       tab.closing = true;
-      tab.focusedAtPageClose = contents.isFocused();
     });
     contents.on("render-process-gone", () => {
       if (tab.contents === contents) this.#releaseScriptedDocument(tab);
@@ -3222,109 +2508,16 @@ export class BrowserHost {
           for (const listener of this.#documentListeners) listener(tab.id, new Set());
         });
     });
-    contents.on("before-input-event", (event, input) => {
-      // Only a tab in the main window: a Picture in Picture tab leaves Cmd+Q to the menu item, which asks
-      // first, because the hint shows in the main window and that window can be hidden.
-      if (this.#mountedViews.get(tab.view) === this.#window && this.#quitShortcut(input)) {
-        event.preventDefault();
-        return;
-      }
-      if (isToggleDevToolsShortcut(input)) {
-        event.preventDefault();
-        this.#window.webContents.toggleDevTools();
-        return;
-      }
-      if (isGlobalSearchShortcut(input)) {
-        event.preventDefault();
-        this.#window.webContents.focus();
-        const modifiers: Array<"meta" | "control"> = [input.meta ? "meta" : "control"];
-        this.#window.webContents.sendInputEvent({ type: "keyDown", keyCode: "K", modifiers });
-        this.#window.webContents.sendInputEvent({ type: "keyUp", keyCode: "K", modifiers });
-        return;
-      }
-      if (isCollapseBrowserShortcut(input)) {
-        // Deliberately no `preventDefault()`: `before-input-event` is synchronous and says nothing
-        // about what has focus, so the page keeps the key and the decision is made after asking it.
-        // A page that closes its own dialog on Escape does that as well as collapsing the panel.
-        this.#collapseOnEscape(tab);
-        return;
-      }
-      if (
-        isBrowserViewShortcut(input, process.platform === "darwin") &&
-        this.#mountedViews.get(tab.view) === this.#window
-      ) {
-        // The full view owns the tab keys: it keeps the order and the closed tabs that the keys use.
-        event.preventDefault();
-        this.#forwardKeyToWindow(input);
-        return;
-      }
-      if (!isCloseBrowserTabShortcut(input)) return;
-      event.preventDefault();
-      setImmediate(() => void runCauseEffect(this.close(tab.id)).catch(() => undefined));
-    });
-    contents.on("context-menu", (event, params) => {
-      const items = browserContextMenuItems({
-        selectionText: params.selectionText,
-        isEditable: params.isEditable,
-        linkURL: params.linkURL,
-        srcURL: params.srcURL,
-        mediaType: params.mediaType,
-      });
-      const viewMenu = tab.viewContextMenu;
-      tab.viewContextMenu = null;
-      if (viewMenu && Date.now() <= viewMenu.until) {
-        // A member's right-click from a live view: their screen shows the menu, and this one does not.
-        event.preventDefault();
-        if (!tab.secret) viewMenu.deliver(viewContextMenu(items, params.linkURL, params.srcURL));
-        return;
-      }
-      if (items.length === 0) return;
-      event.preventDefault();
-      const window = this.#mountedViews.get(tab.view);
-      if (!window || window.isDestroyed()) return;
-      // The edit entries name the page explicitly rather than taking an Electron role: a role acts
-      // on whichever contents hold focus when the item is picked, and the right-click that opened
-      // the menu may have landed on a page the user had not focused.
-      const onPage = (act: (target: WebContents) => void) => () => {
-        if (!contents.isDestroyed()) act(contents);
-      };
-      Menu.buildFromTemplate(
-        items.map((item) => {
-          if (item === "separator") return { type: "separator" } as const;
-          if (item === "copy-link") return { label: "Copy Link", click: () => clipboard.writeText(params.linkURL) };
-          if (item === "copy-image-address")
-            return { label: "Copy Image Address", click: () => clipboard.writeText(params.srcURL) };
-          if (item === "cut") return { label: "Cut", click: onPage((target) => target.cut()) };
-          if (item === "copy") return { label: "Copy", click: onPage((target) => target.copy()) };
-          if (item === "paste") return { label: "Paste", click: onPage((target) => target.paste()) };
-          return { label: "Select All", click: onPage((target) => target.selectAll()) };
-        }),
-      ).popup({ window });
-    });
     contents.on("did-start-loading", changed);
     contents.on("dom-ready", () => {
       // Keep page content at the same width when the viewport scrollbar appears or disappears.
       // Navigation replaces the document, so each new document needs the stylesheet.
       void contents.insertCSS(":where(html) { scrollbar-gutter: stable; }").catch(() => undefined);
-      // An agent tab refuses cookie banners, so the agent does not spend turns on them. A tab that a
-      // person controls keeps the banner for that person.
-      if (
-        (tab.ownerThreadId !== null || tab.ownerAgentId !== null) &&
-        !tab.secret &&
-        !this.#takeoverTabIds.has(tab.id) &&
-        !this.#userControlTabIds.has(tab.id)
-      )
-        refuseCookieBanners(contents);
+      if ((tab.ownerThreadId !== null || tab.ownerAgentId !== null) && !tab.secret) refuseCookieBanners(contents);
     });
-    contents.on("did-stop-loading", () => {
-      if (tab.closing || tab.contents !== contents || contents.isDestroyed()) return;
-      changed();
-      Effect.runFork(
-        this.#syncViewBackground(tab).pipe(Effect.ignore, Effect.forkIn(tab.scope, { startImmediately: true })),
-      );
-    });
+    contents.on("did-stop-loading", changed);
     contents.on("console-message", (...eventArgs) => {
-      if (this.#takeoverTabIds.has(tab.id) || this.#userControlTabIds.has(tab.id) || tab.secret) return;
+      if (tab.secret) return;
       const details = readConsoleMessage(eventArgs);
       if (!details) return;
       tab.diagnostics.add({
@@ -3346,27 +2539,6 @@ export class BrowserHost {
       this.#emitChanged();
     });
     contents.on("page-title-updated", changed);
-    // Chromium gives a visible page the focus when a new document commits. A navigation that an
-    // agent or the page starts must not take the keys from a person who types in the app.
-    let focusedBeforeCommit: WebContents | null = null;
-    const restoreFocusAfterCommit = () => {
-      const previous = focusedBeforeCommit;
-      focusedBeforeCommit = null;
-      // With no focused window the app is in the background, and a restore would raise it.
-      if (previous && contents.isFocused() && BrowserWindow.getFocusedWindow())
-        restoreWebContentsFocus(previous, contents);
-    };
-    contents.on("did-start-navigation", (details) => {
-      if (!details.isMainFrame || details.isSameDocument) return;
-      focusedBeforeCommit = tab.focusOnCommit ? null : this.#focusedContentsOutsideTabs();
-      tab.focusOnCommit = false;
-    });
-    contents.on("did-navigate", restoreFocusAfterCommit);
-    // An error page also commits, but Electron reports it as a failed load. A load that a newer
-    // navigation cancels has no commit, so the tab has no focus and the newer start stays recorded.
-    contents.on("did-fail-load", (_event, _code, _description, _url, isMainFrame) => {
-      if (isMainFrame && contents.isFocused()) restoreFocusAfterCommit();
-    });
     contents.on("did-navigate", (_event, url) => {
       tab.documents += 1;
       this.#releaseScriptedDocument(tab);
@@ -3384,13 +2556,11 @@ export class BrowserHost {
         if (!tab.secret.running) {
           contents.navigationHistory.clear();
           tab.secret = undefined;
-          this.#syncAttachedView();
           tab.diagnostics.clearDiagnostics();
         }
       }
       if (this.#tabs.get(tab.id) !== tab) return;
       if (isPersistableBrowserUrl(url)) tab.requestedUrl = persistentBrowserUrl(url);
-      this.#noteSiteVisit(tab, url);
       tab.revision += 1;
       changed();
       this.#schedulePersist();
@@ -3447,7 +2617,6 @@ export class BrowserHost {
             tab.ownerAgentId,
             structuredClone(tab.environment),
             options,
-            tab.privateSession,
             tab.tabSession,
           );
           // A thread that drives a shared tab also drives its popups, for example a sign-in window.
@@ -3462,9 +2631,6 @@ export class BrowserHost {
           this.#bindTabEvents(popup);
           tab.popupFailure = undefined;
           this.#activeTabId = popup.id;
-          // An agent click also opens popups. Focus follows only a person who uses the page.
-          popup.focusOnVisible = this.#tabHasFocus();
-          this.#syncAttachedView();
           this.#emitChanged();
           this.#schedulePersist();
           const created = popup;
@@ -3501,80 +2667,6 @@ export class BrowserHost {
     });
   }
 
-  /** Sends a key press of the page to the window, with its modifiers, and gives the window the focus. */
-  #forwardKeyToWindow(input: Input): void {
-    if (this.#window.isDestroyed()) return;
-    const keyCode = FORWARDED_KEY_CODES[input.key] ?? (input.key.length === 1 ? input.key.toUpperCase() : input.key);
-    const modifiers: Array<"shift" | "control" | "alt" | "meta"> = [];
-    if (input.shift) modifiers.push("shift");
-    if (input.control) modifiers.push("control");
-    if (input.alt) modifiers.push("alt");
-    if (input.meta) modifiers.push("meta");
-    this.#window.webContents.focus();
-    this.#window.webContents.sendInputEvent({ type: "keyDown", keyCode, modifiers });
-    this.#window.webContents.sendInputEvent({ type: "keyUp", keyCode, modifiers });
-  }
-
-  /**
-   * Forward Escape from an embedded page to the renderer, which collapses the expanded browser back
-   * to the preview sidebar. Only the visible page in the main window does this: in Picture in
-   * Picture the page has a window of its own, and forwarding would focus the main window behind it
-   * and run the renderer's Escape handler, which cancels a queued message edit and discards what
-   * that edit added.
-   *
-   * A text field in the page keeps the key instead, so Escape still clears a combo box or cancels an
-   * inline edit. `EDITABLE_FOCUS_SCRIPT` decides that, and it goes to the focused frame rather than
-   * to the top document, where `document.activeElement` is the iframe element and not the editor
-   * inside it. Anything but a definite "not editable" - a frame that went away, a page that refuses
-   * to answer - leaves the key with the page, which is the harmless half of the choice. The focused
-   * element is read with `executeJavaScript`, which gives the page no capability it does not already
-   * have; a preload or a permanent debugger attach would answer synchronously but weaken the
-   * sandboxed view or fight the automation recorder.
-   */
-  #collapseOnEscape(tab: BrowserHostTab): void {
-    if (!this.#collapsesOnEscape(tab)) return;
-    const frame = tab.contents.focusedFrame ?? tab.contents.mainFrame;
-    if (!frame || frame.isDestroyed()) return;
-    void frame
-      .executeJavaScript(EDITABLE_FOCUS_SCRIPT, true)
-      .then((editable) => {
-        // The page answers a frame later, by which time the panel can have collapsed, changed tab,
-        // or moved to Picture in Picture.
-        if (editable !== false) return;
-        if (!this.#collapsesOnEscape(tab) || this.#window.isDestroyed()) return;
-        this.#window.webContents.focus();
-        this.#window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
-        this.#window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
-      })
-      .catch(() => undefined);
-  }
-
-  /** Whether this tab is the page the expanded browser shows in the main window. */
-  #collapsesOnEscape(tab: BrowserHostTab): boolean {
-    return this.#target === "main" && this.#visible && this.#activeTabId === tab.id && this.#attachedView === tab.view;
-  }
-
-  readonly #syncViewBackground = Effect.fn("BrowserHost.syncViewBackground")(function* (
-    this: BrowserHost,
-    tab: BrowserHostTab,
-  ): Effect.fn.Return<void, BrowserOperationError> {
-    yield* Effect.gen({ self: this }, function* () {
-      const background = yield* browserCall(() =>
-        tab.contents.executeJavaScript(
-          `(() => {
-          const transparent = "rgba(0, 0, 0, 0)";
-          const body = document.body ? getComputedStyle(document.body).backgroundColor : transparent;
-          if (body !== transparent) return body;
-          const root = getComputedStyle(document.documentElement).backgroundColor;
-          return root !== transparent ? root : "#0b0b0b";
-        })()`,
-          true,
-        ),
-      );
-      if (isString(background)) tab.view.setBackgroundColor(background);
-    }).pipe(Effect.catch(() => Effect.void));
-  });
-
   #snapshotResult(result: SnapshotReadResult, mode: BrowserImageMode, imageUrl: string | null): DynamicToolResult {
     if (!imageUrl) return snapshotTextResult(result.snapshot);
     result.snapshot.image = {
@@ -3592,95 +2684,17 @@ export class BrowserHost {
     };
   }
 
-  #syncAttachedView(): void {
-    const tab = this.#activeTabId ? this.#tabs.get(this.#activeTabId) : null;
-    const targetWindow = this.#target === "picture-in-picture" ? this.#pictureInPictureWindow : this.#window;
-    if (
-      !this.#visible ||
-      !this.#bounds ||
-      !tab ||
-      tab.closing ||
-      tab.contents.isDestroyed() ||
-      (tab.secret?.submitted && !this.#takeoverTabIds.has(tab.id)) ||
-      !targetWindow ||
-      targetWindow.isDestroyed()
-    ) {
-      this.#attachedView?.setVisible(false);
-      this.#mainPageListener?.(null);
-      return;
-    }
-
-    if (this.#attachedView !== tab.view) {
-      this.#attachedView?.setVisible(false);
-      this.#mountView(tab.view, targetWindow);
-      this.#attachedView = tab.view;
-    } else {
-      this.#mountView(tab.view, targetWindow);
-    }
-    // Native views are not clipped by the renderer, so the radius has to be set here. Every
-    // surface the page can occupy is square: the expanded panel is full bleed against the window
-    // edges, and Picture in Picture has always been square.
-    tab.view.setBorderRadius(0);
-    // Renderer bounds are CSS pixels; native child views use device-independent window pixels.
-    const zoomFactor = targetWindow.webContents.getZoomFactor();
-    const bounds = validateBounds({
-      x: this.#bounds.x * zoomFactor,
-      y: this.#bounds.y * zoomFactor,
-      width: this.#bounds.width * zoomFactor,
-      height: this.#bounds.height * zoomFactor,
-    });
-    tab.view.setBounds(bounds);
-    tab.view.setVisible(true);
-    tab.contents.invalidate();
-    this.#raisePictureInPictureOverlay();
-    this.#mainPageListener?.(this.#target === "main" ? { tabId: tab.id, bounds, zoomFactor } : null);
-    if (tab.focusOnVisible) {
-      tab.focusOnVisible = false;
-      tab.contents.focus();
-    }
-  }
-
-  #raisePictureInPictureOverlay(): void {
-    const overlay = this.#pictureInPictureOverlayView;
-    const window = this.#pictureInPictureWindow;
-    if (this.#target !== "picture-in-picture" || !overlay || !window || window.isDestroyed()) return;
-    window.contentView.removeChildView(overlay);
-    window.contentView.addChildView(overlay);
-  }
-
-  #focusTab(tab: BrowserHostTab): void {
-    if (
-      this.#tabs.get(tab.id) !== tab ||
-      this.#activeTabId !== tab.id ||
-      !tab.view.getVisible() ||
-      tab.contents.isDestroyed()
-    ) {
-      return;
-    }
-    tab.contents.focus();
-  }
-
-  #mountView(view: WebContentsView, window = this.#window): void {
-    const currentWindow = this.#mountedViews.get(view);
-    if (currentWindow === window) {
-      window.contentView.addChildView(view);
-      return;
-    }
-    if (currentWindow && !currentWindow.isDestroyed()) currentWindow.contentView.removeChildView(view);
-    window.contentView.addChildView(view);
+  #mountView(view: WebContentsView): void {
+    this.#window.contentView.addChildView(view);
     // Initialize the native viewport before hiding a tab that has never been shown.
     view.setVisible(true);
     view.setBounds({ x: 0, y: 0, width: 1200, height: 800 });
     view.setVisible(false);
-    this.#mountedViews.set(view, window);
   }
 
   #unmountView(view: WebContentsView): void {
     view.setVisible(false);
-    const window = this.#mountedViews.get(view);
-    if (window && !window.isDestroyed()) window.contentView.removeChildView(view);
-    this.#mountedViews.delete(view);
-    if (this.#attachedView === view) this.#attachedView = null;
+    if (!this.#window.isDestroyed()) this.#window.contentView.removeChildView(view);
   }
 
   readonly #requireTab = Effect.fn("BrowserHost.requireTab")(function* (this: BrowserHost, tabId: string) {
@@ -3695,17 +2709,11 @@ export class BrowserHost {
   #requireToolTab(params: DynamicToolCallParams, tabId: string, dialogTool = false): void {
     const tab = this.listTabs().find((candidate) => candidate.id === tabId);
     if (!tab || !this.#canUseToolTab(params, tab)) throw new Error(`Unknown browser tab: ${tabId}`);
-    // The user holds this tab. `AgentService` already refuses an agent's browser tools while its own
-    // takeover is outstanding, but that check is agent-wide and only covers callers that go through
-    // the agent service; this one is per tab and holds for every caller of a tabId-bearing tool.
-    // A distinct message matters: telling the model the tab vanished, while the user is part-way
-    // through a login on it, invites an `open` and a second tab onto the same flow.
+    // Keep every tool out of a tab while a private input form is active.
     // Only `close_tab` gets past a finished fill whose page would not go away: closing reads nothing.
     const secret = this.#tabs.get(tabId)?.secret;
     if (secret && !(dialogTool && secret.submitted && !secret.running))
       throw new Error("Browser inspection is protected during authentication.");
-    if (this.#takeoverTabIds.has(tabId)) throw new Error(`Browser tab is under user takeover: ${tabId}`);
-    if (this.#heldByUser(tabId)) throw new BrowserUserControlHeld(tabId);
     const engine = this.#tabs.get(tabId)?.engine;
     const dialog = engine?.dialog;
     // The page waits for its dialog, so every other tool would wait until its timeout.
@@ -3714,9 +2722,7 @@ export class BrowserHost {
       throw new Error(
         `A ${dialog.type} dialog is open in this tab: ${JSON.stringify(dialog.message)}. Answer it first with handle_dialog, dialogId ${dialog.id}.`,
       );
-    throw new Error(
-      "A dialog is open in this tab, and only a person can answer it. Ask the user to answer it, then try again.",
-    );
+    throw new Error("A page dialog belongs to a different turn. Report the blocked step or close the tab.");
   }
 
   /**
@@ -3736,7 +2742,7 @@ export class BrowserHost {
    */
   shareTab(tabId: string, target: { agentId: string; threadId: string }): void {
     const tab = this.#tabs.get(tabId);
-    if (!tab || tab.closing || tab.privateSession || tab.ownerAgentId === null) return;
+    if (!tab || tab.closing || tab.ownerAgentId === null) return;
     if (tab.ownerAgentId !== target.agentId || tab.ownerThreadId === target.threadId) return;
     if (tab.sharedThreadIds?.has(target.threadId)) return;
     tab.sharedThreadIds = (tab.sharedThreadIds ?? new Set()).add(target.threadId);
@@ -3757,15 +2763,7 @@ export class BrowserHost {
    */
   agentTab(tabId: string, agentId: string): { title: string; url: string } | null {
     const tab = this.#tabs.get(tabId);
-    if (
-      !tab ||
-      tab.closing ||
-      tab.privateSession ||
-      tab.secret ||
-      tab.contents.isDestroyed() ||
-      tab.ownerAgentId !== agentId
-    )
-      return null;
+    if (!tab || tab.closing || tab.secret || tab.contents.isDestroyed() || tab.ownerAgentId !== agentId) return null;
     const { title, url } = toPublicTab(tab);
     return { title: tab.engine.scrubText(title), url: tab.engine.scrubText(url) };
   }
@@ -3830,52 +2828,6 @@ export class BrowserHost {
     ).pipe(Effect.ensuring(Effect.sync(markScripted)));
   });
 
-  /** Whether one of the browser's own tabs has focus. */
-  #tabHasFocus(): boolean {
-    const focusedContents = webContents.getFocusedWebContents();
-    return focusedContents !== null && [...this.#tabs.values()].some((tab) => tab.contents === focusedContents);
-  }
-
-  /** The app contents that has focus, unless it is one of the browser's own tabs. */
-  #focusedContentsOutsideTabs(): WebContents | null {
-    const focusedContents = webContents.getFocusedWebContents();
-    return focusedContents && ![...this.#tabs.values()].some((candidate) => candidate.contents === focusedContents)
-      ? focusedContents
-      : null;
-  }
-
-  #noteSiteVisit(tab: BrowserHostTab, url: string): void {
-    if (this.#siteVisitListeners.size === 0) return;
-    let hostname: string;
-    try {
-      const parsed = new URL(url);
-      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return;
-      hostname = parsed.hostname;
-    } catch {
-      return;
-    }
-    if (!hostname || tab.visitedHost === hostname) return;
-    tab.visitedHost = hostname;
-    const driven = this.#controls
-      .state()
-      .sessions.some(
-        (session) => session.tabId === tab.id || (session.tabId === null && session.threadId === tab.ownerThreadId),
-      );
-    const visit: BrowserSiteVisit = {
-      tabId: tab.id,
-      hostname,
-      actor: driven ? "agent" : "user",
-      agentId: driven ? tab.ownerAgentId : null,
-    };
-    for (const listener of this.#siteVisitListeners) {
-      try {
-        listener(visit);
-      } catch {
-        // Analytics must never stop a navigation.
-      }
-    }
-  }
-
   #emitChanged(): void {
     const tabs = this.listTabs();
     for (const listener of this.#listeners) listener(tabs, this.#activeTabId);
@@ -3899,9 +2851,7 @@ export class BrowserHost {
   }
 
   readonly #persistState = Effect.fn("BrowserHost.persistState")(function* (this: BrowserHost) {
-    const saved = [...this.#tabs.values()].filter(
-      (tab) => !tab.closing && !tab.contents.isDestroyed() && !tab.privateSession,
-    );
+    const saved = [...this.#tabs.values()].filter((tab) => !tab.closing && !tab.contents.isDestroyed());
     const state: StoredBrowserStateV2 = {
       version: 2,
       activeTabId: saved.some((tab) => tab.id === this.#activeTabId) ? this.#activeTabId : (saved[0]?.id ?? null),
@@ -3944,16 +2894,6 @@ const loadSavedPage = Effect.fn("BrowserHost.loadSavedPage")(function* (tab: Bro
 /** The saved preview frame, when it still shows the tab's current page. */
 function savedPreview(tab: BrowserHostTab): BrowserPreview | null {
   return tab.preview && showsCurrentPage(tab, tab.preview) ? tab.preview.frame : null;
-}
-
-function validateBounds(bounds: BrowserBounds): BrowserBounds {
-  if (!Object.values(bounds).every(Number.isFinite)) throw new Error("Invalid browser bounds.");
-  return {
-    x: Math.max(0, Math.min(INPUT_LIMITS.browserCoordinate, Math.floor(bounds.x))),
-    y: Math.max(0, Math.min(INPUT_LIMITS.browserCoordinate, Math.floor(bounds.y))),
-    width: Math.max(1, Math.min(INPUT_LIMITS.browserDimension, Math.ceil(bounds.width))),
-    height: Math.max(1, Math.min(INPUT_LIMITS.browserDimension, Math.ceil(bounds.height))),
-  };
 }
 
 /**
@@ -4032,15 +2972,6 @@ function paddedCaptureDataUrl(image: NativeImage): string {
   for (let row = 0; row < size.height; row++)
     pixels.copy(padded, row * width * 4, row * size.width * 4, (row + 1) * size.width * 4);
   return nativeImage.createFromBitmap(padded, { width, height }).toDataURL();
-}
-
-/** A load that `BrowserHost.stop` ended succeeds: the person chose to keep the page as it is. */
-function untilStopped(
-  tab: BrowserHostTab,
-  load: Effect.Effect<void, BrowserOperationError>,
-): Effect.Effect<void, BrowserOperationError> {
-  const generation = tab.loadGeneration;
-  return load.pipe(Effect.catch((failure) => (tab.loadGeneration === generation ? Effect.fail(failure) : Effect.void)));
 }
 
 function navigateHistory(contents: WebContents, direction: BrowserNavigationDirection): boolean {

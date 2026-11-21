@@ -5,7 +5,6 @@ import { playableMediaKind } from "@tommy/contracts/attachment-files";
 import { rewriteAttachmentReferences } from "@tommy/contracts/attachment-references";
 import { INPUT_LIMITS } from "@tommy/contracts/input-limits";
 import type {
-  AgentRuntimeWorkItem,
   AttachmentDataInput,
   AttachmentSummary,
   ConversationMessage,
@@ -23,9 +22,6 @@ import type {
 } from "@tommy/contracts/ipc";
 import {
   AGENT_EXCHANGE_ITEM_TYPE,
-  AGENT_RUNTIME_ATTENTION_LIMIT,
-  AGENT_RUNTIME_TEXT_LIMIT,
-  AGENT_RUNTIME_WORKING_ITEMS_LIMIT,
   isConversationMessageSender,
   isMessageReaction,
   QUEUE_STEER_FALLBACKS,
@@ -37,7 +33,6 @@ import { redactText } from "@tommy/logging";
 import { Effect, Result } from "effect";
 import {
   AttachmentFiles,
-  type ExportedAttachmentFile,
   type GeneratedAttachmentSource,
   type StoredAttachment,
   type StoredDraft,
@@ -46,14 +41,13 @@ import {
 } from "./attachment-files";
 import { StoredStateFailure, storedIO, storedSync, toStoredStateFailure } from "./stored-state-effects";
 
-export type { ExportedAttachmentFile, GeneratedAttachmentSource } from "./attachment-files";
+export type { GeneratedAttachmentSource } from "./attachment-files";
 
 import { isEmptyStoredFile, parseStoredJson } from "./atomic-json-file";
 import { databaseRows, requiredStringColumn } from "./database/database-rows";
 import { mailboxReactionRowKey } from "./database/mailbox-projection";
 import { MailboxDeliveryGate } from "./mailbox-delivery-gate";
 import { isRecord } from "./protocol";
-import { recordRestartActivity } from "./restart-activity";
 import { TommyDatabase } from "./tommy-database";
 
 const MAX_ATTACHMENTS = INPUT_LIMITS.attachments;
@@ -205,19 +199,6 @@ interface EnqueueInput {
   voiceRecordingDraftId?: string;
   sourcePaths?: string[];
   idempotencyKey?: string;
-}
-
-/** A file a chat message carries or an agent made, as the Storage view lists it. */
-export interface MailboxStoredFile {
-  attachment: AttachmentSummary;
-  path: string;
-  source: "attachment" | "generated";
-  /** The mailbox message that carries an attachment. Null for a generated file. */
-  messageId: string | null;
-  /** The agent that sent the message or made the file, else the first recipient. */
-  agentId: string | null;
-  /** Null for a generated file: its record has no time. */
-  createdAt: string | null;
 }
 
 export interface DeliveryContext {
@@ -374,7 +355,7 @@ export class MailboxStore {
     this: MailboxStore,
     paths: string[],
     data: AttachmentDataInput[],
-    options: { voiceRecording?: boolean } = {},
+    source?: "telegram",
   ): Effect.fn.Return<DraftAttachment[], StoredStateFailure> {
     try {
       if (paths.length + data.length === 0) return [];
@@ -385,7 +366,7 @@ export class MailboxStore {
         throw new Error(sourceText("error.backend.draftAttachmentLimit", { limit: INPUT_LIMITS.draftAttachments }));
       }
       const prepared = yield* this.#files
-        .prepareDrafts(paths, data, options)
+        .prepareDrafts(paths, data, source)
         .pipe(Effect.mapError(({ cause }) => new StoredStateFailure({ cause })));
       this.#state.drafts.push(...prepared);
       for (const draft of prepared) this.#changes.draftIds.add(draft.id);
@@ -498,37 +479,6 @@ export class MailboxStore {
       (delivery) => delivery.messageId === request.id && delivery.recipientAgentId === senderAgentId,
     );
     return received ? request.senderTaskId : null;
-  }
-
-  /**
-   * The deliveries of requests that an agent sent from one messaging link, whose answer goes back to
-   * it, and that have not ended.
-   */
-  pendingMessagingReturns(linkId: string): number {
-    const messageIds = new Set(
-      this.#state.messages.filter((message) => message.messagingReturn?.linkId === linkId).map((message) => message.id),
-    );
-    return this.#state.deliveries.filter(
-      (delivery) =>
-        messageIds.has(delivery.messageId) &&
-        (delivery.status === "queued" || delivery.status === "starting" || delivery.status === "running"),
-    ).length;
-  }
-
-  /** The deliveries of one messaging link that have not ended, oldest first. */
-  unresolvedMessagingDeliveries(linkId: string): DeliveryContext[] {
-    const messageIds = new Set(
-      this.#state.messages.filter((message) => message.messaging?.linkId === linkId).map((message) => message.id),
-    );
-    return this.#contexts(
-      this.#state.deliveries
-        .filter(
-          (delivery) =>
-            messageIds.has(delivery.messageId) &&
-            (delivery.status === "queued" || delivery.status === "starting" || delivery.status === "running"),
-        )
-        .sort(compareQueueOrder),
-    );
   }
 
   enqueue = Effect.fn("MailboxStore.enqueue")(function* (
@@ -649,7 +599,6 @@ export class MailboxStore {
       }));
 
       this.#state.messages.push(message);
-      recordRestartActivity();
       this.#state.deliveries.push(...deliveries);
       if (input.idempotencyKey) this.#state.idempotency[input.idempotencyKey] = messageId;
       const usedDrafts = voiceDraft ? [...drafts, voiceDraft] : drafts;
@@ -1002,7 +951,7 @@ export class MailboxStore {
 
   /**
    * Removes the messages of a deleted side thread, with their deliveries, reactions and idempotency keys.
-   * Their files leave the Transfers folder through the deletion outbox, as in {@link deleteStoredFile},
+   * Their files leave the Transfers folder through the deletion outbox,
    * when no other record uses the same path. The caller cancels the queued messages first; a delivery
    * that is still active stops the removal, and the state stays as it was.
    */
@@ -1031,7 +980,7 @@ export class MailboxStore {
         return { ids, deliveries };
       };
       if (found().ids.size === 0) return;
-      // The path checks wait, so they run before the state changes, as in `deleteStoredFile`.
+      // The path checks wait, so they run before the state changes.
       const managedPaths = new Map<string, string | null>();
       for (const message of this.#state.messages) {
         if (message.taskId !== taskId || teammateAnswer(message)) continue;
@@ -1076,19 +1025,6 @@ export class MailboxStore {
   }, Effect.uninterruptible).bind(this);
 
   /**
-   * Removes the mailbox copy of one message that a person deleted from an agent's chat or side thread,
-   * and the agent's reactions on it. `shownMessageId` is the id that the chat shows: a delivery shows
-   * under its own id. A person's message loses its delivery to the agent; when no other delivery
-   * remains, the message goes too, with its reactions, idempotency keys and the files that no other
-   * record uses. A teammate's message and a routine's message stay: the teammate's chat and the run
-   * still use them, and the deleted-message record hides them in this chat. An active delivery stops
-   * the removal, and the state stays as it was.
-   */
-  deleteShownMessage(agentId: string, shownMessageId: string): Effect.Effect<"busy" | "deleted", StoredStateFailure> {
-    return this.deleteShownMessages(agentId, [shownMessageId], `mailbox:message-deleted:${agentId}:${shownMessageId}`);
-  }
-
-  /**
    * As `deleteShownMessage`, for each message of a chat history that a person deletes, in one write.
    * One active delivery stops the whole removal.
    */
@@ -1121,7 +1057,7 @@ export class MailboxStore {
       };
       const before = found();
       if (before.deliveries.some(isActiveDelivery)) return "busy";
-      // The path checks wait, so they run before the state changes, as in `deleteStoredFile`.
+      // The path checks wait, so they run before the state changes.
       const managedPaths = new Map<string, string | null>();
       for (const message of before.lastOf) {
         for (const file of messageFiles(message)) {
@@ -1350,48 +1286,6 @@ export class MailboxStore {
     }
   }, Effect.uninterruptible).bind(this);
 
-  listRuntimeWork(agentIds: readonly string[], failedTurns: ReadonlyMap<string, string>): AgentRuntimeWorkItem[] {
-    const targetAgentIds = new Set(agentIds);
-    const working: StoredDelivery[] = [];
-    const failed: StoredDelivery[] = [];
-    const workingAgentIds = new Set<string>();
-    const failedAgentIds = new Set<string>();
-    for (const delivery of this.#state.deliveries) {
-      if (!targetAgentIds.has(delivery.recipientAgentId)) continue;
-      const isWorking = delivery.status === "starting" || delivery.status === "running";
-      const isCurrentFailure =
-        delivery.status === "failed" && delivery.turnId === failedTurns.get(delivery.recipientAgentId);
-      if (!isWorking && !isCurrentFailure) continue;
-      const seenAgentIds = isCurrentFailure ? failedAgentIds : workingAgentIds;
-      if (seenAgentIds.has(delivery.recipientAgentId)) continue;
-      seenAgentIds.add(delivery.recipientAgentId);
-      (isCurrentFailure ? failed : working).push(delivery);
-    }
-    const selected = [
-      ...failed.slice(0, AGENT_RUNTIME_ATTENTION_LIMIT),
-      ...working.slice(0, AGENT_RUNTIME_WORKING_ITEMS_LIMIT),
-    ];
-    const messageIds = new Set(selected.map((delivery) => delivery.messageId));
-    const messages = new Map(
-      this.#state.messages.filter((message) => messageIds.has(message.id)).map((message) => [message.id, message]),
-    );
-    return selected.map((delivery) => {
-      const message = messages.get(delivery.messageId);
-      if (!message) throw new Error(`Mailbox message is missing: ${delivery.messageId}`);
-      if (delivery.status !== "starting" && delivery.status !== "running" && delivery.status !== "failed") {
-        throw new Error(`Mailbox runtime delivery has an invalid status: ${delivery.status}`);
-      }
-      return {
-        id: delivery.id,
-        agentId: delivery.recipientAgentId,
-        turnId: delivery.turnId,
-        status: delivery.status,
-        text: message.text.slice(0, AGENT_RUNTIME_TEXT_LIMIT),
-        error: delivery.error?.slice(0, AGENT_RUNTIME_TEXT_LIMIT) ?? null,
-      };
-    });
-  }
-
   conversationMessages(
     agentId: string,
     options: { fromCreatedAt?: string; limit?: number } = {},
@@ -1542,21 +1436,6 @@ export class MailboxStore {
       }
     }
     return messages;
-  }
-
-  reactionFor(
-    agentId: string,
-    messageId: string,
-    actor: ConversationReactionActor = { kind: "user" },
-  ): MessageReaction | null {
-    return (
-      this.#state.reactions.find(
-        (reaction) =>
-          reaction.agentId === agentId &&
-          reaction.messageId === messageId &&
-          reactionActorsEqual(reaction.actor, actor),
-      )?.emoji ?? null
-    );
   }
 
   reactionsFor(agentId: string): Map<string, ConversationReaction[]> {
@@ -2788,29 +2667,14 @@ export class MailboxStore {
     );
   }
 
-  recoverAsInterrupted = Effect.fn("MailboxStore.recoverAsInterrupted")(function* (
-    this: MailboxStore,
-    deliveryId: string,
-    reason: string,
-  ): Effect.fn.Return<void, StoredStateFailure> {
-    try {
-      yield* this.#updateDeliveryEffect(deliveryId, ["starting", "running"], {
-        status: "interrupted",
-        error: redactText(reason),
-      });
-    } catch (cause) {
-      return yield* new StoredStateFailure({ cause });
-    }
-  }, Effect.uninterruptible).bind(this);
-
   /** Pin the exact generated bytes and owner before an external client reads an image. */
-  generatedImageDigest(id: string, agentId: string, threadId: string): string | null {
+  generatedAttachmentDigest(id: string, agentId: string, threadId: string, mimeType: string): string | null {
     const file = this.#state.generatedAttachments.find((candidate) => candidate.id === id);
     return file &&
       !file.deletedAt &&
       file.ownerAgentId === agentId &&
       file.ownerThreadId === threadId &&
-      file.mimeType === "image/png"
+      file.mimeType === mimeType
       ? file.sha256
       : null;
   }
@@ -2842,90 +2706,6 @@ export class MailboxStore {
               .resolveTransfer(generated)
               .pipe(Effect.mapError(({ cause }) => new StoredStateFailure({ cause })));
       return null;
-    } catch (cause) {
-      return yield* new StoredStateFailure({ cause });
-    }
-  }, Effect.uninterruptible).bind(this);
-
-  /** Every sent, spoken and generated file that the user has not deleted, from the in-memory state. */
-  listStoredFiles(): MailboxStoredFile[] {
-    const firstRecipient = new Map<string, string>();
-    for (const delivery of this.#state.deliveries)
-      if (!firstRecipient.has(delivery.messageId)) firstRecipient.set(delivery.messageId, delivery.recipientAgentId);
-    const files: MailboxStoredFile[] = [];
-    for (const message of this.#state.messages) {
-      const agentId =
-        message.sender.kind === "agent" ? message.sender.agentId : (firstRecipient.get(message.id) ?? null);
-      for (const attachment of messageFiles(message)) {
-        if (attachment.deletedAt) continue;
-        files.push({
-          attachment: toAttachmentSummary(attachment),
-          path: attachment.path,
-          source: "attachment",
-          messageId: message.id,
-          agentId,
-          createdAt: message.createdAt,
-        });
-      }
-    }
-    for (const attachment of this.#state.generatedAttachments) {
-      if (attachment.deletedAt) continue;
-      files.push({
-        attachment: toAttachmentSummary(attachment),
-        path: attachment.path,
-        source: "generated",
-        messageId: null,
-        agentId: attachment.ownerAgentId ?? null,
-        createdAt: null,
-      });
-    }
-    return files;
-  }
-
-  /**
-   * Deletes one sent or generated file from the disk and keeps its record with a `deletedAt`
-   * marker, so the chat still shows where the file was. A file that is already gone gets only the
-   * marker. The file is removed through the deletion outbox, and only when it resolves inside the
-   * Transfers folder and no other record that is not deleted uses the same path.
-   */
-
-  deleteStoredFile = Effect.fn("MailboxStore.deleteStoredFile")(function* (
-    this: MailboxStore,
-    fileId: string,
-  ): Effect.fn.Return<void, StoredStateFailure> {
-    try {
-      // The path checks wait, so they run before the state changes. Then no other write can save the
-      // markers without their outbox entry, and a failed save restores a copy that has all other changes.
-      const managedPaths = new Map<string, string | null>();
-      for (const path of new Set(this.#undeletedFileRecords(fileId).map((target) => target.path))) {
-        managedPaths.set(path, yield* this.#files.managedTransferFile(path).pipe(toStoredStateFailure));
-      }
-      const records = this.#fileRecords();
-      const targets = this.#undeletedFileRecords(fileId);
-      const previous = structuredClone(this.#state);
-      const deletedAt = new Date().toISOString();
-      for (const target of targets) target.deletedAt = deletedAt;
-      for (const message of this.#state.messages) {
-        if (messageFiles(message).some((attachment) => targets.includes(attachment))) {
-          this.#changes.messageIds.add(message.id);
-        }
-      }
-      for (const attachment of this.#state.generatedAttachments) {
-        if (targets.includes(attachment)) this.#changes.generatedAttachmentIds.add(attachment.id);
-      }
-      const inUse = new Set(records.filter((record) => !record.deletedAt).map((record) => record.path));
-      const deletions: string[] = [];
-      for (const path of new Set(targets.map((target) => target.path))) {
-        const managed = inUse.has(path) ? null : managedPaths.get(path);
-        if (managed) deletions.push(managed);
-      }
-      try {
-        this.#persist("mailbox.file-deleted", `mailbox:file-deleted:${randomUUID()}`, deletions);
-      } catch (error) {
-        this.#state = previous;
-        throw error;
-      }
-      yield* this.#drainFileDeletionOutboxEffect();
     } catch (cause) {
       return yield* new StoredStateFailure({ cause });
     }
@@ -3013,12 +2793,6 @@ export class MailboxStore {
 
   #fileRecords(): StoredAttachment[] {
     return [...this.#state.messages.flatMap(messageFiles), ...this.#state.generatedAttachments];
-  }
-
-  #undeletedFileRecords(fileId: string): StoredAttachment[] {
-    const targets = this.#fileRecords().filter((record) => record.id === fileId && !record.deletedAt);
-    if (targets.length === 0) throw new Error(sourceText("error.backend.fileGone"));
-    return targets;
   }
 
   verifyDeliveryAttachments = Effect.fn("MailboxStore.verifyDeliveryAttachments")(function* (
@@ -3218,33 +2992,6 @@ export class MailboxStore {
       .pipe(Effect.mapError(({ cause }) => new StoredStateFailure({ cause })));
     this.#stagedGeneratedAttachments.set(attachment.id, attachment);
     return toAttachmentSummary(attachment);
-  }, Effect.uninterruptible).bind(this);
-
-  listExportAttachments = Effect.fn("MailboxStore.listExportAttachments")(function* (
-    this: MailboxStore,
-  ): Effect.fn.Return<ExportedAttachmentFile[], StoredStateFailure> {
-    try {
-      const files: ExportedAttachmentFile[] = [];
-      for (const [index, message] of this.#state.messages.entries()) {
-        for (const attachment of messageFiles(message)) {
-          if (attachment.deletedAt) continue;
-          const file = yield* this.#files
-            .exportAttachment(attachment, { id: message.id, index })
-            .pipe(Effect.mapError(({ cause }) => new StoredStateFailure({ cause })));
-          if (file) files.push(file);
-        }
-      }
-      for (const attachment of this.#state.generatedAttachments) {
-        if (attachment.deletedAt) continue;
-        const file = yield* this.#files
-          .exportAttachment(attachment)
-          .pipe(Effect.mapError(({ cause }) => new StoredStateFailure({ cause })));
-        if (file) files.push(file);
-      }
-      return files;
-    } catch (cause) {
-      return yield* new StoredStateFailure({ cause });
-    }
   }, Effect.uninterruptible).bind(this);
 
   #context(

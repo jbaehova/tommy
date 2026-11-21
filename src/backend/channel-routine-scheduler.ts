@@ -11,13 +11,12 @@ import type {
   UpdateChannelRoutineInput,
 } from "@tommy/contracts/ipc";
 import { sourceText } from "@tommy/i18n/source";
-import { collapseMissedOccurrences } from "@tommy/team-client/routine-schedule";
 import { Effect, Result, Schema } from "effect";
 import type { RoutineTriggerAccess } from "./agent/routine-scheduler";
 import { ChannelRoutineStore } from "./channel-routine-store";
 import type { ChannelService } from "./channel-service";
 import { causeHelpers } from "./effect-boundary";
-import { recordRestartActivity } from "./restart-activity";
+import { collapseMissedOccurrences } from "./routine-schedule";
 import type { OwnedRoutineRecord, ReceivedWebhookEvent, RoutineHoldWindow, RoutineRecordInput } from "./routine-store";
 import type { RoutineDueSource } from "./routine-timer";
 
@@ -148,11 +147,6 @@ export class ChannelRoutineScheduler implements RoutineDueSource {
     const routine = this.#routines.update({ ...input, channelId: this.#requireChannel(input.channelId) });
     this.#changed(routine.channelId);
     return routine;
-  }
-
-  /** Routines of every trigger kind, for the events surface. */
-  listRecords(channelId: string): OwnedRoutineRecord[] {
-    return this.#routines.listRecords(this.#requireChannel(channelId));
   }
 
   getRecord(channelId: string, routineId: string): OwnedRoutineRecord | null {
@@ -394,7 +388,6 @@ export class ChannelRoutineScheduler implements RoutineDueSource {
     this: ChannelRoutineScheduler,
     run: ChannelRoutineRun,
   ) {
-    recordRestartActivity();
     const requestMessageId = run.requestMessageId;
     if (!requestMessageId)
       return yield* new ChannelRoutineFailed({ cause: new Error("The routine run has no request message.") });

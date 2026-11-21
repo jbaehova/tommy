@@ -34,7 +34,7 @@ describe("Vault authenticator secret boundary", () => {
         }),
       );
       const login = state.items[0];
-      if (!login || login.kind !== "login") throw new Error("Expected a login.");
+      if (login?.kind !== "login") throw new Error("Expected a login.");
       const replacement = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
       // A directory at the base path makes only the second atomic rename fail.
       await rename(path, `${path}.previous`);
@@ -78,7 +78,7 @@ describe("Vault authenticator secret boundary", () => {
     }
   });
 
-  it("keeps keys out of summaries, agents, reveal, logs and the older Vault record", async () => {
+  it("keeps keys out of summaries, agent listings, login choices, logs and the older Vault record", async () => {
     const directory = await mkdtemp(join(tmpdir(), "tommy-two-step-"));
     try {
       const path = join(directory, "vault.json");
@@ -96,7 +96,7 @@ describe("Vault authenticator secret boundary", () => {
         }),
       );
       const login = state.items[0];
-      if (!login || login.kind !== "login") throw new Error("Expected a login.");
+      if (login?.kind !== "login") throw new Error("Expected a login.");
       expect(login.hasTwoStep).toBe(true);
       expect(JSON.stringify(state)).not.toContain(setupKey);
       expect(JSON.stringify(vault.items.listForAgent())).not.toContain(setupKey);
@@ -118,7 +118,9 @@ describe("Vault authenticator secret boundary", () => {
           notes: "",
         }),
       );
-      expect((await Effect.runPromise(vault.codes())).codes[0]?.code).toMatch(/^\d{6}$/u);
+      expect(await Effect.runPromise(vault.logins.secretFor(login.id, "https://example.com", "totp"))).toMatch(
+        /^\d{6}$/u,
+      );
       expect(await Effect.runPromise(vault.logins.secretFor(login.id, "https://other.example.org", "totp"))).toBeNull();
       // A corrupt sidecar is preserved. The items stay usable without their two-step keys.
       await writeFile(`${path}.two-step`, "unreadable");

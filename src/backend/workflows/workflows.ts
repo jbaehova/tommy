@@ -49,7 +49,6 @@ import {
   type WorkflowGitHubLastEventInput,
   type WorkflowGraph,
   type WorkflowNode,
-  type WorkflowNodeKind,
   type WorkflowRun,
   type WorkflowRunDetail,
   type WorkflowRunPage,
@@ -70,20 +69,7 @@ import type { AgentProvider } from "../agent-client";
 import { coalescedPasses } from "../coalesced-passes";
 import { resultText } from "../routine-results/routine-results";
 import type { ReceivedWebhookEvent } from "../routine-store";
-import {
-  type DiscordOutputPlan,
-  discordOutputPlan,
-  discordTriggerFiles,
-  discordTriggerMatches,
-  discordTriggerMessage,
-  workflowDiscordPayload,
-} from "./discord-matching";
-import type {
-  MessagingDiscordMention,
-  MessagingDiscordSend,
-  MessagingMentionResult,
-  MessagingPostFailure,
-} from "./discord-types";
+import { discordTriggerFiles } from "./discord-trigger-files";
 import {
   type GitHubEventFacts,
   githubEventFacts,
@@ -119,6 +105,8 @@ import {
   workflowTelegramPayload,
 } from "./telegram-matching";
 import type {
+  MessagingMentionResult,
+  MessagingPostFailure,
   MessagingSlackMention,
   MessagingSlackSend,
   MessagingTelegramMention,
@@ -149,7 +137,7 @@ import {
   nextActions,
   runScope,
   soloInputs,
-  unsupportedNode,
+  unsupportedNodeReason,
 } from "./workflow-walk";
 
 const logger = createTommyLogger("workflows");
@@ -197,17 +185,6 @@ interface RunOrigin {
   payload: string | null;
 }
 
-/** How a run ended, for the host's product analytics: no title, text or ID of the user. */
-export interface WorkflowRunEnd {
-  runId: string;
-  status: "done" | "failed" | "stopped";
-  source: WorkflowRunSource;
-  startedAt: string;
-  endedAt: string;
-  /** The kind of each node that ran, by its newest attempt. Skipped nodes are not in it. */
-  stepKinds: WorkflowNodeKind[];
-}
-
 export interface WorkflowsDependencies {
   store: WorkflowStore;
   runs: WorkflowRunStore;
@@ -243,11 +220,6 @@ export interface WorkflowsDependencies {
     author: { id: string; name: string };
     text: string;
   }) => Effect.Effect<"posted" | "missing" | "archived", { readonly cause: unknown }>;
-  /** Replies, posts or reacts in a Discord server; absent where this host has no messaging. */
-  discordSend?: (
-    connectionId: string,
-    send: MessagingDiscordSend,
-  ) => Effect.Effect<{ posted: true } | { failure: MessagingPostFailure }>;
   /** Replies, posts or reacts in a Telegram chat; absent where this host has no messaging. */
   telegramSend?: (
     connectionId: string,
@@ -270,8 +242,6 @@ export interface WorkflowsDependencies {
   rearm(): void;
   /** The zone of a schedule trigger that names none: the server timezone. */
   timezone(): string;
-  /** A run ended. */
-  runEnded?: (end: WorkflowRunEnd) => void;
   /** The GitHub tables; see `workflow-github-store.ts`. */
   github: WorkflowGitHubStore;
   /** The slug of the Tommy GitHub App, whose bot makes the changes of GitHub outputs. */
@@ -346,14 +316,9 @@ interface WorkflowsShape {
    * same delivery once.
    */
   receiveGitHub(event: WorkflowGitHubEventInput): Effect.Effect<WorkflowGitHubResult, WorkflowFailed>;
-  /**
-   * Starts the run of each workflow whose Discord trigger takes a mention of Tommy. Answers `none`
-   * when no trigger takes it, and `skipped` when each workflow that takes it is busy or cannot start.
-   */
-  receiveDiscord(mention: MessagingDiscordMention): Effect.Effect<MessagingMentionResult, WorkflowFailed>;
-  /** As `receiveDiscord`, for a new conversation in a Telegram group. */
+  /** Starts a workflow when a Telegram group message matches its trigger. */
   receiveTelegram(mention: MessagingTelegramMention): Effect.Effect<MessagingMentionResult, WorkflowFailed>;
-  /** As `receiveDiscord`, for the Slack triggers and a mention in a Slack channel. */
+  /** Starts a workflow when a Slack mention matches its trigger. */
   receiveSlack(mention: MessagingSlackMention): Effect.Effect<MessagingMentionResult, WorkflowFailed>;
   /** Records in each GitHub trigger's history that the host got no GitHub events from `from` to `to`. */
   githubOffline(from: Date, to: Date): Effect.Effect<void, WorkflowFailed>;
@@ -674,23 +639,7 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("tommy/back
           }
         };
 
-        /**
-         * The reply, post or reaction of a Discord output in the run that `run` is. Only a run that a
-         * mention started has a trigger message: a webhook payload has the same frame, with the type and
-         * data that its sender chooses.
-         */
-        const discordPlan = (step: StoredWorkflowStep, node: WorkflowNode, run: StoredWorkflowRun | null) =>
-          discordOutputPlan(node, step.input, run?.source === "discord" ? discordTriggerMessage(run.payload) : null);
-
-        const discordPost = (plan: Extract<DiscordOutputPlan, { send: unknown }>) =>
-          dependencies.discordSend
-            ? dependencies.discordSend(plan.connectionId, plan.send)
-            : Effect.succeed({ failure: "not-running" as const });
-
-        /**
-         * Keeps a chat output's reply, post or reaction, then sends it. Discord, Telegram and Slack differ only in
-         * the plan, the place of the post and the send function, so a fix here applies to all three.
-         */
+        /** Record the outgoing chat message before contacting its connector. */
         const sendChat = <Plan extends { connectionId: string; send: ChatOutputSend }>(
           step: StoredWorkflowStep,
           plan: Plan | { error: string },
@@ -724,9 +673,6 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("tommy/back
           return output ? startPost(step, output, post(plan)) : Effect.void;
         };
 
-        const sendDiscord = (step: StoredWorkflowStep, node: WorkflowNode, run: StoredWorkflowRun | null) =>
-          sendChat(step, discordPlan(step, node, run), (plan) => plan.send.channelId, discordPost);
-
         /** The reply, post or reaction of a Telegram output. Only a run that a message started has its message. */
         const telegramPlan = (step: StoredWorkflowStep, node: WorkflowNode, run: StoredWorkflowRun | null) =>
           telegramOutputPlan(node, step.input, run?.source === "telegram" ? telegramTriggerMessage(run.payload) : null);
@@ -739,7 +685,7 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("tommy/back
         const sendTelegram = (step: StoredWorkflowStep, node: WorkflowNode, run: StoredWorkflowRun | null) =>
           sendChat(step, telegramPlan(step, node, run), (plan) => plan.chatId, telegramPost);
 
-        /** As `discordPlan`, for a Slack output and a run that a Slack mention started. */
+        /** The output can use the message from the original Slack mention. */
         const slackPlan = (step: StoredWorkflowStep, node: WorkflowNode, run: StoredWorkflowRun | null) =>
           slackOutputPlan(node, step.input, run?.source === "slack" ? slackTriggerMessage(run.payload) : null);
 
@@ -917,9 +863,9 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("tommy/back
           const graph = run?.graph ?? store.detail(step.workflowId)?.graph;
           const node = graph?.nodes.find((candidate) => candidate.id === step.nodeId);
           if (node && fieldText(node, "target") === "discord") {
-            const plan = discordPlan(step, node, run);
-            if ("error" in plan) return settle(step, { status: "failed", error: plan.error });
-            return yield* resumeOutput(step, discordPost(plan));
+            // The old connector returned not-running. A pending row gets that same result.
+            // resumeOutput also keeps sent, failed and uncertain outcomes across a restart.
+            return yield* resumeOutput(step, Effect.succeed({ failure: "not-running" as const }));
           }
           if (node && fieldText(node, "target") === "telegram") {
             const plan = telegramPlan(step, node, run);
@@ -946,8 +892,19 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("tommy/back
           node: WorkflowNode,
           run: StoredWorkflowRun | null,
         ) {
-          if (unsupportedNode(node)) {
-            settle(step, { status: "failed", error: sourceText("error.workflow.nodeUnsupported") });
+          // A Discord event accepted before upgrade already supplied this trigger's data.
+          if (
+            node.kind === "trigger" &&
+            node.fields.trigger === "discord" &&
+            run?.source === "discord" &&
+            run.triggerNodeId === node.id
+          ) {
+            settle(step, { status: "done", output: run.payload ?? "" });
+            return;
+          }
+          const unsupported = unsupportedNodeReason(node);
+          if (unsupported) {
+            settle(step, { status: "failed", error: sourceText(unsupported) });
             return;
           }
           switch (node.kind) {
@@ -986,10 +943,6 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("tommy/back
               }
               if (fieldText(node, "target") === "github") {
                 yield* sendGitHub(step, node, run);
-                return;
-              }
-              if (fieldText(node, "target") === "discord") {
-                yield* sendDiscord(step, node, run);
                 return;
               }
               if (fieldText(node, "target") === "telegram") {
@@ -1143,14 +1096,6 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("tommy/back
           rearm();
           // The next event of the run's item can start now. A manual run with a GitHub event has an item too.
           if (run.source === "github" || github.runItem(run.id)) yield* requestSweep();
-          dependencies.runEnded?.({
-            runId: run.id,
-            status,
-            source: run.source,
-            startedAt: run.startedAt,
-            endedAt: endedAt.toISOString(),
-            stepKinds: ends.filter((step) => step.status !== "skipped").map((step) => step.kind),
-          });
         });
 
         const sweepOnce = Effect.fn("Workflows.sweepOnce")(function* () {
@@ -1306,8 +1251,11 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("tommy/back
           const workflowId = detail.summary.id;
           const answered = currentAnswers(detail.graph, runs.latestDone(workflowId), answerGraphs());
           const scope = runScope(detail.graph, start, new Set(answered.keys()));
-          if (detail.graph.nodes.some((node) => scope.nodes.has(node.id) && unsupportedNode(node)))
-            return yield* refuse("refused", sourceText("error.workflow.nodeUnsupported"));
+          for (const node of detail.graph.nodes) {
+            if (!scope.nodes.has(node.id)) continue;
+            const unsupported = unsupportedNodeReason(node);
+            if (unsupported) return yield* refuse("refused", sourceText(unsupported));
+          }
           const started = yield* attempt(() =>
             runs.startRun(
               { workflowId, ...start, ...origin, revision: detail.revision, graph: detail.graph },
@@ -1434,8 +1382,7 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("tommy/back
         });
 
         /**
-         * Starts a run for each chat trigger that a new conversation matches. Discord, Telegram and Slack differ
-         * only in these values, so a fix here applies to all three.
+         * Starts a run for each chat trigger that matches a new conversation.
          */
         const receiveMention = (chat: {
           matches: (node: WorkflowNode) => boolean;
@@ -1476,20 +1423,6 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("tommy/back
               return started ? "started" : "skipped";
             }),
           );
-
-        const receiveDiscord = Effect.fn("Workflows.receiveDiscord")(function* (mention: MessagingDiscordMention) {
-          return yield* receiveMention({
-            matches: (node) => discordTriggerMatches(node, mention),
-            sameMessage: (run) =>
-              run.source === "discord" && discordTriggerMessage(run.payload)?.messageId === mention.messageId,
-            origin: (node) => ({
-              source: "discord",
-              idempotencyKey: `discord:${node.id}:${mention.messageId}`,
-              payload: workflowDiscordPayload(node.id, mention),
-            }),
-            failure: "A Discord mention did not start a workflow run.",
-          });
-        });
 
         const receiveTelegram = Effect.fn("Workflows.receiveTelegram")(function* (mention: MessagingTelegramMention) {
           // A Telegram message id is unique only in its chat, so the chat is part of the match and of the key.
@@ -1800,7 +1733,8 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("tommy/back
               const detail = yield* attempt(() => detailOf(input.workflowId));
               const node = detail.graph.nodes.find((candidate) => candidate.id === input.nodeId);
               if (!node) return yield* refuse("missing", sourceText("error.workflow.nodeMissing"));
-              if (unsupportedNode(node)) return yield* refuse("refused", sourceText("error.workflow.nodeUnsupported"));
+              const unsupported = unsupportedNodeReason(node);
+              if (unsupported) return yield* refuse("refused", sourceText(unsupported));
               const inputs = soloInputs(detail.graph, node.id, runs.latestDone(input.workflowId));
               const step = yield* attempt(() =>
                 runs.addStep(
@@ -1970,7 +1904,6 @@ class Workflows extends Context.Service<Workflows, WorkflowsShape>()("tommy/back
           startScheduled,
           receiveWebhook,
           receiveGitHub,
-          receiveDiscord,
           receiveTelegram,
           receiveSlack,
           githubOffline,

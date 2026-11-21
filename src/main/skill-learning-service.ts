@@ -1,11 +1,8 @@
-import type { LocalSkillRevisionInput, SkillConversationEvent } from "@tommy/contracts/ipc";
+import type { SkillConversationEvent } from "@tommy/contracts/ipc";
 import {
   DEFAULT_SKILL_LEARNING_MODE,
-  decodeLearnedSkillDetail,
-  decodeLearnedSkillDetails,
   hostSkillLearning,
   isSkillLearningMode,
-  LEARNED_SKILL_READ_LIMITS,
   type RestoreLearnedSkillInput,
   type SkillLearningMode,
   type SkillLearningPreference,
@@ -56,9 +53,6 @@ export class SkillLearningService {
   get(): SkillLearningPreference {
     return { mode: this.#pendingMode ?? this.#preference.get().mode };
   }
-  snapshot() {
-    return hostSkillLearning(this.get());
-  }
   onChange(listener: (preference: SkillLearningPreference) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
@@ -88,52 +82,6 @@ export class SkillLearningService {
         return hostSkillLearning(this.get());
       }),
     );
-  });
-
-  /** A bounded host library list. Revision contents are fetched only after a person opens one. */
-  readonly listLocalSkills = Effect.fn("SkillLearningService.listLocalSkills")(function* (this: SkillLearningService) {
-    const skills = yield* this.#options.skills
-      .requireLocalLibrary()
-      .list(LEARNED_SKILL_READ_LIMITS.list, true)
-      .pipe(Effect.mapError((cause) => new SkillLearningFailed({ cause })));
-    return yield* Effect.try({
-      try: () =>
-        decodeLearnedSkillDetails(
-          skills.map((skill) => ({
-            ...skill,
-            name: this.#options.redact(skill.name),
-            description: this.#options.redact(skill.description),
-            instructions: "",
-            files: [],
-            iconUrl: null,
-            ...(skill.examplePrompt === undefined ? {} : { examplePrompt: this.#options.redact(skill.examplePrompt) }),
-          })),
-        ),
-      catch: (cause) => new SkillLearningFailed({ cause }),
-    });
-  });
-
-  /** A selected immutable revision, projected and redacted before it leaves this host. */
-  readonly readLocalSkill = Effect.fn("SkillLearningService.readLocalSkill")(function* (
-    this: SkillLearningService,
-    input: LocalSkillRevisionInput,
-  ) {
-    const skill = yield* this.#options.skills
-      .requireLocalLibrary()
-      .get(input.skillId, input.revision)
-      .pipe(Effect.mapError((cause) => new SkillLearningFailed({ cause })));
-    return yield* Effect.try({
-      try: () =>
-        decodeLearnedSkillDetail({
-          ...skill,
-          name: this.#options.redact(skill.name),
-          description: this.#options.redact(skill.description),
-          instructions: this.#options.redact(skill.instructions),
-          files: skill.files.map((file) => this.#options.redact(file)),
-          ...(skill.examplePrompt === undefined ? {} : { examplePrompt: this.#options.redact(skill.examplePrompt) }),
-        }),
-      catch: (cause) => new SkillLearningFailed({ cause }),
-    });
   });
 
   /** Adapter consumed by MemoryReview. Its receipt makes Save idempotent after restart. */

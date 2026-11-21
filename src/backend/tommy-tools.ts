@@ -1,5 +1,4 @@
 import {
-  CHAT_VISUAL_CONTEXT_LIMIT,
   CHAT_VISUAL_HTML_LIMIT,
   CHAT_VISUAL_MAX_HEIGHT,
   CHAT_VISUAL_MIN_HEIGHT,
@@ -23,7 +22,6 @@ import {
   updateProfileToolSchema,
 } from "./agent/profile-tools";
 import { ROUTINE_NO_UPDATE_TOOL, ROUTINE_REPORT_FAILURE_TOOL } from "./agent/routine-quiet-runs";
-import { captureScreenToolShape } from "./agent/screen-capture";
 import {
   assignAgentSectionToolSchema,
   createSectionToolSchema,
@@ -57,23 +55,14 @@ interface TommyToolDefinition {
   shape: z.ZodRawShape;
 }
 
-/** The page rules for `html_render` and `html_preview`. The names match the variables that `ChatVisual` sends. */
-const VISUAL_PAGE_RULES = [
-  "Write one self-contained HTML document with inline <style> and <script>. Remote http(s) files, such as a chart library from a CDN, load as they are; local file paths do not load.",
-  "The page runs in a sandbox: it cannot use cookies, storage or pop-up windows. A click on an http(s) link opens the link in the user's browser.",
-  "The frame has no border and sits on the chat background, as wide as the reply column (about 360px on phones). Leave html and body with no background, use a fluid width and no outer card or banner title: the page is part of your reply.",
-  "Give charts fixed pixel heights. Let the content set the page height; do not use 100vh or height:100% on html or body. The frame cuts what is outside the page box, so highlight a box with its border, not an outline or an outer shadow.",
-  "Tommy sets these CSS variables on :root from the app theme, which is dark on the desktop: --background (transparent), --foreground, --muted-foreground, --muted, --card, --card-foreground, --border, --accent, --destructive, --success, --chart-1 to --chart-6, --radius, --font-sans, --font-mono. The base style sets the body font and color from them.",
-].join(" ");
-
-/** What an `html_render` page can ask of the app. The names match `window.tommyPage` in the frame bootstrap. */
-const VISUAL_PAGE_ACTIONS = [
-  "For a choice, a form or a game, call tommyPage.sendMessage(text) from a click: Tommy puts the text in the user's message box, and the user sends it.",
-  `tommyPage.setContext(text) from a click keeps the page state as a quote in the user's message box, so you read it with the next message; up to ${CHAT_VISUAL_CONTEXT_LIMIT} characters, and empty text removes it.`,
-  "Tommy gives each page a full-screen button and opens a clicked image large, so do not build them. The mobile app runs page scripts but has no tommyPage, so check that window.tommyPage exists before you call it.",
-].join(" ");
+const VISUAL_PAGE_RULES =
+  "Write a complete HTML document with inline styles and scripts. Use a fluid width and an explicit chart height. A Telegram preview is a picture. Include the original file for controls or links; make the file work when opened on its own.";
 
 export const htmlRenderToolSchema = z.object({
+  includeSource: z
+    .boolean()
+    .optional()
+    .describe("Send the HTML file with the preview for interactive pages or when the user requests the source."),
   html: z.string().min(1).max(CHAT_VISUAL_HTML_LIMIT).describe("A complete, self-contained HTML document."),
   title: z.string().trim().min(1).max(CHAT_VISUAL_TITLE_LIMIT).describe("A short name for the page."),
   height: z
@@ -318,20 +307,8 @@ export const TOMMY_TOOL_DEFINITIONS: readonly TommyToolDefinition[] = [
   },
   {
     name: "html_render",
-    description: `Show a finished HTML page (chart, table, diagram, collage, mockup) in this conversation, above your final text reply; call it before you write that reply. The user already sees the page, so the reply must not announce it or restate it: add only what the page does not say. In a channel, each member who reads the channel sees it. Tommy fits the frame to the page height. A height lower than the page caps the frame, and the rest scrolls in it. ${VISUAL_PAGE_RULES} ${VISUAL_PAGE_ACTIONS}`,
+    description: `Save an HTML result for delivery with the final reply. Telegram receives a preview image. Set includeSource for an interactive result or a requested original. If rendering fails, the HTML file is sent. ${VISUAL_PAGE_RULES}`,
     shape: htmlRenderToolSchema.shape,
-  },
-  {
-    name: "list_capture_sources",
-    description:
-      "List the displays and windows of this computer that capture_screen can capture: display ids, desktop bounds in points, scale factors, and window ids and titles.",
-    shape: {},
-  },
-  {
-    name: "capture_screen",
-    description:
-      "Capture one display, one window, or a region of one display of this computer, and get the image. The user approves each capture first, and sees the image in this conversation. In a channel, each member who reads the channel sees it. Call list_capture_sources first to get ids and bounds. A region uses desktop points.",
-    shape: captureScreenToolShape,
   },
   {
     name: "list_sections",
@@ -623,7 +600,7 @@ export const TOMMY_TOOL_DEFINITIONS: readonly TommyToolDefinition[] = [
   {
     name: "react_to_user_message",
     description:
-      "Add one emoji reaction to the current user message for an obvious positive or negative emotional moment, including wins, affection, gratitude, humor, sadness, disappointment, frustration, empathy, or strong approval. An emoji in the written answer does not count as a reaction. Skip neutral messages and never use the reaction instead of the normal answer.",
+      "Record an emoji on the current user message in local history. Telegram does not display this reaction.",
     shape: { emoji: z.string().min(1).max(64).describe("Exactly one complete Unicode emoji.") },
   },
   {

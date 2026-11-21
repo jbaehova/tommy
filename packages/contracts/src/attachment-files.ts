@@ -91,54 +91,6 @@ export const ATTACHMENT_FILE_EXTENSIONS = [
   ...CONTEXT_ATTACHMENT_EXTENSIONS,
 ] as const;
 
-/**
- * The attachment types that the desktop app opens with the default app of the operating system:
- * images, audio, video, documents and plain text. The operating system can run other types when
- * it opens them, for example a script on Windows, or a page in a browser. The old Office formats
- * (doc, xls, ppt) can hold macros. The desktop app shows those files in the file manager and does
- * not open them. The file name can come from another member or from a remote host, so it is not
- * trusted.
- */
-export const OPENABLE_ATTACHMENT_EXTENSIONS = [
-  ...IMAGE_ATTACHMENT_EXTENSIONS,
-  ...MEDIA_ATTACHMENT_EXTENSIONS,
-  ...MP4_ATTACHMENT_EXTENSIONS,
-  "pdf",
-  "docx",
-  "odt",
-  "rtf",
-  "xlsx",
-  "ods",
-  "pptx",
-  "odp",
-  "eml",
-  "txt",
-  "md",
-  "markdown",
-  "csv",
-  "log",
-] as const;
-
-/** What a host accepts beyond the base list. An older remote host rejects EML, MP3, MOV, ZIP, MP4, and SVG. */
-export interface AttachmentSupport {
-  eml: boolean;
-  media: boolean;
-  zip: boolean;
-  mp4: boolean;
-  svg: boolean;
-}
-
-export function supportedAttachmentExtensions(support: AttachmentSupport): string[] {
-  return ATTACHMENT_FILE_EXTENSIONS.filter(
-    (extension) =>
-      (support.eml || extension !== "eml") &&
-      (support.media || !MEDIA_ATTACHMENT_EXTENSIONS.some((media) => media === extension)) &&
-      (support.zip || !ARCHIVE_ATTACHMENT_EXTENSIONS.some((archive) => archive === extension)) &&
-      (support.mp4 || !MP4_ATTACHMENT_EXTENSIONS.some((mp4) => mp4 === extension)) &&
-      (support.svg || !SVG_ATTACHMENT_EXTENSIONS.some((svg) => svg === extension)),
-  );
-}
-
 export const SUPPORTED_ATTACHMENT_DESCRIPTION =
   "images, MP3 audio, MOV or MP4 video, ZIP archives, PDF, Office documents, EML, text, Markdown, data, or source files";
 
@@ -157,38 +109,6 @@ export function isSupportedAttachmentName(name: string): boolean {
   const basename = name.split(/[\\/]/u).at(-1)?.trim().toLowerCase() ?? "";
   const extension = attachmentFileExtension(basename);
   return EXTENSIONLESS_TEXT_FILES.has(basename) || (extension !== null && SUPPORTED_EXTENSIONS.has(extension));
-}
-
-const OPENABLE_EXTENSIONS = new Set<string>(OPENABLE_ATTACHMENT_EXTENSIONS);
-
-/** Whether the desktop app can open this file with the default app. See `OPENABLE_ATTACHMENT_EXTENSIONS`. */
-export function isOpenableAttachmentName(name: string): boolean {
-  const extension = attachmentFileExtension(name);
-  return extension !== null && OPENABLE_EXTENSIONS.has(extension);
-}
-
-/**
- * The raster image type for a local preview of a file, or null. The type comes from the name, not
- * from the file, so a preview is never a type that a browser runs as a page (HTML, SVG).
- */
-export function rasterImageMimeType(name: string): string | null {
-  const extension = attachmentFileExtension(name);
-  return IMAGE_ATTACHMENT_EXTENSIONS.some((image) => image === extension) ? attachmentMimeTypeForName(name) : null;
-}
-
-/**
- * The name check for a surface that picks files for one host, such as mobile. It accepts the same
- * files as the desktop picker filter that `supportedAttachmentExtensions` builds for that host.
- */
-export function isSupportedAttachmentNameFor(name: string, support: AttachmentSupport): boolean {
-  if (!isSupportedAttachmentName(name)) return false;
-  const extension = attachmentFileExtension(name);
-  if (extension === "eml") return support.eml;
-  if (MEDIA_ATTACHMENT_EXTENSIONS.some((media) => media === extension)) return support.media;
-  if (ARCHIVE_ATTACHMENT_EXTENSIONS.some((archive) => archive === extension)) return support.zip;
-  if (MP4_ATTACHMENT_EXTENSIONS.some((mp4) => mp4 === extension)) return support.mp4;
-  if (SVG_ATTACHMENT_EXTENSIONS.some((svg) => svg === extension)) return support.svg;
-  return true;
 }
 
 /**
@@ -274,8 +194,4 @@ export function playableMediaKind(mimeType: string): "audio" | "video" | null {
   if (mimeType.startsWith("audio/")) return "audio";
   if (mimeType.startsWith("video/")) return "video";
   return null;
-}
-
-export function isXlsxMimeType(mimeType: string): boolean {
-  return mimeType === XLSX_MIME_TYPE;
 }

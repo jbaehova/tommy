@@ -171,6 +171,27 @@ describe("Telegram reply delivery boundary", () => {
     expect(Result.isFailure(result) && result.failure.kind).toBe("identity");
   });
 
+  it("checks the turn again before retrying a rejected formatted message as plain text", async () => {
+    const f = await fixture();
+    const rejected = signal();
+    const sender = f.create({
+      api: {
+        ...f.config.api,
+        sendMessage: (token, chat, body, _options, html) => {
+          if (!html) return f.config.api.sendMessage(token, chat, body);
+          f.owned(false);
+          rejected.notify();
+          return Effect.fail(new TelegramApiFailure({ kind: "api", status: 400 }));
+        },
+      },
+    });
+    await Effect.runPromise(sender.start());
+    await Effect.runPromise(sender.enqueue(f.reply));
+    await rejected.promise;
+    await vi.waitFor(async () => expect(await readFile(f.path, "utf8")).toContain('"pending":[]'));
+    expect(f.sent).toEqual([]);
+  });
+
   it("holds an undeliverable reply until the owner reopens the chat and never sends it after rebinding", async () => {
     const f = await fixture();
     const sender = f.create({
@@ -185,6 +206,41 @@ describe("Telegram reply delivery boundary", () => {
     await Effect.runPromise(resumed.start());
     await Effect.runPromise(resumed.retryChat(f.reply.telegramId));
     await vi.waitFor(async () => expect(await readFile(f.path, "utf8")).not.toContain(previous));
+    expect(f.sent).toEqual([]);
+  });
+
+  it("does not deliver the remaining HTML to a replacement binding after the preview", async () => {
+    const f = await fixture();
+    f.reply.text = "";
+    f.reply.files = [
+      { attachmentId: "preview", name: "page.png", mimeType: "image/png", bytes: Buffer.from("preview") },
+      { attachmentId: "source", name: "page.html", mimeType: "text/html", bytes: Buffer.from("<p>Owner only</p>") },
+    ];
+    const sent: string[] = [];
+    const api = {
+      ...f.config.api,
+      sendFile: (_token: string, dest: number, file: { mimeType: string }) =>
+        Effect.sync(() => {
+          expect(dest).toBe(f.reply.ownerId);
+          sent.push(file.mimeType);
+          f.ready(false);
+          f.photo.notify();
+        }),
+    };
+    const sender = f.create({ api });
+    await Effect.runPromise(sender.start());
+    await Effect.runPromise(sender.enqueue(f.reply));
+    await f.photo.promise;
+    await Effect.runPromise(sender.stop());
+    const state = JSON.parse(await readFile(f.path, "utf8"));
+    expect(state.pending[0]).toMatchObject({ file: 1, fileIds: ["preview", "source"] });
+
+    f.ready(true);
+    const replacement = { ...f.binding, operationId: randomUUID() };
+    const resumed = f.create({ api, directory: { get: () => replacement } });
+    await Effect.runPromise(resumed.start());
+    await vi.waitFor(async () => expect(JSON.parse(await readFile(f.path, "utf8")).pending).toEqual([]));
+    expect(sent).toEqual(["image/png"]);
     expect(f.sent).toEqual([]);
   });
 

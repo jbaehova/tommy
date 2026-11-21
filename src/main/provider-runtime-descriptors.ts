@@ -43,7 +43,7 @@ export interface RuntimeSpec {
   source: RuntimeSource;
   target: RuntimeTarget;
   url: string;
-  /** `null` only where the source publishes no hash: Grok's latest release is trusted on TLS alone. */
+  /** `null` only where the source publishes no hash: the latest Cursor release uses the ACP registry. */
   archiveDigest: ArchiveDigest | null;
   downloadBytes: number;
   installedBytes: number;
@@ -133,7 +133,7 @@ const stageBunx = Effect.fn("ProviderRuntime.stageBunx")((binary: string, bunx: 
     Effect.catch(() =>
       Effect.gen(function* () {
         yield* runtimeIO(() => copyFile(binary, bunx));
-        if (!bunx.endsWith(".exe")) yield* runtimeIO(() => chmod(bunx, 0o755));
+        yield* runtimeIO(() => chmod(bunx, 0o755));
       }),
     ),
   ),
@@ -345,7 +345,6 @@ const PROVIDER_RUNTIME_DESCRIPTORS: Record<ManagedRuntimeId, ProviderRuntimeDesc
     },
     // The launcher starts the Node.js runtime and the script beside it, so the whole folder goes to
     // `bin/`. The archive has no licence file; the manifest names the terms Cursor publishes instead.
-    // GNU tar on Linux reads no zip, so the Windows zip is read by Tommy.
     stage: Effect.fn("ProviderRuntime.cursor.stage")(function* ({
       spec,
       downloadedPath,
@@ -383,8 +382,7 @@ const PROVIDER_RUNTIME_DESCRIPTORS: Record<ManagedRuntimeId, ProviderRuntimeDesc
         return yield* new ProviderRuntimeFailure({ cause: new Error(sourceText("error.provider.cursorChecksum")) });
       }
     }),
-    // The Windows launcher is a `.cmd` file, which `execFile` cannot start, so the version comes from
-    // the manifest that Tommy wrote, as for Antigravity.
+    // Cursor records its build version in the local install manifest.
     versionFile: CURSOR_MANIFEST,
     parseVersion: parseCursorManifestVersion,
   },

@@ -58,14 +58,6 @@ export function isMessageDeletionEvent(value: unknown): value is MessageDeletion
   return value.type === "channel-messages-deleted" && isIdentifier(value.channelId);
 }
 
-/** Preserve the independent preload boundary while returning only event fields. */
-export function decodeMessageDeletionEvent(value: unknown): MessageDeletionEvent {
-  if (!isMessageDeletionEvent(value)) throw new Error("Invalid message deletion event.");
-  return value.type === "conversation-messages-deleted"
-    ? { type: value.type, agentId: value.agentId, threadId: value.threadId, messageIds: [...value.messageIds] }
-    : { type: value.type, channelId: value.channelId, messageIds: [...value.messageIds] };
-}
-
 export function parseMessageDeleteInput(value: unknown): MessageDeleteInput {
   if (
     !isDynamicRecord(value) ||

@@ -16,13 +16,10 @@ export const messages = {
   "status.agent.channelRoutineCreated": "{agent} 에이전트가 루틴 {routine}을(를) 만들었어요. {person} 님이 요청했어요.",
   "status.agent.channelRoutineUpdated": "{agent} 에이전트가 루틴 {routine}을(를) 변경했어요. {person} 님이 요청했어요.",
   "status.agent.channelRoutineDeleted": "{agent} 에이전트가 루틴 {routine}을(를) 삭제했어요. {person} 님이 요청했어요.",
-  "status.agent.screenCaptureScreen": "메인 화면을 캡처해서 이미지를 에이전트의 모델에 보내요.",
-  "status.agent.screenCaptureChannel":
-    "이미지가 {channel} 채널에 표시되고, 이 채널을 읽는 서버의 모든 멤버가 볼 수 있어요.",
-  "status.agent.screenCaptureDisplay": "디스플레이 {name}을(를) 캡처해서 이미지를 에이전트의 모델에 보내요.",
-  "status.agent.screenCaptureWindow": "창 {name}을(를) 캡처해서 이미지를 에이전트의 모델에 보내요.",
-  "status.agent.screenCaptureRegion":
-    "화면의 {x}, {y} 위치에서 {width} × {height} 포인트 영역을 캡처해서 이미지를 에이전트의 모델에 보내요.",
+  "status.agent.vaultSiteApproval":
+    "금액: {amount} (에이전트가 읽은 값)\n카드: {card}\n사이트: {site}\n이 사이트에서는 다음부터 승인 없이 입력해요.",
+  "status.agent.vaultSiteApprovalFrames":
+    "금액: {amount} (에이전트가 읽은 값)\n카드: {card}\n사이트: {site}\n결제 프레임: {origins}\n이 사이트에서는 다음부터 승인 없이 입력해요.",
   "status.agent.vaultCardFillVault":
     "금액: {amount} (에이전트가 읽은 값)\n카드: {card}\n사이트: {site}\n이 사이트에서는 다음부터 승인 없이 입력해요. 서버 설정 > Vault에서 사이트를 지울 수 있어요.",
   "status.agent.vaultCardFillVaultFrames":
@@ -69,6 +66,7 @@ export const messages = {
   "status.agent.mcpServerEnable": "이 서버의 모든 에이전트에 MCP 서버 {name}을(를) 켜요.",
   "status.agent.mcpServerDisable": "이 서버의 모든 에이전트에 MCP 서버 {name}을(를) 꺼요.",
   "status.agent.mcpServerRemove": "이 서버의 모든 에이전트에서 MCP 서버 {name}과(와) 로그인 정보를 제거해요.",
+  "status.agent.mcpSignInConnect": "{name}에 로그인이 필요해요. Telegram에서 연결 버튼을 누르세요.",
   "status.agent.mcpSignInRequested": "MCP 서버 {name}에 로그인이 필요해요. 서버 설정의 MCP에서 로그인해 주세요.",
   "status.agent.nextStepContinues": "에이전트가 다음 단계 전에 멈췄어요. 계속해요 ({current}/{limit}).",
   "status.agent.planContinues": "계획에 남은 단계가 있어요. 에이전트가 계속해요 ({current}/{limit}).",

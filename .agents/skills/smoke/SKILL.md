@@ -1,143 +1,41 @@
 ---
 name: smoke
-description: Start one or more local Tommy dev instances and smoke test the features that the current changes or a pull request add. Use when asked to smoke test, QA, or check a change or PR in the real app, including two-client team flows and the browser client.
+description: Smoke test Tommy server and Telegram changes through their production entry points. Use for QA of a change or pull request.
 ---
 
-# Smoke
+# Smoke test
 
-Start the local dev stack for this worktree. Then drive the real app and
-prove that each feature in the change works. Report what passed, what
-failed, and what you did not check.
+Use Node 24 and the Bun version in `package.json`. Install dependencies in a fresh checkout with
+`bun install --frozen-lockfile`.
 
-A smoke test does not replace tests or CI. Do not run broad checks here.
-`AGENTS.md` forbids them locally.
+Read the PR diff when a PR is named. Otherwise read the changes from the merge base of
+`origin/main`, including uncommitted work. Write down the user action, expected result and reverse
+action for each affected path. Include a restart when a change touches persistent state.
 
-## Before you start
+## Select a check
 
-- Read `AGENTS.md` and the `AGENTS.md` of each directory in the change.
-- Run `node --version`. Node 24 is necessary.
-- Prefix each `bun run dev*` command with `env -u ELECTRON_RUN_AS_NODE`.
-  An agent shell can leak this variable, and then Electron starts as Node.
-- In a fresh worktree, run `bun run dev:prepare` once. It copies the files
-  that `.worktreeinclude` lists (such as `.env`) from the main checkout and
-  installs the packages. Do not create a new `.env`.
+Use the smallest end-to-end script that exercises the change. Read its setup and check whether it
+uses an external service. These scripts create temporary profiles and write results to
+`.tommy-build/`.
 
-## Step 1 — Find what to test
-
-Get the change set. Use the first source that applies:
-
-1. A PR number or URL: `gh pr view <pr> --json title,body,headRefName,files`
-   and `gh pr diff <pr> --name-only`. Check out the PR branch in this
-   worktree only when the user asks. Otherwise test the current branch.
-2. A branch: `git diff --name-only $(git merge-base origin/main HEAD)`,
-   plus `git status --short` for uncommitted work.
-
-`bun run dev:verify` reads only uncommitted changes. Use it for setup and
-runtime state, not for the change set. Ignore the `lint` and `typecheck`
-entries in its `commands`.
-
-Read the PR body and the diff. Write a short test plan before you start
-the app. Give each item a user action and an expected result:
-
-| # | Feature | Surface | Action | Expected result |
-| --- | --- | --- | --- | --- |
-| 1 | Short name | desktop / test-client / web / mobile | Steps | Visible result |
-
-Include the reverse action for each state change: snooze/unsnooze,
-pause/resume, revoke/reconnect, mute/unmute. Include a restart when the
-change touches persisted state or migrations.
-
-When a change has no user-visible behavior, such as a refactor, a test,
-or docs only, say so and stop. Do not start the app for it.
-
-## Step 2 — Choose the stack
-
-Choose the smallest stack that covers the plan:
-
-| Plan needs | Command |
+| Path under test | Command |
 | --- | --- |
-| Desktop renderer or main process | `bun run dev` |
-| Two clients: teams, invitations, sharing, Team API | `bun run dev:test-client` |
-| Browser client at `/app` or public web | `bun run dev:api` (add `bun run dev` when a desktop host is also necessary) |
+| Telegram webhook requests and owner commands | `bun scripts/telegram-vps-e2e.ts` |
+| Agent turns and replies to Telegram | `bun scripts/telegram-agent-host-e2e.ts` |
+| Telegram workflow output | `bun scripts/workflow-telegram-e2e.ts` |
+| Signed inbound webhooks | `bun scripts/direct-webhooks-e2e.ts` |
+| Queue recovery after a restart | `bun scripts/queue-restore-loop-e2e.ts` |
 
-Rules:
+Find other scenario scripts with `rg --files scripts -g '*-e2e.ts'`. Run one at a time. Read the
+reported result and its artifact. For a Mini App or provider change, state whether the test used a
+real client, issuer or provider. Record an inaccessible surface as unchecked.
 
-- Run `bun run dev:status` first. Reuse this worktree's stack when it is
-  live. Do not start a second stack in the same worktree.
-- Never drive a stack or an app of a different worktree.
-- Start the stack with `run_in_background`. Wait for the ports that the
-  supervisor prints, or poll `bun run dev:status` until the service is
-  live. Use the ports that the stack reports, never a fixed port.
-- Do not pass `--shared`, so that the test does not change the shared
-  `Tommy Dev` profile. A new profile gets the showcase data of
-  `bun run dev:seed`.
-- Do not run `dev:reset`, or `dev:seed` without `--dry-run`, on a profile
-  that you did not create. Ask first.
+For an installed Linux service, use a disposable installation. Give it a separate data directory
+and its own test credentials. Use only the installation authorized for this test. Stop processes
+that you started. Keep screenshots and reports under `.tommy-build/` and remove credentials and
+personal information from shared evidence.
 
-## Step 3 — Drive the app
+## Report
 
-Use `bun run dev:automation` for the desktop app and the test client:
-
-```bash
-bun run dev:automation instances
-bun run dev:automation pages
-bun run dev:automation snapshot --wait-for=<role>,<name>
-bun run dev:automation click --role=<role> --name=<name> --allow-mutations --instance=<id> --wait-for=<role>,<name>
-bun run dev:automation type --role=<role> --name=<name> --text=<text> --allow-mutations --instance=<id>
-```
-
-Follow this loop for each plan item:
-`snapshot → action with --wait-for → snapshot`.
-
-The accessibility snapshot is the evidence. Do not take screenshots by
-default: they cost more. Take one only when the user asks, when the
-result is visual (layout, color, animation, an image) and a snapshot
-cannot show it, or when the user asks for PR evidence. Then use
-`bun run dev:automation screenshot --out=<name>.png`.
-
-- Select elements by accessible role and name. When an element has no
-  accessible name, record it as a finding. Do not add a test ID.
-- `--page=<target-id|url-substring>` selects a window or an embedded
-  browser view. `--service=test-client` selects the second client.
-- Wait for a role, not for elapsed time.
-- `dev:automation` cannot close a window or run a script. For window
-  lifecycle checks, use CDP on the instance's `remoteDebuggingPort`.
-- For the browser client, use the preview or Chrome DevTools tools on the
-  URL that the stack reports.
-- For a restart check, stop only the stack you started with
-  `bun run dev:stop`, then start it again with the same flags.
-
-Also look for problems outside the plan: renderer console errors in the
-`dev:automation` stderr, errors in the stack log, and a UI that does not
-respond.
-
-A provider turn uses the signed-in subscription. Send model turns only
-when the feature needs them, and keep the prompts short.
-
-## Step 4 — Clean up
-
-- Stop each stack you started with `bun run dev:stop`. Leave a stack that
-  was live before you started.
-- Never kill by process pattern. Kill only a PID that you started.
-- Screenshots, if any, stay in `.tommy-build/dev-automation/`. Do not commit
-  them.
-
-## Step 5 — Report
-
-Give one table for the plan:
-
-| # | Feature | Result | Evidence |
-| --- | --- | --- | --- |
-| 1 | Short name | pass / fail / not checked | Snapshot text, log line, or screenshot path |
-
-Then give:
-
-- The stack and flags you used, and the surfaces you checked.
-- Each failure with the steps to reproduce it, the expected result, and
-  the actual result.
-- Each item you did not check, and why. Examples: a real second computer,
-  a paid provider, a production build, Windows or Linux.
-
-Do not fix a failure unless the user asks. When the user asks for PR
-evidence, give the screenshot paths for before and after. Do not commit
-them.
+For each action, give the observed result, pass or fail, and the evidence path. Include the expected
+result when the action failed. State which parts require a real deployment or service.

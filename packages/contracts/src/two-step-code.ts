@@ -132,9 +132,3 @@ export function twoStepRemainingMs(period: number, at: number): number {
   const periodMs = period * 1000;
   return periodMs - (at % periodMs);
 }
-
-/** A code in two groups, as authenticator apps show it: `123 456`. */
-export function groupedTwoStepCode(code: string): string {
-  const half = Math.ceil(code.length / 2);
-  return `${code.slice(0, half)} ${code.slice(half)}`;
-}

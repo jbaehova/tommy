@@ -8,8 +8,8 @@ import {
   WEBHOOK_SIGNATURE_HEADER,
   WEBHOOK_TIMESTAMP_HEADER,
 } from "@tommy/contracts/signal-protocol/webhook-route";
-import { RoutineInputError } from "@tommy/team-client/routine-schedule";
 import type { Effect } from "effect";
+import { RoutineInputError } from "../routine-schedule";
 import type { RoutineOperationFailed } from "./routine-scheduler";
 
 export const CREATE_WEBHOOK_ROUTINE_TOOL = "create_webhook_routine";
@@ -114,13 +114,8 @@ export function webhookRoutineSummary(routine: {
   return { routineId: routine.id, name: routine.name, active: routine.active, eventType, filters, url };
 }
 
-/**
- * The tool result. `cardInChat` is false when this chat has no record of the routine: it belongs to
- * another agent, or the record failed. The card shows its secret button only to a person who
- * manages the host's webhook routines in the desktop app, so the text names both ways. An update
- * keeps the secret.
- */
-export function webhookRoutineToolResult(routine: EventRoutine, cardInChat: boolean, updated = false) {
+/** Only the host can give a webhook signing secret to an authorized operator. */
+export function webhookRoutineToolResult(routine: EventRoutine, updated = false) {
   const trigger = routine.trigger.kind === "webhook" ? routine.trigger : null;
   return {
     routineId: routine.id,
@@ -129,12 +124,12 @@ export function webhookRoutineToolResult(routine: EventRoutine, cardInChat: bool
     eventType: trigger?.eventType ?? null,
     filters: trigger?.filters ?? [],
     url: trigger?.url ?? null,
-    ...(trigger?.url ? {} : { urlPending: "The URL is not ready. The routine settings show it when it is." }),
+    ...(trigger?.url
+      ? {}
+      : { urlPending: "The URL is not ready. Check list_routines again after the host registers the route." }),
     request: WEBHOOK_REQUEST_FORMAT,
     secret: updated
       ? "The signing secret did not change. You do not have it."
-      : cardInChat
-        ? "You do not have the signing secret. In the desktop app, a person who manages this host's webhook routines sees a card in this chat with a button that makes it. Anyone else gets it from that person, who can also make it in the routine's settings."
-        : "You do not have the signing secret. A person who manages this host's webhook routines makes it in the routine's settings in the desktop app.",
+      : "The host keeps the signing secret. The agent and Telegram chat cannot display it.",
   };
 }

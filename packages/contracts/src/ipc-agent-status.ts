@@ -378,12 +378,6 @@ export interface SubmitProviderCodeLoginInput {
  */
 export type ProviderApiKeyStatus = "missing" | "saved" | "unreadable";
 
-/** What the renderer may know about a stored key: its status. Never the key. */
-export interface ProviderApiKeyState {
-  provider: AgentProviderId;
-  status: ProviderApiKeyStatus;
-}
-
 /**
  * What a started code sign-in gives the renderer: a code to show, or nothing left to do.
  *
@@ -443,10 +437,4 @@ export interface ProviderHostSignInStatus {
 export interface ProviderRelaySignInStatus {
   page: McpSignInRelayPage | null;
   result: { error: string | null } | null;
-}
-
-/** The address that the browser of a relayed provider sign-in shows. It holds a grant. */
-export interface PasteProviderRelaySignInInput {
-  provider: AgentProviderId;
-  address: string;
 }

@@ -22,4 +22,6 @@ export const messages = defineMessages("browser", {
   "browser.telegram.vaultTitle": "Save to the Vault",
   "browser.telegram.apiKeyTitle": "Save an API key",
   "browser.telegram.refresh": "Refresh",
+  "browser.telegram.mcpOpen": "Open sign-in page",
+  "browser.telegram.mcpReturn": "Return to the original Telegram chat for the sign-in result.",
 });

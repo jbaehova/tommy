@@ -77,22 +77,6 @@ export interface QueueDelivery {
   steerFallback?: QueueSteerFallback;
 }
 
-/**
- * A queued answer from another agent to a question this agent asked. A client shows it in the
- * waiting block, with the question it answers. Its only queue action is steer, while a turn runs.
- *
- * A host too old to send `expectsReply` reports every delivery as a question, so each one stays an
- * ordinary queue row there.
- */
-export function isQueuedAgentReply(delivery: QueueDelivery): boolean {
-  return (
-    delivery.status === "queued" &&
-    delivery.sender.kind === "agent" &&
-    delivery.replyToMessageId !== null &&
-    delivery.expectsReply === false
-  );
-}
-
 export function isQueueDelivery(value: unknown): value is QueueDelivery {
   return (
     isDynamicRecord(value) &&

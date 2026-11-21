@@ -22,7 +22,6 @@ import { routineConversationEventItemType, routineRunConversationEventItemType }
 import type { EventRoutine } from "@tommy/contracts/ipc-events";
 import { type DynamicRecord, isBoolean } from "@tommy/contracts/runtime-values";
 import { sourceText } from "@tommy/i18n/source";
-import { collapseMissedOccurrences, RoutineInputError } from "@tommy/team-client/routine-schedule";
 import { Effect, Schema } from "effect";
 import { AgentRoutineStore } from "../agent-routine-store";
 import { AGENT_PREVIEW_MAX_LENGTH, type AgentStore } from "../agent-store";
@@ -30,7 +29,7 @@ import type { AgentWaits } from "../agent-waits/agent-waits";
 import { causeHelpers } from "../effect-boundary";
 import type { MailboxStore } from "../mailbox-store";
 import type { DynamicToolCallParams } from "../protocol";
-import { recordRestartActivity } from "../restart-activity";
+import { collapseMissedOccurrences, RoutineInputError } from "../routine-schedule";
 import type { OwnedRoutineRecord, ReceivedWebhookEvent, RoutineHoldWindow, RoutineRecordInput } from "../routine-store";
 import type { RoutineDueSource, RoutineTimer } from "../routine-timer";
 import {
@@ -289,10 +288,6 @@ export class RoutineScheduler implements RoutineDueSource {
     if (oldest !== undefined) this.#previewsBeforeRun.delete(oldest);
   }
 
-  duplicate(sourceAgentId: string, targetAgentId: string, now: Date): Map<string, Routine> {
-    return this.#routines.duplicate(sourceAgentId, targetAgentId, now);
-  }
-
   skipMissed(now: Date, held?: RoutineHoldWindow): void {
     this.#routines.skipMissed(now, held);
   }
@@ -339,12 +334,6 @@ export class RoutineScheduler implements RoutineDueSource {
     this.stateChanged(input.agentId);
     this.arm();
     return routine;
-  }
-
-  /** Routines of every trigger kind, for the events surface. */
-  listRecords(agentId: string): OwnedRoutineRecord[] {
-    this.#conversation.requireKnownAgent(agentId);
-    return this.#routines.listRecords(agentId);
   }
 
   /** Unchecked read of every trigger kind, for callers that already hold the agent. */
@@ -677,10 +666,10 @@ export class RoutineScheduler implements RoutineDueSource {
         ...(limitPolicy === undefined ? {} : { limitPolicy }),
         ...routineToolRunPlace(args),
       });
-      // Only the caller's own chat shows the card with the secret: the card needs the turn.
+      // Associate the event with this turn only when it belongs to the same agent.
       const turnId = agentId === senderAgentId ? params.turnId : undefined;
-      const recorded = this.#recordWebhookEvent(agentId, "created", routine, turnId);
-      return tommyToolResult(webhookRoutineToolResult(routine, recorded && turnId !== undefined));
+      this.#recordWebhookEvent(agentId, "created", routine, turnId);
+      return tommyToolResult(webhookRoutineToolResult(routine));
     }
 
     if (params.tool === UPDATE_WEBHOOK_ROUTINE_TOOL) {
@@ -728,8 +717,8 @@ export class RoutineScheduler implements RoutineDueSource {
         ...routineToolRunPlace(args),
       });
       const turnId = agentId === senderAgentId ? params.turnId : undefined;
-      const recorded = this.#recordWebhookEvent(agentId, "updated", routine, turnId);
-      return tommyToolResult(webhookRoutineToolResult(routine, recorded && turnId !== undefined, true));
+      this.#recordWebhookEvent(agentId, "updated", routine, turnId);
+      return tommyToolResult(webhookRoutineToolResult(routine, true));
     }
 
     if (params.tool === "update_routine") {
@@ -1020,7 +1009,6 @@ export class RoutineScheduler implements RoutineDueSource {
       return cancelled;
     });
     if (skipped) return skipped;
-    recordRestartActivity();
     const validateRecipient = yield* routineStep(() => this.#mailbox.prepareDelivery([run.agentId]));
     const agent = yield* this.#store.getOrCreate(run.agentId).pipe(toRoutineOperationFailed);
     return yield* Effect.gen({ self: this }, function* () {
@@ -1288,15 +1276,14 @@ export class RoutineScheduler implements RoutineDueSource {
 
   /**
    * The chat record of a webhook routine that an agent made or changed. The main process saved the
-   * routine already, so a failed record is reported and does not fail the tool call. False when it
-   * failed.
+   * routine already, so a failed record is reported and does not fail the tool call.
    */
   #recordWebhookEvent(
     agentId: string,
     action: "created" | "updated",
     routine: EventRoutine,
     turnId: string | undefined,
-  ): boolean {
+  ): void {
     try {
       this.#mutateWithConversation(
         agentId,
@@ -1305,10 +1292,8 @@ export class RoutineScheduler implements RoutineDueSource {
         (saved) => saved,
         turnId,
       );
-      return true;
     } catch (error) {
       this.#hooks.emitError("routine_event_record_failed", error, agentId);
-      return false;
     }
   }
 

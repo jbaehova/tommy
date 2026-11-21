@@ -114,9 +114,6 @@ function isConversationQuestionPrompt(value: unknown): value is ConversationQues
     (value.resolution === null || isAgentPromptResolution(value.resolution))
   );
 }
-
-export const MESSAGE_REACTIONS = ["👍", "👎", "❤️", "😂", "🎉", "😮"] as const;
-export const MORE_MESSAGE_REACTIONS = ["🔥", "👏", "🙏", "🤔", "👀", "✅", "🚀", "💯"] as const;
 export type MessageReaction = string;
 
 export type ConversationReactionActor = { kind: "user" } | { kind: "agent"; agentId: string };
@@ -151,26 +148,6 @@ export interface AgentExchangeSummary {
   deliveries: Array<Pick<QueueDelivery, "id" | "recipientAgentId" | "status" | "position" | "error">>;
   /** Absent means the sender waits for an answer. See `QueueDelivery.expectsReply`. */
   expectsReply?: boolean;
-}
-
-/**
- * The loaded requests to teammates that a page of the latest messages does not hold, and that a
- * teammate still had open. A client keeps each older loaded message as it was, so it reads these
- * again: else a teammate that has ended shows as working in the waiting block.
- */
-export function openExchangesOutside(
-  loaded: readonly { id: string; exchange?: AgentExchangeSummary | undefined }[],
-  page: readonly { id: string }[],
-): string[] {
-  const onPage = new Set(page.map((message) => message.id));
-  return loaded.flatMap(({ id, exchange }) =>
-    !onPage.has(id) &&
-    exchange?.direction === "outgoing" &&
-    exchange.expectsReply !== false &&
-    exchange.deliveries.some(({ status }) => status === "queued" || status === "starting" || status === "running")
-      ? [id]
-      : [],
-  );
 }
 
 function isAgentExchangeSummary(value: unknown): value is AgentExchangeSummary {

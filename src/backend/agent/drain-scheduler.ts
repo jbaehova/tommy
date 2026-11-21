@@ -23,7 +23,6 @@ import {
   combinedPromptInput,
   deliveryPromptInput,
 } from "./delivery-content";
-import type { DuplicationGate } from "./duplication-gate";
 import type { MailboxSync } from "./mailbox-sync";
 import type { MemoryHold } from "./memory-hold";
 import type { PlanContinuation } from "./plan-continuation";
@@ -138,7 +137,6 @@ export interface DrainSchedulerOptions {
   mailboxSync: MailboxSync;
   conversation: ConversationRuntime;
   providers: ProviderRuntime;
-  duplication: DuplicationGate;
   profileSave: ProfileSave;
   compaction: ContextCompaction;
   routines: RoutineScheduler;
@@ -170,7 +168,6 @@ export class DrainScheduler {
   readonly #mailboxSync: MailboxSync;
   readonly #conversation: ConversationRuntime;
   readonly #providers: ProviderRuntime;
-  readonly #duplication: DuplicationGate;
   readonly #profileSave: ProfileSave;
   readonly #compaction: ContextCompaction;
   readonly #routines: RoutineScheduler;
@@ -192,7 +189,6 @@ export class DrainScheduler {
    */
   readonly #requeuedAtLimit = new Set<string>();
   readonly #settingsHolds = new Map<string, number>();
-  readonly #liveVoiceHolds = new Map<string, number>();
   /** Lanes that wait for the next drain after the provider reports an active turn. */
   readonly #providerTurnHolds = new Set<string>();
   /** A drain that arrives during a start can be the provider turn's completion. */
@@ -222,7 +218,6 @@ export class DrainScheduler {
     this.#mailboxSync = options.mailboxSync;
     this.#conversation = options.conversation;
     this.#providers = options.providers;
-    this.#duplication = options.duplication;
     this.#profileSave = options.profileSave;
     this.#compaction = options.compaction;
     this.#routines = options.routines;
@@ -327,7 +322,6 @@ export class DrainScheduler {
     const { agentId, taskId } = lane;
     if (this.#hooks.isDeleting(agentId)) return "deleting";
     if (this.#settingsHolds.has(agentId)) return "session-settings";
-    if (this.#liveVoiceHolds.has(agentId)) return "live-voice";
     if (this.#laneTurnActive(lane)) return "active-turn";
     if (this.#providerTurnHolds.has(laneKey(lane))) return "provider-turn";
     // The provider has one turn of the agent at a time, so each lane waits for the turn of any other.
@@ -391,7 +385,6 @@ export class DrainScheduler {
     if (taskId === null && this.#tasks.oneTurnAtATime(agentId) && !(this.#channels?.mayDrain(agentId) ?? true))
       return "channel";
     if (!this.#profileSave.mayDrain(agentId)) return "profile-save";
-    if (!this.#duplication.mayDrain(agentId)) return "duplication";
     if (this.#compactionHolds(lane)) return "compaction";
     if (!this.#routines.mayDrain(agentId)) return "routine";
     if (!this.#usageLimits.mayDrain(agentId) && !this.#usageLimits.mayTry(agentId)) return "usage-limit";
@@ -500,20 +493,6 @@ export class DrainScheduler {
       const remaining = (this.#settingsHolds.get(agentId) ?? 1) - 1;
       if (remaining > 0) this.#settingsHolds.set(agentId, remaining);
       else this.#settingsHolds.delete(agentId);
-      this.scheduleDrain(agentId);
-    };
-  }
-
-  /** A realtime conversation owns every lane of its agent until it ends. */
-  holdLiveVoice(agentId: string): () => void {
-    this.#liveVoiceHolds.set(agentId, (this.#liveVoiceHolds.get(agentId) ?? 0) + 1);
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      const remaining = (this.#liveVoiceHolds.get(agentId) ?? 1) - 1;
-      if (remaining > 0) this.#liveVoiceHolds.set(agentId, remaining);
-      else this.#liveVoiceHolds.delete(agentId);
       this.scheduleDrain(agentId);
     };
   }
