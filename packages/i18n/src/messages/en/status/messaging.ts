@@ -178,4 +178,26 @@ export const messages = defineMessages("status.messaging", {
   "status.messaging.telegramMcpDenied": "Sign-in to {name} was declined.",
   "status.messaging.telegramMcpExpired": "The sign-in request for {name} expired.",
   "status.messaging.telegramMcpFailed": "Tommy could not connect to {name}.",
+  "status.messaging.remoteMcpCode":
+    "🔐 {client} asks to read your Tommy data (memories, chats and knowledge folders, read-only). Sign-in code: {code}\nType it on the Tommy sign-in page within 10 minutes. If you did not start this sign-in, do not type the code anywhere.",
+  "status.messaging.remoteMcpConnected":
+    "✅ {client} can read your Tommy data now (read-only). To disconnect it, run sudo tommy connector revoke --all on the Tommy server.",
+  "status.messaging.remoteMcpTitle": "Connect to Tommy",
+  "status.messaging.remoteMcpBody":
+    "Tommy sent a sign-in code to your Telegram manager chat. Type it here to give read-only access to your memories, chats and knowledge folders.",
+  "status.messaging.remoteMcpClient": "Requested by",
+  "status.messaging.remoteMcpCodeLabel": "Sign-in code",
+  "status.messaging.remoteMcpAllow": "Allow access",
+  "status.messaging.remoteMcpDeny": "Deny",
+  "status.messaging.remoteMcpWrongCode": "The code is wrong. Tries left: {count}",
+  "status.messaging.remoteMcpEndedTitle": "This sign-in ended",
+  "status.messaging.remoteMcpEndedBody":
+    "The request expired, was used, or got too many wrong codes. Start the connection again in your app.",
+  "status.messaging.remoteMcpInvalidTitle": "Tommy cannot accept this sign-in",
+  "status.messaging.remoteMcpInvalidBody": "The app sent a sign-in request that this server does not accept.",
+  "status.messaging.remoteMcpBusyTitle": "Too many sign-in requests",
+  "status.messaging.remoteMcpBusyBody": "Wait an hour, then start the connection again.",
+  "status.messaging.remoteMcpUnavailableTitle": "Tommy cannot send a code",
+  "status.messaging.remoteMcpUnavailableBody":
+    "Telegram is not ready on this server, so Tommy cannot send the sign-in code. Try again later.",
 });
