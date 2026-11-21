@@ -18,14 +18,6 @@ const OPERATION_UNWIND_GRACE_MS = 1_000;
 const OPERATION_DEADLINE_BACKSTOP_MS = 250;
 
 /**
- * Whether a person controls a tab. Only the agent tool paths provide it, so a person's own actions and
- * the host's internal work still run while the person holds the tab.
- */
-export const BrowserToolHold = Context.Reference<(tabId: string) => boolean>("tommy/BrowserToolHold", {
-  defaultValue: () => () => false,
-});
-
-/**
  * How long an agent tool waits for the earlier operations of a tab. Only the agent tool paths provide
  * it: a person's actions and the host's own work wait as before.
  */
@@ -58,18 +50,8 @@ export function dialogTabResult(tabId: string, dialog: BrowserDialog): DialogTab
     : {
         tabId,
         dialog: { type: dialog.type, message: dialog.message },
-        note: "The page opened a dialog that only a person can answer. Ask the user to answer it, then read the tab again.",
+        note: "This turn cannot answer the page dialog. Report the blocked step or close the tab.",
       };
-}
-
-/** An agent tool operation reached a tab that a person controls. The caller waits for the release. */
-export class BrowserUserControlHeld extends Error {
-  readonly tabId: string;
-  constructor(tabId: string) {
-    super("A person controls this browser tab. Wait for the release, then take a fresh snapshot.");
-    this.name = "BrowserUserControlHeld";
-    this.tabId = tabId;
-  }
 }
 
 /** Return the response when ready; retain the queue until all owned work drains. */
@@ -79,7 +61,6 @@ export const enqueueTabOperation = Effect.fn("BrowserTab.enqueue")(function* <A>
   allowProtected = false,
 ) {
   // Read in the caller's fiber: the queued work below runs in the tab scope.
-  const heldByUser = yield* BrowserToolHold;
   const queueWaitMs = yield* BrowserToolQueueWait;
   const dialogTurn = yield* BrowserDialogTurn;
   const previous = tab.queue;
@@ -98,8 +79,6 @@ export const enqueueTabOperation = Effect.fn("BrowserTab.enqueue")(function* <A>
           yield* Deferred.await(previous);
           yield* Deferred.succeed(started, undefined);
           if (cancelled) return yield* Effect.interrupt;
-          // An operation that was queued before the person took the tab must not act on it.
-          if (heldByUser(tab.id)) return yield* browserFailure(new BrowserUserControlHeld(tab.id));
           if (tab.secret?.submitted && !allowProtected) {
             return yield* browserFailure(new Error("Browser inspection is protected during authentication."));
           }
@@ -152,7 +131,7 @@ function queueWaitError(tab: BrowserHostTab, turn: BrowserDialogOwner | undefine
   if (dialog && turn && tab.engine.dialogOwnedBy(turn))
     return `An earlier action on this tab still waits for a page ${dialog.type} dialog. Answer it first with handle_dialog, dialogId ${dialog.id}, then try again.`;
   if (dialog)
-    return "An earlier action on this tab still waits for a page dialog that only a person can answer. Ask the user to answer it, then read the tab again.";
+    return "An earlier action is waiting for a page dialog. This turn cannot answer it. Report the blocked step or close the tab.";
   return "An earlier action on this tab did not finish, so this call did not run. Open the page in a new tab, or try again later.";
 }
 
@@ -637,7 +616,7 @@ export const runTabFillFields = Effect.fn("BrowserTab.fillFields")(
             keepQueueBlocked,
             yield* browserSync(() => remainingTime(deadline, "Browser fill_fields timed out.")),
             "Browser fill_fields timed out.",
-            // A card or takeover that appeared during capture must never release that capture.
+            // Secure input that starts during capture invalidates the image.
             () => browserSync(checkPolicy),
           );
           tab.diagnostics.action({ action: "fill_fields", outcome: "success" });

@@ -29,8 +29,8 @@ Use the smoke report:
 - One or more items are `fail`: stop. Do not ship. Give the smoke report.
   Do not fix a failure unless the user asks.
 - An item is `not checked`:
-  - When the cause is outside local reach (a real second computer, a paid
-    provider, a production build, Windows or Linux), continue to Step 3.
+  - When the cause is outside local reach (a live Telegram chat, an external
+    provider, or the target Linux installation), continue to Step 3.
     Put the item in the PR `## Verification` section.
   - For a different cause, such as a stack that did not start, stop and
     ask the user.

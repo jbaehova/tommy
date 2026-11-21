@@ -266,13 +266,6 @@ export class TelegramDirectory {
     return validAccount(id) && id !== this.ownerId && id !== this.managerId && validSequence(updateId);
   }
 
-  setVerified(id: number, verified: boolean, operationId?: string) {
-    return this.#edit(id, operationId, (current) => {
-      if (verified && !current.ownerConfirmed) throw new TelegramDirectoryError({ code: "stale" });
-      return current.verified === verified ? current : { ...current, verified };
-    });
-  }
-
   setDisplayName(id: number, name: string, operationId: string) {
     return this.#edit(id, operationId, (current) => {
       if (!chatReady(current) || !validName(name)) throw new TelegramDirectoryError({ code: "stale" });

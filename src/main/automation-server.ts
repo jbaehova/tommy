@@ -21,7 +21,6 @@ import { type DynamicRecord, isDynamicRecord, isString } from "@tommy/contracts/
 import { ContextResetBusyError } from "@tommy/contracts/team-protocol/context-reset-v1";
 import { sourceText } from "@tommy/i18n/source";
 import { createTommyLogger, registerSecretValue, toLogValue } from "@tommy/logging";
-import { RoutineInputError } from "@tommy/team-client/routine-schedule";
 import { Effect, Exit, Schema, Scope, Semaphore } from "effect";
 import { AgentSettingsRefused } from "../backend/agent/agent-settings-refused";
 import { InactiveAttentionRequest } from "../backend/agent/inactive-attention-request";
@@ -30,6 +29,7 @@ import type { AgentLifecycleFailed, AgentService } from "../backend/agent-servic
 import { writeFileAtomically } from "../backend/atomic-json-file";
 import { AUTOMATION_HEADERS_FILE, AUTOMATION_TOKEN_FILE, AUTOMATION_URL_FILE } from "../backend/automation-command";
 import { causeHelpers, runCauseEffect } from "../backend/effect-boundary";
+import { RoutineInputError } from "../backend/routine-schedule";
 import { approvalDecision, HttpError, promptAnswers } from "./automation-inputs";
 import { readBodyWithin } from "./http-body";
 import { listenLoopback } from "./listen-loopback";

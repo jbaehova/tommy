@@ -10,5 +10,4 @@ export const messages = {
   "error.mcp.redirectSignedIn": "Tommy에 로그인했어요. 이 창을 닫아도 돼요.",
   "error.mcp.signInFileUnreadable": "MCP 로그인 파일을 읽을 수 없어요.",
   "error.mcp.signInFileTooLarge": "MCP 로그인 파일이 너무 커요.",
-  "error.mcp.redirectRelayed": "Tommy가 로그인 정보를 서버로 보냈어요. 이 창을 닫아도 돼요.",
 } as const satisfies PartialTranslation<typeof source>;

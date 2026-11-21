@@ -3,10 +3,9 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import { runCauseEffect } from "../backend/effect-boundary";
-import { appendRemoteDiagnosticLog, forwardDiagnosticLines } from "./remote-diagnostics";
+import { appendDiagnosticLog } from "./remote-diagnostics";
 
 const roots: string[] = [];
 
@@ -14,55 +13,39 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-/** Pipes chunks through one process stream into the log, as the runtimes do, and reads the file. */
-async function logOf(chunks: Array<string | Buffer>): Promise<string> {
+async function logOf(messages: string[]): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "tommy-remote-diagnostics-"));
   roots.push(root);
-  const stream = new PassThrough();
-  const writes: Promise<void>[] = [];
-  forwardDiagnosticLines(stream, (text) =>
-    writes.push(runCauseEffect(appendRemoteDiagnosticLog(root, "sunshine", text))),
-  );
-  const ended = new Promise((resolve) => stream.once("end", resolve));
-  for (const chunk of chunks) stream.write(chunk);
-  stream.end();
-  stream.resume();
-  await ended;
-  await Promise.all(writes);
-  return readFile(join(root, "sunshine.log"), "utf8");
+  for (const message of messages) await runCauseEffect(appendDiagnosticLog(root, "providers", message));
+  return readFile(join(root, "providers.log"), "utf8");
 }
 
-describe("remote diagnostic log", () => {
-  it("redacts a credential split across chunks and keeps a last line without a newline", async () => {
-    const name = Buffer.from("Zażółć\n");
+describe("host diagnostic log", () => {
+  it("redacts credentials in provider log lines and preserves Unicode", async () => {
     const log = await logOf([
-      "starting stream api_key=sk-live-",
-      "0123456789abcdef for owner@example.com\n",
+      "starting stream api_key=sk-live-0123456789abcdef for owner@example.com\n",
       "pairing token 3f9a1c77b2e04d11\n",
-      name.subarray(0, 3),
-      name.subarray(3),
+      "Zażółć\n",
       "fatal",
     ]);
 
     expect(log).toContain("starting stream");
     expect(log).toContain("Zażółć\n");
-    expect(log).toContain("fatal\n");
+    expect(log).toContain("fatal");
     expect(log).not.toContain("0123456789abcdef");
     expect(log).not.toContain("owner@example.com");
     expect(log).not.toContain("3f9a1c77b2e04d11");
   });
 
-  it("drops the rest of an overlong line instead of writing it unredacted", async () => {
+  it("redacts credentials at the end of long lines and preserves the next line", async () => {
     const log = await logOf([
-      "x".repeat(8_010),
-      "api_key=sk-live-",
-      "0123456789abcdef\n",
-      `${"a ".repeat(3_987)}X-Tommy-Remote-0123456789abcdef\n`,
+      `${"x".repeat(8_010)}api_key=sk-live-0123456789abcdef\n`,
+      `${"a ".repeat(3_987)}Authorization: Bearer sample_0123456789abcdef\n`,
       "next line\n",
     ]);
 
     expect(log).not.toContain("0123456789abcdef");
-    expect(log).not.toContain("X-Tommy-Remote-");
+    expect(log).not.toContain("sample_0123456789abcdef");
     expect(log).toContain("next line\n");
   });
 });

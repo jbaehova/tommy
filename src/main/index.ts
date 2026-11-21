@@ -8,10 +8,9 @@ import { createTommyLogger, toLogValue } from "@tommy/logging";
 import { Effect } from "effect";
 import { app, BrowserWindow, crashReporter, protocol, session } from "electron";
 import { runCauseEffect } from "../backend/effect-boundary";
-import { createApplicationServices } from "./application-services";
+import { type ApplicationServices, createApplicationServices } from "./application-services";
 import { removeClaudeCodeSessionEnvironment } from "./claude-session-environment";
 import { stopStuckExitAfterLimit } from "./exit-watchdog";
-import { configureLinuxGpu } from "./linux-gpu-mode";
 import { configureLinuxPasswordStore } from "./linux-password-store";
 import { startMainLog } from "./provider-log";
 import { takeServerModeEnvironment } from "./server-mode";
@@ -79,12 +78,13 @@ if (hasSingleInstanceLock) {
   // A file request that never finishes must not keep the process and its lock after an exit.
   stopStuckExitAfterLimit(join(app.getPath("userData"), "logs"));
 }
-// Linux: the GPU stays on until it fails on this computer (#992). `userData` has its final path here.
-configureLinuxGpu({ userDataPath: app.getPath("userData"), ownsInstance: hasSingleInstanceLock, server: true });
+// The Linux service draws its browser and previews on a virtual display.
+if (process.platform === "linux") app.disableHardwareAcceleration();
 // A visual reply page. It needs no fetch or CORS support: only a frame loads it.
 protocol.registerSchemesAsPrivileged([{ scheme: "tommy-visual", privileges: { standard: true, secure: true } }]);
 
 let shutdownStarted = false;
+let constructing: Promise<ApplicationServices> | null = null;
 /** The teardown ended, also by an error. Until then `before-quit` holds every quit request. */
 let shutdownDone = false;
 
@@ -132,13 +132,15 @@ if (!hasSingleInstanceLock) {
   void app
     .whenReady()
     .then(async () => {
+      if (shutdownStarted) return;
       denyDefaultSessionPermissions();
-      const built = await createApplicationServices({ browserWindow: createBrowserWindow(), serverMode, teardown });
+      constructing = createApplicationServices({ browserWindow: createBrowserWindow(), serverMode, teardown });
+      const built = await constructing;
+      if (shutdownStarted) return;
       crashTrace = built.trace;
       built.service.on("event", (event) => built.trace.observeAgentEvent(event));
       // A routine or its owner can be deleted outside the events API. Its route is then revoked here.
       let webhookAgentIds = new Set(built.service.listAgents().map((agent) => agent.id));
-      built.eventsRuntime.setAccountPrincipal("local-owner");
       built.service.on("event", (event) => {
         switch (event.type) {
           case "routines-changed":
@@ -162,7 +164,7 @@ if (!hasSingleInstanceLock) {
       await runCauseEffect(built.agentInitialization.start()).catch((error) => {
         logger.error("Unable to initialize the agents:", toLogValue(error));
       });
-      Effect.runFork(built.prewarmAgentDatabase);
+      if (!shutdownStarted && built.agentInitialization.succeeded) Effect.runFork(built.prewarmAgentDatabase);
     })
     .catch((error) => {
       // A quit during the start is already running: the shutdown deadline applies to it.
@@ -203,6 +205,9 @@ async function prepareForShutdown(deadlineMs = SHUTDOWN_DEADLINE_MS): Promise<vo
     app.exit(0);
   }, deadlineMs).unref();
   try {
+    // Let construction register its last cleanup and the active database migration finish.
+    const services = await constructing?.catch(() => null);
+    if (services) await runCauseEffect(services.agentInitialization.stop());
     await teardown.runAll();
   } finally {
     shutdownDone = true;

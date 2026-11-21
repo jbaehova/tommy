@@ -64,7 +64,6 @@ import {
 } from "./../provider-drivers";
 import { ProviderTempDiskSpaceError } from "../provider-temp";
 import { startProviderTerminalLogin } from "../provider-terminal-login";
-import { recordRestartActivity } from "../restart-activity";
 import { shortenDiagnostic } from "./../stderr-diagnostics";
 import { normalizeAccountUsage, usageWindowHasReset, usageWindowResetSince } from "./account-usage";
 import { captureBrowser } from "./browser-capture";
@@ -610,12 +609,6 @@ export class ProviderRuntime implements ProviderPort {
     });
   }
 
-  /** The account type and plan of the provider's own sign-in, or `null` before it is read. */
-  accountKind(provider: AgentProvider): { type: string; planType: string | null } | null {
-    const account = this.#accounts.get(provider);
-    return account ? { type: account.type, planType: account.planType ?? null } : null;
-  }
-
   /**
    * Every read of the status names who owns each CLI, from the resolved binary rather than from a
    * stored field, so a provider that switches between the user's install and the managed copy
@@ -1021,28 +1014,6 @@ export class ProviderRuntime implements ProviderPort {
     });
   }).bind(this);
 
-  /**
-   * Only the readings of the accounts after the first, for `provider-accounts-v1`. No provider's own
-   * sign-in is read or started, and no `usage-changed` is sent.
-   */
-  readonly accountUsage = Effect.fn("ProviderRuntime.accountUsage")(function* (this: ProviderRuntime) {
-    const providers = (this.status().providers ?? [])
-      .filter((item) => !item.off && item.connectionState !== "connecting")
-      .map((item) => item.id)
-      .filter(isAgentProvider)
-      .sort((left, right) => agentProviderDescriptor(left).pickerOrder - agentProviderDescriptor(right).pickerOrder);
-    const limits = yield* Effect.forEach(
-      providers,
-      (provider) =>
-        this.#accountLimits(provider).pipe(
-          this.#logUsageFailure(provider),
-          Effect.map((read) => read ?? []),
-        ),
-      { concurrency: "unbounded" },
-    );
-    return { limits: limits.flat() };
-  }).bind(this);
-
   /** The readings of a provider's accounts after the first. Empty for a provider that has none. */
   #accountLimits(provider: AgentProvider) {
     if (
@@ -1322,7 +1293,6 @@ export class ProviderRuntime implements ProviderPort {
     if (pending) return yield* Deferred.await(pending);
     const completion = Deferred.makeUnsafe<void, ProviderOperationFailed>();
     this.#providerStarts.set(provider, completion);
-    recordRestartActivity();
     const exit = yield* Effect.exit(this.#connect(phase, [provider], options));
     yield* Deferred.done(completion, exit);
     if (this.#providerStarts.get(provider) === completion) this.#providerStarts.delete(provider);
@@ -1800,7 +1770,6 @@ export class ProviderRuntime implements ProviderPort {
         cause: new Error(sourceText("error.provider.cliBusyRetry", { provider: providerLabel(provider) })),
       });
     this.#replacingCli.add(provider);
-    recordRestartActivity();
     yield* change().pipe(
       Effect.tapError(() =>
         Effect.sync(() => {
@@ -1863,7 +1832,6 @@ export class ProviderRuntime implements ProviderPort {
       if (!this.#hooks.isProviderBusy(provider)) return;
       if (!this.#updatesWhenIdle.has(provider)) {
         this.#updatesWhenIdle.add(provider);
-        recordRestartActivity();
         onWait();
       }
       yield* Effect.sleep(PROVIDER_RESTART_POLL_MS);
@@ -1905,7 +1873,6 @@ export class ProviderRuntime implements ProviderPort {
         this.#updatesWhenIdle.delete(provider);
         this.#setProviderConnectionState(provider, "connecting", false);
         this.#replacingCli.add(provider);
-        recordRestartActivity();
       }),
       () =>
         Effect.gen({ self: this }, function* () {
@@ -2215,7 +2182,6 @@ export class ProviderRuntime implements ProviderPort {
     }
     yield* providerStep(() => {
       this.#restartsWhenIdle.set(provider, null);
-      recordRestartActivity();
       this.#setStatus({});
     });
     yield* this.#checkRestartWhenIdle(provider);
@@ -2405,7 +2371,6 @@ export class ProviderRuntime implements ProviderPort {
     const previous = this.#providerConnectionCommands.get(provider);
     const completion = Deferred.makeUnsafe<void, ProviderOperationFailed>();
     this.#providerConnectionCommands.set(provider, completion);
-    recordRestartActivity();
     if (previous) yield* Deferred.await(previous).pipe(Effect.ignore);
     const exit = yield* Effect.exit(
       Effect.gen({ self: this }, function* () {
@@ -2943,7 +2908,6 @@ export class ProviderRuntime implements ProviderPort {
       providerStep(() => {
         this.#setProviderConnectionState(provider, "connecting", false);
         this.#replacingCli.add(provider);
-        recordRestartActivity();
       }),
       () =>
         Effect.gen({ self: this }, function* () {
@@ -3571,7 +3535,6 @@ export class ProviderRuntime implements ProviderPort {
     yield* this.#startProvider(provider, { notifyReady }, "restarting").pipe(
       Effect.catch((failure) => Effect.sync(() => this.#emitProviderError(provider, "restart_failed", failure.cause))),
     );
-    recordRestartActivity();
   }, Effect.uninterruptible);
 
   /**

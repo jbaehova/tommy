@@ -22,19 +22,12 @@ import type {
   ConnectRoutineFlowInput,
   DisconnectRoutineFlowInput,
   QueueDeliveryStatus,
-  RemoveRoutineFlowPositionInput,
-  RoutineFlowCanvas,
   RoutineFlowLink,
-  RoutineFlowRoutine,
   RoutineFlowRoutineInfo,
   RoutineFlowStep,
-  RoutineRun,
-  SaveRoutineFlowPositionInput,
-  UpdateRoutineFlowLinkInput,
 } from "@tommy/contracts/ipc";
 import { sourceText } from "@tommy/i18n/source";
 import { createTommyLogger } from "@tommy/logging";
-import { nextValidRoutineOccurrence, routineOnceInstant } from "@tommy/team-client/routine-schedule";
 import { Context, Effect, Exit, Layer, ManagedRuntime, Schema, Scope, Semaphore } from "effect";
 import { coalescedPasses } from "../coalesced-passes";
 import { routineFlowDepths } from "./routine-flow-graph";
@@ -44,11 +37,6 @@ const logger = createTommyLogger("routine-flows");
 
 /** How far back a sweep looks for a run whose flow may still move. */
 const SWEEP_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-const UPCOMING_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-/** A routine every three minutes fires a few thousand times a week; the canvas needs far fewer. */
-const UPCOMING_LIMIT = 400;
-const RECENT_RUNS = 10;
-
 class RoutineFlowFailed extends Schema.TaggedError<RoutineFlowFailed>()("RoutineFlowFailed", {
   cause: Schema.Defect(),
 }) {}
@@ -60,13 +48,14 @@ interface RoutineFlowDelivery {
   error: string | null;
 }
 
+type FlowRoutine = Pick<RoutineFlowRoutineInfo, "id" | "agentId" | "name" | "active">;
+
 export interface RoutineFlowsDependencies {
   store: RoutineFlowStore;
   routines: {
     /** Routines of every trigger kind: a schedule or a webhook starts each one. */
-    list(agentId: string): RoutineFlowRoutineInfo[];
-    get(agentId: string, routineId: string): RoutineFlowRoutineInfo | null;
-    listRuns(agentId: string, routineId: string, limit?: number): RoutineRun[];
+    list(agentId: string): FlowRoutine[];
+    get(agentId: string, routineId: string): FlowRoutine | null;
   };
   delivery(deliveryId: string): RoutineFlowDelivery | null;
   /** The answer an agent gave in one turn, or null when it gave none. */
@@ -78,24 +67,13 @@ export interface RoutineFlowsDependencies {
     text: string;
     idempotencyKey: string;
   }): Effect.Effect<string, { readonly cause: unknown }>;
-  /** The agents whose canvases changed. */
-  changed(agentIds: string[]): void;
   now?: () => Date;
 }
 
 export interface RoutineFlowsShape {
-  canvas(agentId: string): Effect.Effect<RoutineFlowCanvas, RoutineFlowFailed>;
-  savePosition(input: SaveRoutineFlowPositionInput): Effect.Effect<void, RoutineFlowFailed>;
-  removePosition(input: RemoveRoutineFlowPositionInput): Effect.Effect<void, RoutineFlowFailed>;
+  list(agentId: string): Effect.Effect<{ routines: FlowRoutine[]; links: RoutineFlowLink[] }, RoutineFlowFailed>;
   connect(input: ConnectRoutineFlowInput): Effect.Effect<RoutineFlowLink, RoutineFlowFailed>;
   disconnect(input: DisconnectRoutineFlowInput): Effect.Effect<void, RoutineFlowFailed>;
-  updateLink(input: UpdateRoutineFlowLinkInput): Effect.Effect<RoutineFlowLink, RoutineFlowFailed>;
-  /**
-   * Every agent a routine touches, or the routine of a link touches: its own agent and both agents of
-   * each of its links. Null when the routine or link does not exist. A joined member may change a
-   * flow only when all of them are visible to the member.
-   */
-  agentsOf(ref: { routineId: string } | { linkId: string }): Effect.Effect<string[] | null, RoutineFlowFailed>;
   /** Moves every flow that can move now. */
   sweep(): Effect.Effect<void>;
   /** Asks for a sweep when an agent event may have ended a step. Returns at once. */
@@ -115,103 +93,35 @@ class RoutineFlows extends Context.Service<RoutineFlows, RoutineFlowsShape>()("t
         const attempt = <A>(work: () => A) =>
           Effect.try({ try: work, catch: (cause) => new RoutineFlowFailed({ cause }) });
 
-        const ownerOf = (routineId: string): RoutineFlowRoutineInfo | null => {
+        const ownerOf = (routineId: string): FlowRoutine | null => {
           const ownerAgentId = store.routineOwner(routineId);
           return ownerAgentId ? dependencies.routines.get(ownerAgentId, routineId) : null;
         };
 
-        /** Everyone whose canvas shows this routine: its agent and every agent its links name. */
-        const agentsOfRoutine = (routineId: string): string[] => {
-          const ownerAgentId = store.routineOwner(routineId);
-          const links = store.linksForRoutines([routineId]);
-          return [
-            ...new Set([
-              ...(ownerAgentId ? [ownerAgentId] : []),
-              ...links.flatMap((link) => [link.fromAgentId, link.toAgentId]),
-            ]),
-          ];
-        };
-
-        const flowRoutine = (routine: RoutineFlowRoutineInfo): RoutineFlowRoutine => {
-          const recentRuns = dependencies.routines.listRuns(routine.agentId, routine.id, RECENT_RUNS);
-          const newest = recentRuns[0];
-          return {
-            routine,
-            recentRuns,
-            upcomingRuns: routine.active ? upcoming(routine, now()) : [],
-            steps: newest ? store.steps(newest.id) : [],
-          };
-        };
-
-        const canvas = Effect.fn("RoutineFlows.canvas")(function* (agentId: string) {
-          return yield* attempt((): RoutineFlowCanvas => {
+        const list = Effect.fn("RoutineFlows.list")(function* (agentId: string) {
+          return yield* attempt(() => {
             const own = dependencies.routines.list(agentId);
             const ownIds = new Set(own.map((routine) => routine.id));
             const others = store
               .routineIdsTouching(agentId)
               .filter((routineId) => !ownIds.has(routineId))
               .map(ownerOf)
-              .filter((routine): routine is RoutineFlowRoutineInfo => routine !== null);
+              .filter((routine) => routine !== null);
             const routines = [...own, ...others];
-            const positions = store.positions(agentId);
-            return {
-              agentId,
-              routines: routines.map(flowRoutine),
-              links: store.linksForRoutines(routines.map((routine) => routine.id)),
-              positions,
-              placedAgentIds: positions.flatMap((position) =>
-                position.nodeKey.startsWith("agent:") ? [position.nodeKey.slice("agent:".length)] : [],
-              ),
-            };
+            return { routines, links: store.linksForRoutines(routines.map((routine) => routine.id)) };
           });
         });
 
-        const savePosition = Effect.fn("RoutineFlows.savePosition")(function* (input: SaveRoutineFlowPositionInput) {
-          yield* attempt(() => store.savePosition(input.agentId, input.nodeKey, input.x, input.y));
-          // Another client with this canvas open shows a placed or moved agent without a reload.
-          dependencies.changed([input.agentId]);
-        });
-
-        const removePosition = Effect.fn("RoutineFlows.removePosition")(function* (
-          input: RemoveRoutineFlowPositionInput,
-        ) {
-          yield* attempt(() => store.removePosition(input.agentId, input.nodeKey));
-          dependencies.changed([input.agentId]);
-        });
-
         const connect = Effect.fn("RoutineFlows.connect")(function* (input: ConnectRoutineFlowInput) {
-          const link = yield* attempt(() => {
+          return yield* attempt(() => {
             const routine = ownerOf(input.routineId);
             if (!routine) throw new RoutineFlowError(sourceText("error.backend.routineGone"));
             return store.createLink(routine.agentId, input, now().toISOString());
           });
-          dependencies.changed(agentsOfRoutine(link.routineId));
-          return link;
-        });
-
-        const updateLink = Effect.fn("RoutineFlows.updateLink")(function* (input: UpdateRoutineFlowLinkInput) {
-          const link = yield* attempt(() => store.updateLinkInstruction(input.linkId, input.instruction));
-          dependencies.changed(agentsOfRoutine(link.routineId));
-          return link;
         });
 
         const disconnect = Effect.fn("RoutineFlows.disconnect")(function* (input: DisconnectRoutineFlowInput) {
-          const removed = yield* attempt(() => {
-            const before = store.link(input.linkId);
-            const affected = before ? agentsOfRoutine(before.routineId) : [];
-            const gone = store.deleteLink(input.linkId, (routineId) => store.routineOwner(routineId));
-            return { gone, affected };
-          });
-          dependencies.changed(removed.affected);
-        });
-
-        const agentsOf = Effect.fn("RoutineFlows.agentsOf")(function* (
-          ref: { routineId: string } | { linkId: string },
-        ) {
-          return yield* attempt(() => {
-            const routineId = "routineId" in ref ? ref.routineId : store.link(ref.linkId)?.routineId;
-            return routineId && store.routineOwner(routineId) ? agentsOfRoutine(routineId) : null;
-          });
+          yield* attempt(() => store.deleteLink(input.linkId));
         });
 
         /** The routine's own agent's part of a run that ended: its answer, or why there is none. */
@@ -282,14 +192,10 @@ class RoutineFlows extends Context.Service<RoutineFlows, RoutineFlowsShape>()("t
           store.settleStep(step.id, "failed", null, sourceText("error.backend.routineFlowHandoffFailed"));
         });
 
-        /**
-         * Sends a run's answers on as far as they can go now. Answers the agents it gave a step, so
-         * the views showing them reload.
-         */
+        /** Sends answers to the next agents in the order of their dependencies. */
         const advance = Effect.fn("RoutineFlows.advance")(function* (run: RoutineFlowRun) {
-          const changed = new Set<string>();
           const links = store.linksForRoutines([run.routineId]).filter((link) => link.createdAt <= run.createdAt);
-          if (links.length === 0) return changed;
+          if (links.length === 0) return;
           const depths = routineFlowDepths(run.agentId, links);
           const steps = new Map(store.steps(run.id).map((step) => [step.agentId, step]));
           const order = [...depths.entries()]
@@ -305,10 +211,7 @@ class RoutineFlows extends Context.Service<RoutineFlows, RoutineFlowsShape>()("t
             const answered = sources.filter(({ step }) => step?.status === "succeeded");
             if (answered.length === 0) {
               const skipped = store.addStep({ runId: run.id, agentId, input: "", status: "skipped" });
-              if (skipped) {
-                steps.set(agentId, skipped);
-                changed.add(agentId);
-              }
+              if (skipped) steps.set(agentId, skipped);
               continue;
             }
             const text = handoffText(
@@ -322,23 +225,17 @@ class RoutineFlows extends Context.Service<RoutineFlows, RoutineFlowsShape>()("t
             const step = store.addStep({ runId: run.id, agentId, input: text, status: "running" });
             if (!step) continue;
             steps.set(agentId, step);
-            changed.add(agentId);
             yield* sendStep(run, step);
             const current = store.steps(run.id).find((candidate) => candidate.id === step.id);
             if (current) steps.set(agentId, current);
           }
-          return changed;
         });
 
         const sweepOnce = Effect.fn("RoutineFlows.sweepOnce")(function* () {
           const since = new Date(now().getTime() - SWEEP_WINDOW_MS).toISOString();
-          const changed = new Set<string>();
           const runIds = new Set<string>();
           for (const run of store.endedRunsWithoutOwnerStep(since)) {
-            if (recordOwnerStep(run)) {
-              changed.add(run.agentId);
-              runIds.add(run.id);
-            }
+            if (recordOwnerStep(run)) runIds.add(run.id);
           }
           for (const step of store.runningSteps()) {
             // A step without a delivery lost its handoff to a restart between the two writes.
@@ -346,24 +243,17 @@ class RoutineFlows extends Context.Service<RoutineFlows, RoutineFlowsShape>()("t
               const run = store.run(step.runId);
               if (!run) continue;
               yield* sendStep(run, step);
-              changed.add(step.agentId);
               runIds.add(step.runId);
               continue;
             }
-            if (settleFromDelivery(step)) {
-              changed.add(step.agentId);
-              runIds.add(step.runId);
-            }
+            if (settleFromDelivery(step)) runIds.add(step.runId);
           }
           // Also every run with a handoff not sent yet: a restart between an answer and its handoff resumes here.
           for (const runId of store.runIdsWithPendingHandoff(since)) runIds.add(runId);
           for (const runId of runIds) {
             const run = store.run(runId);
-            if (!run) continue;
-            for (const agentId of yield* advance(run)) changed.add(agentId);
-            if (changed.size > 0) for (const agentId of agentsOfRoutine(run.routineId)) changed.add(agentId);
+            if (run) yield* advance(run);
           }
-          if (changed.size > 0) dependencies.changed([...changed]);
         });
 
         const sweep = coalescedPasses(() =>
@@ -382,13 +272,9 @@ class RoutineFlows extends Context.Service<RoutineFlows, RoutineFlowsShape>()("t
         });
 
         return RoutineFlows.of({
-          canvas,
-          savePosition,
-          removePosition,
+          list,
           connect,
           disconnect,
-          updateLink,
-          agentsOf,
           sweep,
           notice,
         });
@@ -420,30 +306,4 @@ function handoffText(
   const instructions = [...new Set(inputs.map((input) => input.instruction.trim()).filter(Boolean))];
   const task = instructions.length > 0 ? instructions.join("\n\n") : "Do your part of the routine with this.";
   return `The routine "${routineName}" continues with you.\n\n${parts.join("\n\n---\n\n")}\n\n${task}`;
-}
-
-/** The times a routine fires in the next week, soonest first, from its schedule. A webhook has none. */
-function upcoming(routine: RoutineFlowRoutineInfo, from: Date): string[] {
-  if (routine.trigger.kind !== "schedule") return [];
-  const schedule = routine.trigger.schedule;
-  const end = from.getTime() + UPCOMING_WINDOW_MS;
-  if (schedule.kind === "once") {
-    // A one-time routine has at most one time, and none after it ran.
-    const at = routineOnceInstant(schedule, routine.timezone).getTime();
-    return at > from.getTime() && at < end ? [new Date(at).toISOString()] : [];
-  }
-  const times: string[] = [];
-  try {
-    for (
-      let next = nextValidRoutineOccurrence(schedule, routine.timezone, from);
-      next.getTime() < end && times.length < UPCOMING_LIMIT;
-      // One millisecond on, so an occurrence never answers itself.
-      next = nextValidRoutineOccurrence(schedule, routine.timezone, new Date(next.getTime() + 1))
-    )
-      times.push(next.toISOString());
-  } catch (error) {
-    // A schedule the store accepted always expands; if one does not, the canvas shows no times.
-    logger.warn("A routine schedule did not expand.", { routineId: routine.id, error: String(error) });
-  }
-  return times;
 }

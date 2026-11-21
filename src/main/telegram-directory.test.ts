@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TelegramDirectory } from "./telegram-directory";
+import { chatReady, TelegramDirectory } from "./telegram-directory";
 
 const manager = 1001;
 const owner = 1002;
@@ -45,7 +45,7 @@ describe("Telegram directory ownership", () => {
     const previous = await run(directory.ensureManaged(account, 10));
     if (!previous) throw new Error("Missing initial grant.");
     await run(directory.bindAgent(account.id, "agent-first", previous.operationId));
-    await run(directory.setVerified(account.id, true, previous.operationId));
+    expect(chatReady(directory.get(account.id))).toBe(true);
     await run(directory.revoke(account.id, 12));
 
     const restored = new TelegramDirectory(path, manager, owner);
@@ -59,7 +59,7 @@ describe("Telegram directory ownership", () => {
     await expect(run(restored.bindAgent(account.id, "agent-first", previous.operationId))).rejects.toMatchObject({
       code: "stale",
     });
-    await expect(run(restored.setVerified(account.id, true, previous.operationId))).rejects.toMatchObject({
+    await expect(run(restored.setDisplayName(account.id, "Old name", previous.operationId))).rejects.toMatchObject({
       code: "stale",
     });
   });
@@ -69,14 +69,14 @@ describe("Telegram directory ownership", () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(now);
     const previous = await run(directory.ensureManaged(account, 900));
     if (!previous) throw new Error("Missing initial grant.");
-    await run(directory.setVerified(account.id, true, previous.operationId));
+    await run(directory.bindAgent(account.id, "agent-original", previous.operationId));
     await run(directory.markSeen(account.id, "example-private-reply-marker"));
     expect(await readFile(path, "utf8")).not.toContain("example-private-reply-marker");
 
     const restored = new TelegramDirectory(path, manager, owner);
     await run(restored.load());
     expect(restored.seen(account.id, "example-private-reply-marker")).toBe(true);
-    expect(await run(restored.ensureManaged(account, 900))).toMatchObject({ verified: true });
+    expect(chatReady((await run(restored.ensureManaged(account, 900))) ?? undefined)).toBe(true);
     clock.mockReturnValue(now + 8 * 24 * 60 * 60 * 1000);
     expect(restored.seen(account.id, "example-private-reply-marker")).toBe(false);
     expect(await run(restored.ensureManaged(account, 3))).toMatchObject({
@@ -93,21 +93,21 @@ describe("Telegram directory ownership", () => {
     const previous = await run(directory.ensureManaged(account, 40));
     if (!previous) throw new Error("Missing grant.");
     await run(directory.bindAgent(account.id, "agent-original", previous.operationId));
-    await run(directory.setVerified(account.id, true, previous.operationId));
+    expect(chatReady(directory.get(account.id))).toBe(true);
 
     clock.mockReturnValue(now + 23 * hour);
     await run(directory.observeManager());
     const healthy = new TelegramDirectory(path, manager, owner);
     await run(healthy.load());
     clock.mockReturnValue(now + 46 * hour);
-    expect(healthy.get(account.id)).toMatchObject({ agentId: "agent-original", verified: true, ownerConfirmed: true });
+    expect(healthy.get(account.id)).toMatchObject({ agentId: "agent-original", ownerConfirmed: true });
 
     clock.mockReturnValue(now + 47 * hour);
     expect(healthy.list()[0]).toMatchObject({ verified: false, ownerConfirmed: false });
     await expect(run(healthy.bindAgent(account.id, "agent-original", previous.operationId))).rejects.toMatchObject({
       code: "stale",
     });
-    await expect(run(healthy.setVerified(account.id, true, previous.operationId))).rejects.toMatchObject({
+    await expect(run(healthy.setDisplayName(account.id, "New name", previous.operationId))).rejects.toMatchObject({
       code: "stale",
     });
     // A healthy network today cannot prove who owned this child while the host was offline.
@@ -124,8 +124,8 @@ describe("Telegram directory ownership", () => {
       ownerConfirmed: true,
     });
     await expect(run(restored.revoke(account.id, 42, "different-generation"))).rejects.toMatchObject({ code: "stale" });
-    await run(restored.setVerified(account.id, true, previous.operationId));
-    expect(restored.get(account.id)?.verified).toBe(true);
+    await run(restored.setDisplayName(account.id, "Renewed", previous.operationId));
+    expect(chatReady(restored.get(account.id))).toBe(true);
   });
 
   it("retains a recent grant from a legacy file and expires an older one separately", async () => {

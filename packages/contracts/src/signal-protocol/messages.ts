@@ -37,14 +37,3 @@
 export const WEBHOOK_DELIVERY_BODY_BYTES_LIMIT = 64 * 1024;
 
 export type WebhookDeliveryStatus = 200 | 202 | 400 | 401 | 404 | 413 | 429 | 503;
-
-export const SIGNAL_ERROR_CODES = [
-  "authentication_required",
-  "invalid_message",
-  "host_unavailable",
-  "host_busy",
-  "permission_denied",
-  "rate_limited",
-  "session_revoked",
-  "protocol_error",
-] as const;

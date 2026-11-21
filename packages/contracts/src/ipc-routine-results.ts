@@ -1,6 +1,6 @@
 import { isBoundedString, isIdentifier } from "./ipc-bounded-values";
 import { MESSAGING_LIMITS, MESSAGING_PLATFORMS, type MessagingPlatform } from "./ipc-messaging";
-import { isBoolean, isDynamicRecord, isNumber, isOneOf, isString } from "./runtime-values";
+import { isBoolean, isDynamicRecord, isOneOf } from "./runtime-values";
 
 /**
  * Routine results: the answer of an agent routine's run, sent on to a messaging place outside Tommy.
@@ -125,43 +125,6 @@ function isRoutineResultConnectionOption(value: unknown): value is RoutineResult
 
 export function isRoutineResultConnectionOptions(value: unknown): value is RoutineResultConnectionOption[] {
   return Array.isArray(value) && value.every(isRoutineResultConnectionOption);
-}
-
-function isRoutineResultDelivery(value: unknown): value is RoutineResultDelivery {
-  return (
-    isDynamicRecord(value) &&
-    isIdentifier(value.runId) &&
-    isOneOf(ROUTINE_RESULT_DELIVERY_STATUSES, value.status) &&
-    (value.reason === null || isOneOf(ROUTINE_RESULT_DELIVERY_REASONS, value.reason)) &&
-    isNumber(value.attempts) &&
-    isRoutineResultDestination(value.destination) &&
-    isString(value.updatedAt) &&
-    (value.sentAt === null || isString(value.sentAt))
-  );
-}
-
-export function isRoutineResultDeliveries(value: unknown): value is RoutineResultDelivery[] {
-  return Array.isArray(value) && value.every(isRoutineResultDelivery);
-}
-
-export function isRoutineResultRoutineInput(value: unknown): value is RoutineResultRoutineInput {
-  return isDynamicRecord(value) && isIdentifier(value.agentId) && isIdentifier(value.routineId);
-}
-
-export function isSetRoutineResultDestinationInput(value: unknown): value is SetRoutineResultDestinationInput {
-  if (!isDynamicRecord(value) || !isIdentifier(value.agentId) || !isIdentifier(value.routineId)) return false;
-  const destination = value.destination;
-  return (
-    destination === null ||
-    (isDynamicRecord(destination) &&
-      isIdentifier(destination.connectionId) &&
-      isIdentifier(destination.placeId) &&
-      isPlaceName(destination.placeName))
-  );
-}
-
-export function isResendRoutineResultInput(value: unknown): value is ResendRoutineResultInput {
-  return isDynamicRecord(value) && isIdentifier(value.agentId) && isIdentifier(value.runId);
 }
 
 /** The `routine-results-v1` options answer. The route codec has already checked its fields. */

@@ -11,7 +11,7 @@ const MAX_PHOTO_BYTES = 10_000_000;
 
 /** Send only the bytes of a generated PNG that the host committed to this agent and thread. */
 export const readTelegramImage = Effect.fn("TelegramAgentHost.readImage")(function* (
-  mailbox: Pick<MailboxStore, "resolveAttachment" | "generatedImageDigest">,
+  mailbox: Pick<MailboxStore, "resolveAttachment" | "generatedAttachmentDigest">,
   agentId: string,
   threadId: string,
   attachment: AttachmentSummary,
@@ -22,34 +22,16 @@ export const readTelegramImage = Effect.fn("TelegramAgentHost.readImage")(functi
     attachment.size > MAX_PHOTO_BYTES
   )
     return null;
-  const digest = mailbox.generatedImageDigest(attachment.id, agentId, threadId);
+  const digest = mailbox.generatedAttachmentDigest(attachment.id, agentId, threadId, "image/png");
   if (!digest) return null;
-  const file = yield* mailbox.resolveAttachment(attachment.id);
-  if (file?.mimeType !== "image/png") return null;
-  return yield* remoteCall(async () => {
-    const handle = await open(file.path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-    try {
-      const stat = await handle.stat();
-      if (!stat.isFile() || stat.size !== attachment.size) return null;
-      const bytes = Buffer.alloc(stat.size);
-      let offset = 0;
-      while (offset < bytes.length) {
-        const { bytesRead } = await handle.read(bytes, offset, bytes.length - offset, offset);
-        if (bytesRead === 0) return null;
-        offset += bytesRead;
-      }
-      if (!bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) return null;
-      // resolveAttachment checked the on-disk file. Check the bytes that will actually leave the host too.
-      return createHash("sha256").update(bytes).digest("hex") === digest ? bytes : null;
-    } finally {
-      await handle.close();
-    }
-  });
+  const file = yield* readTelegramFile(mailbox, attachment, digest);
+  return file?.bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE) ? file.bytes : null;
 });
 
 const MAX_FILE_BYTES = 49 * 1024 * 1024;
 
 export interface TelegramFile {
+  attachmentId?: string;
   name: string;
   mimeType: string;
   bytes: Buffer;
@@ -59,6 +41,7 @@ export interface TelegramFile {
 export const readTelegramFile = Effect.fn("TelegramAgentHost.readFile")(function* (
   mailbox: Pick<MailboxStore, "resolveAttachment">,
   attachment: AttachmentSummary,
+  digest?: string,
 ) {
   if (attachment.size > MAX_FILE_BYTES) return null;
   const file = yield* mailbox.resolveAttachment(attachment.id);
@@ -68,6 +51,7 @@ export const readTelegramFile = Effect.fn("TelegramAgentHost.readFile")(function
     try {
       const stat = await handle.stat();
       if (!stat.isFile() || stat.size > MAX_FILE_BYTES) return null;
+      if (digest && (file.mimeType !== attachment.mimeType || stat.size !== attachment.size)) return null;
       const bytes = Buffer.alloc(stat.size);
       let offset = 0;
       while (offset < bytes.length) {
@@ -75,7 +59,8 @@ export const readTelegramFile = Effect.fn("TelegramAgentHost.readFile")(function
         if (bytesRead === 0) return null;
         offset += bytesRead;
       }
-      return { name: attachment.name || file.name, mimeType: file.mimeType, bytes };
+      if (digest && createHash("sha256").update(bytes).digest("hex") !== digest) return null;
+      return { attachmentId: attachment.id, name: attachment.name || file.name, mimeType: file.mimeType, bytes };
     } finally {
       await handle.close();
     }

@@ -249,8 +249,7 @@ export class BootRecovery {
       const agent = this.#store.list().find((candidate) => candidate.id === delivery.recipientAgentId);
       const threadId = this.#hooks.deliveryThreadId?.(delivery.id) ?? agent?.threadId;
       if (agent && threadId) {
-        const recoveryTurnId =
-          delivery.turnId ?? this.#store.database.readConversationRuntime(agent.id, threadId).activeTurnId;
+        const recoveryTurnId = delivery.turnId ?? this.#store.database.readActiveTurnId(agent.id, threadId);
         const changedMessages = this.#store.database
           .readConversationRecoveryMessages(agent.id, threadId, recoveryTurnId)
           .filter((message) => message.turnId === recoveryTurnId && message.status === "streaming")
@@ -287,7 +286,7 @@ export class BootRecovery {
     const runningTurns = this.#store.database.readRunningTurnIds();
     for (const agent of this.threads()) {
       if (!agent.threadId) continue;
-      const turnId = this.#store.database.readConversationRuntime(agent.id, agent.threadId).activeTurnId;
+      const turnId = this.#store.database.readActiveTurnId(agent.id, agent.threadId);
       // A running turn that is not the thread's active turn has no writer left, and no turn of
       // this process runs yet, so the recovery write below closes it too (#2214).
       const staleTurns = (runningTurns.get(agent.threadId) ?? []).filter((candidate) => candidate !== turnId);

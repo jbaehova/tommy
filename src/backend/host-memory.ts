@@ -17,6 +17,4 @@ export interface HostMemory {
   reserveTurn(): () => void;
   /** Called after each sample. Returns the unsubscribe. */
   subscribe(listener: () => void): () => void;
-  /** True on a hosted server: its plan sets the memory, so the low-memory notice names the plan. */
-  readonly hostedPlan: boolean;
 }

@@ -6,7 +6,6 @@ artifactName: ${productName}-${version}-${arch}.${ext}
 # Releases are built by CI and attached to a GitHub release; the server has no updater.
 publish: null
 electronFuses:
-  resetAdHocDarwinSignature: true
   runAsNode: false
   enableCookieEncryption: true
   enableNodeOptionsEnvironmentVariable: false
@@ -51,22 +50,14 @@ extraResources:
 directories:
   output: dist
 linux:
-  category: Development
   icon: build/icon-production.png
-  synopsis: A multi-agent workspace.
   extraResources:
-    - from: build/linux/tommy.apparmor
-      to: linux/tommy.apparmor
     # A hosted server installs the packages, scripts and units of the release that it updates to.
     - from: scripts/hosting
       to: hosting
       filter:
         - "**/*"
         - "!*.ts"
-  # Electron takes its Linux app id from `desktopName` in package.json, and the window manager
-  # matches a running window to the launcher through `StartupWMClass`. Syncing the two from one
-  # value is what makes the taskbar icon group with the window it belongs to.
-  syncDesktopName: true
   # The server installs the unpacked build with scripts/hosting/tommy-install.
   target:
     - target: dir

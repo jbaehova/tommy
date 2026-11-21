@@ -54,10 +54,7 @@ export function isFixedSourceText(text: string): boolean {
 
 const sourceTranslators = new Map<TranslatedLocale, Translate<SourceMessages>>();
 
-/**
- * A typed translator over the source keys, for code that picks a key itself, such as an error kind.
- * A language that is not loaded reads English, as in `translateFor`.
- */
+/** Translates a server message by key, with English as the fallback for a missing entry. */
 export function sourceTranslateFor(locale: TranslatedLocale): Translate<SourceMessages> {
   const cached = sourceTranslators.get(locale);
   if (cached) return cached;

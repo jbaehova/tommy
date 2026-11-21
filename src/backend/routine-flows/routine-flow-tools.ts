@@ -24,13 +24,13 @@ const connectSchema = z
   .strict();
 const disconnectSchema = z.object({ linkId: identifier }).strict();
 
-export type RoutineFlowTools = Pick<RoutineFlowsShape, "canvas" | "connect" | "disconnect">;
+export type RoutineFlowTools = Pick<RoutineFlowsShape, "list" | "connect" | "disconnect">;
 
 export const ROUTINE_FLOW_TOOL_DEFINITIONS = [
   {
     name: "list_routine_flows",
     description:
-      "List the routines on an agent's routine canvas, yours when you omit agentId, and the links of each routine. A link hands one agent's answer in a routine run to the next agent.",
+      "List the routines owned by or linked to an agent, yours when you omit agentId, and the links of each routine. A link hands one agent's answer in a routine run to the next agent.",
     shape: listSchema.shape,
   },
   {
@@ -64,15 +64,15 @@ export const handleRoutineFlowTool = Effect.fn("RoutineFlowTools.handle")(functi
       const input = yield* toolStep(() => listSchema.parse(args ?? {}));
       const agentId = input.agentId ?? senderAgentId;
       if (unknownAgent([agentId])) return tommyToolFailure(`Unknown agent: ${agentId}.`);
-      const canvas = yield* flows.canvas(agentId);
+      const flow = yield* flows.list(agentId);
       return tommyToolResult({
-        routines: canvas.routines.map(({ routine }) => ({
+        routines: flow.routines.map((routine) => ({
           routineId: routine.id,
           name: routine.name,
           agentId: routine.agentId,
           active: routine.active,
         })),
-        links: canvas.links.map((link) => ({
+        links: flow.links.map((link) => ({
           linkId: link.id,
           routineId: link.routineId,
           fromAgentId: link.fromAgentId,

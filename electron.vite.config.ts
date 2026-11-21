@@ -6,14 +6,7 @@ export default defineConfig({
     // Workspace sources ship as TypeScript and must be bundled for the packaged app.
     plugins: [
       externalizeDepsPlugin({
-        exclude: [
-          "@tommy/brand",
-          "@tommy/contracts",
-          "@tommy/i18n",
-          "@tommy/logging",
-          "@tommy/team-client",
-          "@tommy/user-errors",
-        ],
+        exclude: ["@tommy/contracts", "@tommy/i18n", "@tommy/logging", "@tommy/user-errors"],
       }),
     ],
     build: {

@@ -65,7 +65,7 @@ export const MCP_SERVER_TOOL_DEFINITIONS = [
   },
   {
     name: "save_mcp_server",
-    description: `Add an MCP server, or change one by its name, only when the user asks for it. ${MCP_SCOPE} ${MCP_APPROVAL} Then Tommy connects to the server and saves it when it answers or needs only a sign-in or a key. The result is ready with its tools, needs_sign_in (a Sign in card is in the conversation: wait for the user), needs_key (the user enters the key in Server settings, MCP; never ask for a key in the chat), or the error. Headers and environment values are not set here: a stdio server that cannot start without a key in its environment is added by the user in Server settings, MCP. A server that holds keys keeps its transport, address origin, command, arguments and folder. New tools reach the agents from their next turn.`,
+    description: `Add an MCP server, or change one by its name, only when the user asks for it. ${MCP_SCOPE} ${MCP_APPROVAL} Then Tommy connects to the server and saves it when it answers or needs only a sign-in or a key. The result is ready with its tools, needs_sign_in (the owner can connect an enabled HTTP service in Telegram), needs_key, or an error. Headers and environment secrets require private configuration on the host. Never request their values in chat. A server that holds keys keeps its transport, address origin, command, arguments and folder. New tools reach the agents from their next turn.`,
     shape: saveMcpServerToolSchema.shape,
   },
   {
@@ -231,7 +231,7 @@ const findServer = (servers: AgentMcpServers, name: string) => {
 };
 
 const SIGN_IN_NEXT =
-  "A Sign in card is in this conversation. Tell the user, end your turn, and test again when the user says it is done.";
+  "The owner can open Connect in the Telegram chat that requested this work. Wait for sign-in before testing the connection again. Never repeat a previous external action automatically.";
 
 /**
  * A silent test of each saved http server that a tool search names and that has no sign-in on this
@@ -289,6 +289,12 @@ const report = Effect.fnUntraced(function* (
     });
   const error = servers.redact(outcome.error);
   if (outcome.needs === "sign_in") {
+    if (!saved.enabled)
+      return tommyToolResult({
+        status: "needs_sign_in",
+        server,
+        next: "This server is disabled. Ask before enabling it. Test it after it is enabled to request sign-in.",
+      });
     yield* call.requestSignIn(saved);
     return tommyToolResult({
       status: "needs_sign_in",
@@ -301,7 +307,7 @@ const report = Effect.fnUntraced(function* (
       status: "needs_key",
       server,
       error,
-      next: "Ask the user to enter the key in Server settings, MCP. Do not ask for the key in the chat.",
+      next: "The MCP server needs a credential configured privately on the host. Explain which service needs it. Never ask for the key in chat.",
     });
   return tommyToolResult({ status: "error", server, error });
 });

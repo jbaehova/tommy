@@ -6,10 +6,13 @@ import {
   isBrowserSecretRequest,
   type LocalBrowserSecretResponse,
 } from "@tommy/contracts/ipc";
+import { resolveLocale, translateFor } from "@tommy/i18n";
 import { Effect, Option, Schema } from "effect";
 import type { AgentService } from "../backend/agent-service";
 import type { BrowserHost } from "../backend/browser-host";
+import { TELEGRAM_MCP_CALLBACK_PATH } from "../backend/mcp-oauth-provider";
 import { readBodyWithin } from "./http-body";
+import type { TelegramMcpSignIn } from "./telegram-mcp-sign-in";
 import { telegramMiniAppOwner } from "./telegram-mini-app-auth";
 import { telegramMiniAppPage } from "./telegram-mini-app-page";
 
@@ -24,19 +27,21 @@ export interface TelegramMiniAppAgent {
 
 interface MiniAppOptions {
   publicOrigin: string;
+  mcp?: Pick<TelegramMcpSignIn, "list" | "start" | "callback">;
   managerToken: string;
   ownerId: number;
   /** The manager opens the owner's whole view. Each agent bot opens only its own chat's view. */
   managerId?: number;
+  connectionGeneration: (id: number) => string | null;
   /** The credential of a connected agent bot, or null. The Mini App checks its launch data with it. */
   botToken?: (bot: number) => Effect.Effect<string | null>;
   /** The agent that answers in this bot's chat, whose browser tabs this view shows. */
   botAgent?: (bot: number) => string | null;
   ownsTurn: (agentId: string, turnId: string, bot: number) => boolean;
   listAgents: (bot: number) => readonly TelegramMiniAppAgent[];
-  browser?: Pick<BrowserHost, "capturePreview" | "listTabs">;
+  browser?: Pick<BrowserHost, "captureOwnerTab" | "listTabs">;
   agents: Pick<AgentService, "respondToBrowserSecret"> & {
-    getRuntimeSnapshot(): { pendingBrowserTakeovers: BrowserTakeoverRequest[] };
+    pendingBrowserTakeovers(): BrowserTakeoverRequest[];
     /** Prompts that need private input. The chat never asks them; this view does. */
     privatePrompts?(): readonly TelegramPrivatePrompt[];
     respondToPrompt?(input: {
@@ -120,21 +125,9 @@ function botFromUrl(url: string | undefined): number | null {
 export class TelegramMiniApp {
   readonly #options: MiniAppOptions;
   readonly #requestKey = randomBytes(32);
-  readonly #prepared = new Set<string>();
 
   constructor(options: MiniAppOptions) {
     this.#options = options;
-  }
-
-  /** Runtime snapshots can include a request still preparing its secret protection. Only the emitted
-   * browser-takeover-requested event confirms an ordinary takeover actually completed preparation. */
-  noteTakeover(request: BrowserTakeoverRequest): void {
-    const pending = this.#options.agents.getRuntimeSnapshot().pendingBrowserTakeovers;
-    const live = new Set(pending.map((item) => this.#handleFor(item)));
-    for (const key of this.#prepared) if (!live.has(key)) this.#prepared.delete(key);
-    if (!request.secret && this.#options.ownsTurn(request.agentId, request.turnId, this.#managerId)) {
-      this.#prepared.add(this.#handleFor(request));
-    }
   }
 
   get #managerId(): number {
@@ -149,6 +142,8 @@ export class TelegramMiniApp {
     const requested = botFromUrl(request.url);
     if (Number.isNaN(requested)) return null;
     const bot = requested ?? this.#managerId;
+    const generation = this.#options.connectionGeneration(bot);
+    if (!generation) return null;
     const token =
       bot === this.#managerId
         ? this.#options.managerToken
@@ -157,11 +152,12 @@ export class TelegramMiniApp {
           : null;
     if (
       !token ||
+      this.#options.connectionGeneration(bot) !== generation ||
       request.headers.origin !== this.#options.publicOrigin ||
       !telegramMiniAppOwner(request.headers.authorization, token, this.#options.ownerId, Math.floor(Date.now() / 1000))
     )
       return null;
-    return { bot, token };
+    return { bot, generation };
   }).bind(this);
 
   /** Private prompts in this bot's scope, with a handle that names the bot, so another view cannot answer them. */
@@ -176,6 +172,7 @@ export class TelegramMiniApp {
             JSON.stringify([
               this.#options.ownerId,
               bot,
+              this.#options.connectionGeneration(bot),
               prompt.agentId,
               prompt.threadId,
               prompt.turnId,
@@ -200,19 +197,31 @@ export class TelegramMiniApp {
     return result;
   }
 
-  /** The agent's own tabs, in the chat of its bot. The handle names no page, so it survives navigation. */
-  #tabHandle(bot: number, agentId: string, tabId: string) {
-    return createHmac("sha256", this.#requestKey)
-      .update(JSON.stringify([this.#options.ownerId, bot, agentId, tabId, "tab"]))
-      .digest("base64url");
-  }
-
-  /** A request expires when it leaves the registry, changes destination, or the service restarts. */
-  #handleFor(request: BrowserTakeoverRequest, page?: string) {
+  /** Bind a still to one document and chat. A navigation requires a new handle. */
+  #tabHandle(bot: number, agentId: string, tabId: string, page: string) {
     return createHmac("sha256", this.#requestKey)
       .update(
         JSON.stringify([
           this.#options.ownerId,
+          bot,
+          this.#options.connectionGeneration(bot),
+          agentId,
+          tabId,
+          page,
+          "tab",
+        ]),
+      )
+      .digest("base64url");
+  }
+
+  /** A request expires when it leaves the registry, changes destination, or the service restarts. */
+  #handleFor(bot: number, request: BrowserTakeoverRequest) {
+    return createHmac("sha256", this.#requestKey)
+      .update(
+        JSON.stringify([
+          this.#options.ownerId,
+          bot,
+          this.#options.connectionGeneration(bot),
           request.agentId,
           request.threadId,
           request.turnId,
@@ -220,7 +229,6 @@ export class TelegramMiniApp {
           request.tabId,
           request.secret?.origin,
           request.secret?.method,
-          page,
         ]),
       )
       .digest("base64url");
@@ -230,31 +238,19 @@ export class TelegramMiniApp {
     const browser = this.#options.browser;
     if (!browser) return [];
     const tabs = browser.listTabs();
-    const shown = new Set<string>();
-    const handoffs = requests.flatMap((item) => {
+    const agentId = this.#options.botAgent?.(bot) ?? null;
+    if (!agentId || !agents.some((agent) => agent.active && agent.agentId === agentId)) return [];
+    return tabs.flatMap((tab) => {
+      const origin = siteOrigin(tab.url);
       if (
-        item.secret ||
-        !this.#prepared.has(this.#handleFor(item)) ||
-        !agents.some((agent) => agent.active && agent.agentId === item.agentId) ||
-        !this.#options.ownsTurn(item.agentId, item.turnId, bot)
+        tab.ownerAgentId !== agentId ||
+        tab.userControl ||
+        requests.some((item) => item.tabId === tab.id && item.secret) ||
+        !origin
       )
         return [];
-      const tab = tabs.find((candidate) => candidate.id === item.tabId);
-      if (!tab || tab.userControl || tab.ownerAgentId !== item.agentId || tab.ownerThreadId !== item.threadId)
-        return [];
-      const origin = siteOrigin(tab.url);
-      if (!origin) return [];
-      shown.add(tab.id);
-      return [{ handle: this.#handleFor(item, tab.url), origin, agentId: item.agentId, tabId: item.tabId }];
+      return [{ handle: this.#tabHandle(bot, agentId, tab.id, tab.url), origin, agentId, tabId: tab.id }];
     });
-    const agentId = this.#options.botAgent?.(bot) ?? null;
-    if (!agentId || !agents.some((agent) => agent.active && agent.agentId === agentId)) return handoffs;
-    const own = tabs.flatMap((tab) => {
-      const origin = siteOrigin(tab.url);
-      if (tab.ownerAgentId !== agentId || tab.userControl || shown.has(tab.id) || !origin) return [];
-      return [{ handle: this.#tabHandle(bot, agentId, tab.id), origin, agentId, tabId: tab.id }];
-    });
-    return [...handoffs, ...own];
   }
 
   readonly handle = Effect.fn("TelegramMiniApp.handle")(function* (
@@ -268,12 +264,36 @@ export class TelegramMiniApp {
       path !== `${TELEGRAM_MINI_APP_PATH}/state` &&
       path !== `${TELEGRAM_MINI_APP_PATH}/secret` &&
       path !== `${TELEGRAM_MINI_APP_PATH}/preview` &&
+      path !== `${TELEGRAM_MINI_APP_PATH}/mcp` &&
+      path !== TELEGRAM_MCP_CALLBACK_PATH &&
       path !== `${TELEGRAM_MINI_APP_PATH}/answer`
     )
       return false;
     response.setHeader("Cache-Control", "no-store");
     response.setHeader("Referrer-Policy", "no-referrer");
     response.setHeader("X-Content-Type-Options", "nosniff");
+    if (path === TELEGRAM_MCP_CALLBACK_PATH) {
+      if (request.method !== "GET") {
+        response.writeHead(405).end();
+        return true;
+      }
+      const query = new URLSearchParams(request.url?.slice(path.length + 1));
+      const outcome = this.#options.mcp?.callback(query) ?? "invalid";
+      const t = translateFor(resolveLocale("system", request.headers["accept-language"]?.split(",")[0] ?? "en"));
+      const message =
+        outcome === "accepted"
+          ? t("browser.telegram.mcpReturn")
+          : outcome === "denied"
+            ? t("error.mcp.redirectRefused")
+            : t("error.mcp.redirectNoSignIn");
+      response
+        .writeHead(outcome === "accepted" ? 200 : 400, {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        })
+        .end(message);
+      return true;
+    }
     if (path === TELEGRAM_MINI_APP_PATH && request.method === "GET") {
       const nonce = randomBytes(18).toString("base64");
       response.setHeader(
@@ -306,8 +326,31 @@ export class TelegramMiniApp {
       if (!response.destroyed) response.writeHead(body._tag === "Failure" ? 400 : 413).end();
       return true;
     }
+    if (this.#options.connectionGeneration(bot) !== access.generation) {
+      response.writeHead(409).end();
+      return true;
+    }
+    if (path === `${TELEGRAM_MINI_APP_PATH}/mcp`) {
+      const parsed = decodePreview(body.success.toString("utf8"));
+      if (Option.isNone(parsed)) {
+        response.writeHead(400).end();
+        return true;
+      }
+      const result = this.#options.mcp ? yield* this.#options.mcp.start(bot, parsed.value.handle) : null;
+      const authorized = yield* this.#authorize(request);
+      if (
+        !result ||
+        authorized?.generation !== access.generation ||
+        (result.url && !this.#options.mcp?.list(bot).some((card) => card.handle === parsed.value.handle))
+      ) {
+        response.writeHead(409).end();
+        return true;
+      }
+      response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" }).end(JSON.stringify(result));
+      return true;
+    }
     const agents = this.#options.listAgents(bot);
-    const takeovers = this.#options.agents.getRuntimeSnapshot().pendingBrowserTakeovers;
+    const takeovers = this.#options.agents.pendingBrowserTakeovers();
     if (path === `${TELEGRAM_MINI_APP_PATH}/preview`) {
       const parsed = decodePreview(body.success.toString("utf8"));
       if (Option.isNone(parsed)) {
@@ -321,39 +364,24 @@ export class TelegramMiniApp {
         response.writeHead(409).end();
         return true;
       }
-      // capturePreview applies the host's card and secret protections and detects navigation.
-      // Recheck the binding, pending request and document URL after this asynchronous capture.
-      const capture = yield* Effect.result(browser.capturePreview(item.tabId));
+      const capture = yield* Effect.result(browser.captureOwnerTab(item.tabId, item.agentId));
+      const authorized = yield* this.#authorize(request);
       const current = this.#previews(
         bot,
         this.#options.listAgents(bot),
-        this.#options.agents.getRuntimeSnapshot().pendingBrowserTakeovers,
+        this.#options.agents.pendingBrowserTakeovers(),
       );
       if (
+        authorized?.generation !== access.generation ||
         capture._tag !== "Success" ||
+        !capture.success ||
         !current.some((preview) => preview.handle === handle) ||
-        !telegramMiniAppOwner(
-          request.headers.authorization,
-          access.token,
-          this.#options.ownerId,
-          Math.floor(Date.now() / 1000),
-        )
+        !capture.success.current()
       ) {
         response.writeHead(409).end();
         return true;
       }
-      const prefix = "data:image/jpeg;base64,";
-      const data = capture.success.dataUrl;
-      if (!data.startsWith(prefix) || data.length > 2 * 1024 * 1024) {
-        response.writeHead(409).end();
-        return true;
-      }
-      const jpeg = Buffer.from(data.slice(prefix.length), "base64");
-      if (jpeg[0] !== 0xff || jpeg[1] !== 0xd8 || jpeg.at(-2) !== 0xff || jpeg.at(-1) !== 0xd9) {
-        response.writeHead(409).end();
-        return true;
-      }
-      response.writeHead(200, { "Content-Type": "image/jpeg" }).end(jpeg);
+      response.writeHead(200, { "Content-Type": "image/jpeg" }).end(capture.success.bytes);
       return true;
     }
     if (path === `${TELEGRAM_MINI_APP_PATH}/answer`) {
@@ -391,7 +419,7 @@ export class TelegramMiniApp {
         item.secret
           ? [
               {
-                handle: this.#handleFor(item),
+                handle: this.#handleFor(bot, item),
                 agentId: item.agentId,
                 method: item.secret.method,
                 origin: item.secret.origin,
@@ -406,6 +434,7 @@ export class TelegramMiniApp {
         JSON.stringify({
           agents: agents.map(({ agentId, name, username, active }) => ({ agentId, name, username, active })),
           requests: pending,
+          signIns: this.#options.mcp?.list(bot) ?? [],
           prompts: this.#promptsFor(bot).map(({ prompt, handle }) => ({
             handle,
             agentId: prompt.agentId,
@@ -435,7 +464,7 @@ export class TelegramMiniApp {
       return true;
     }
     const answer = parsed.value;
-    const pending = requests.find((item) => this.#handleFor(item) === answer.handle);
+    const pending = requests.find((item) => this.#handleFor(bot, item) === answer.handle);
     if (!pending?.secret) {
       response.writeHead(409).end();
       return true;

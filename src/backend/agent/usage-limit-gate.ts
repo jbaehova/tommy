@@ -1,5 +1,4 @@
-import { INPUT_LIMITS } from "@tommy/contracts/input-limits";
-import type { AccountUsage, AgentEvent, AgentRuntimeSnapshot } from "@tommy/contracts/ipc";
+import type { AccountUsage, AgentEvent } from "@tommy/contracts/ipc";
 import { Effect, Exit, Schema, Scope } from "effect";
 import type { AgentProvider } from "../agent-client";
 import type { AgentStore } from "../agent-store";
@@ -30,7 +29,6 @@ const MAX_TIMER_MS = 2_147_483_647;
 
 export interface UsageLimitHooks {
   emit(event: AgentEvent): void;
-  emitRuntimeSnapshot(): void;
   scheduleDrain(agentId: string): void;
   /** The account's usage reading for this model, or null when it gives none. A null account is the provider's own sign-in. */
   readUsage(
@@ -205,23 +203,6 @@ export class UsageLimitGate {
     );
   }
 
-  /** The agents whose queue a limit holds, for the runtime snapshot. */
-  limitedAgents(): NonNullable<AgentRuntimeSnapshot["usageLimits"]> {
-    return this.#store.list().flatMap((agent) => {
-      const limit = this.#limits.get(limitKey(providerForAgent(agent), accountOf(agent), agent.model));
-      return limit ? [{ agentId: agent.id, resetsAt: limit.resetsAt }] : [];
-    });
-  }
-
-  /** Each provider account and model that a limit holds, for the runtime snapshot. */
-  limitedModels(): NonNullable<AgentRuntimeSnapshot["usageLimitedModels"]> {
-    return [...this.#limits.values()].slice(0, INPUT_LIMITS.agents).map((limit) => ({
-      provider: limit.provider,
-      model: limit.model,
-      ...(limit.accountId ? { providerAccountId: limit.accountId } : {}),
-    }));
-  }
-
   /**
    * The plan refused a turn of this agent. `resetsAt` is in epoch seconds. `model` is the one the
    * turn ran on; the agent's current model when null.
@@ -254,7 +235,6 @@ export class UsageLimitGate {
     this.#limits.set(key, limit);
     this.#arm(key, limit);
     yield* this.#hooks.held(this.#heldAgents(limit).map((held) => held.id));
-    this.#hooks.emitRuntimeSnapshot();
     if (limit.resetsAt !== null) {
       this.#announce(agentId, limit);
       return;
@@ -375,11 +355,9 @@ export class UsageLimitGate {
     if (!usage?.limits.some((reading) => reading.primary || reading.secondary)) return undefined;
     const resetsAt = spentWindowReset(usage);
     if (resetsAt === null) return null;
-    const changed = limit.resetsAt !== resetsAt;
     limit.resetsAt = resetsAt;
     limit.resetFromUsage = true;
     this.#arm(key, limit);
-    if (changed) this.#hooks.emitRuntimeSnapshot();
     return resetsAt;
   });
 
@@ -396,7 +374,6 @@ export class UsageLimitGate {
     for (const [agentId, tryKey] of this.#tries) if (tryKey === key) this.#tries.delete(agentId);
     if (reset && ![...this.#limits.values()].some((other) => other.provider === limit.provider))
       this.#announced.delete(limit.provider);
-    this.#hooks.emitRuntimeSnapshot();
     for (const agent of this.#heldAgents(limit)) this.#hooks.scheduleDrain(agent.id);
     yield* this.#hooks.released({ provider: limit.provider, accountId: limit.accountId, model: limit.model });
   });

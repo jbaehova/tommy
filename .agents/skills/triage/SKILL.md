@@ -41,8 +41,7 @@ Issue labels do not change this workflow. Do not add or remove labels.
 3. Write down, in one line each:
    - **Symptom**: what the reporter sees.
    - **Expected**: what the reporter expects.
-   - **Surface**: desktop renderer, main process, backend, mobile, public
-     web, Signal, Team API, provider, or plugin.
+   - **Surface**: Telegram, Mini App, server, provider, or a released protocol.
    - **Version**: the Tommy version or commit, and the provider CLI version.
 4. When the issue does not give enough data to reproduce or to find a code
    path, go to Step 2 with the verdict `needs info`.
@@ -79,15 +78,14 @@ Find the root cause, not only the place where the symptom shows.
 
 1. Find the code path from the symptom. Start from the UI text (an
    `@tommy/i18n` key), the IPC channel, the error code, or the log line
-   in the issue. Use an `Explore` agent for a broad search.
+   in the issue.
 2. Write the hypothesis in one sentence: "X fails because Y at `path:line`".
 3. Prove it. Use the cheapest proof that is conclusive:
    - Read the code path and the git history (`git log -L`, `git blame`).
      When the issue is a regression, find the commit that caused it.
    - Run the narrowest existing test file, or write a temporary test that
      fails for the reported reason.
-   - Reproduce in the real app with the `smoke` skill and
-     `bun run dev:automation`. Do not drive another worktree's app.
+   - Reproduce with the `smoke` skill in a temporary profile or an authorized test server.
 4. When the proof does not hold, write the next hypothesis. Do not fix a
    cause that you could not prove.
 5. When you find that the issue is not valid after all, go back to Step 2.
@@ -107,7 +105,7 @@ the user. Stop and ask the user before you fix only when the fix:
 
 - changes a database migration or the latest schema,
 - changes a released Team API adapter or a wire protocol,
-- touches the renderer-to-main trust boundary or a security test,
+- changes a security boundary or its tests,
 - needs a product decision, or has more than one reasonable behavior.
 
 Otherwise, continue:
@@ -127,8 +125,7 @@ Otherwise, continue:
    broad checks.
 5. Show that the symptom is gone with the same proof as in Step 3. When
    the bug shows in the real app, you can run the `smoke` skill.
-6. Add release notes in `changelog.d/<branch>.md`, or
-   `apps/mobile/changelog.d/<branch>.md` for the mobile app.
+6. Record required upgrade actions in `CHANGELOG.md` as described in `docs/RELEASING.md`.
 7. Commit on the branch. Put `Fixes #<n>` in the commit body.
 
 Do not ship. Do not open a PR, push, or close the issue unless the user

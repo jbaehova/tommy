@@ -4,13 +4,13 @@ name = "tommy"
 
 [setup]
 script = """
-bun scripts/prepare-dev-environment.ts
+bun install --frozen-lockfile
 """
 
 [[actions]]
-name = "Run"
+name = "Test Telegram server"
 icon = "run"
-command = "bun run dev --isolated"
+command = "bun scripts/telegram-vps-e2e.ts"
 
 [[actions]]
 name = "Test"

@@ -66,6 +66,13 @@ jobs:
           bun x electron-builder --dir --linux "--${{ matrix.arch }}" --publish never
           folder=dist/linux-unpacked
           [[ "${{ matrix.arch }}" == arm64 ]] && folder=dist/linux-arm64-unpacked
+          test -x "$folder/tommy"
+          test -x "$folder/chrome-sandbox"
+          test -s "$folder/resources/app.asar.unpacked/out/main/agent-database-host.js"
+          test -s "$folder/resources/app.asar.unpacked/node_modules/effect/dist/index.js"
+          test -x "$folder/resources/hosting/tommy-install"
+          test -x "$folder/resources/agent-desktop/agent-desktop"
+          cmp .tommy-build/agent-desktop/agent-desktop "$folder/resources/agent-desktop/agent-desktop"
           name="Tommy-${{ needs.version.outputs.version }}-linux-${{ matrix.arch }}"
           mv "$folder" "dist/$name"
           tar -C dist -czf "dist/$name.tar.gz" "$name"

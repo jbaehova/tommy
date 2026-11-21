@@ -150,6 +150,8 @@ export interface McpOAuthOptions {
    * link when it could not bind a port. `describeUnusableRedirectUrl` refuses anything else.
    */
   redirectUrl: string;
+  /** The configured Telegram origin. Only its fixed callback is used for Mini App sign-ins. */
+  telegramPublicOrigin?: string | undefined;
   /** How long a sign-in may stay open before the wait is abandoned. */
   signInTimeoutMs?: number;
   /** How long a token exchange may hold a thread start or a test before the stored token answers. */
@@ -237,7 +239,11 @@ export interface McpSignIn {
  * Opens the authorization page of one sign-in somewhere other than this computer's own browser: a
  * private tab of this host's browser, for an administrator who signs in from another computer.
  */
-export type McpSignInOpener = (url: string) => Promise<void>;
+export const TELEGRAM_MCP_CALLBACK_PATH = "/tommy/telegram/app/mcp/callback";
+export type McpSignInOpener = ((url: string) => Promise<void>) & {
+  /** Checks the owner, connection generation and saved resource through the token exchange. */
+  telegramAuthorized?: () => boolean;
+};
 
 export interface McpOAuthAuthority {
   accessToken: (url: string) => Effect.Effect<string | null, McpOperationError>;
@@ -275,8 +281,7 @@ export class McpOAuth implements McpOAuthAuthority {
    * `tommy://mcp-auth` link do nothing.
    */
   readonly #waiting = new Map<string, (code: string) => void>();
-  /** The waiting sign-ins whose page an opener of their own showed, not the user's browser. */
-  readonly #openedElsewhere = new Set<string>();
+  readonly #telegramStates = new Map<string, () => void>();
   /**
    * The cancel of the sign-in still running for each server. A user who presses Cancel names the
    * server, not the `state`, and one attempt per server is kept: a second Sign in replaces the
@@ -296,6 +301,9 @@ export class McpOAuth implements McpOAuthAuthority {
   readonly #generations = new Map<string, number>();
 
   constructor(options: McpOAuthOptions) {
+    const origin = options.telegramPublicOrigin;
+    if (origin !== undefined && (URL.parse(origin)?.protocol !== "https:" || URL.parse(origin)?.origin !== origin))
+      throw new Error("An HTTPS origin is required for Telegram sign-in.");
     const refusal = describeUnusableRedirectUrl(options.redirectUrl);
     if (refusal) throw new Error(refusal);
     this.#options = options;
@@ -423,7 +431,7 @@ export class McpOAuth implements McpOAuthAuthority {
         Effect.sync(() => {
           for (const cancel of [...this.#attempts.values()]) cancel();
           this.#waiting.clear();
-          this.#openedElsewhere.clear();
+          this.#telegramStates.clear();
           this.#unanswered.clear();
         }),
       ),
@@ -433,7 +441,8 @@ export class McpOAuth implements McpOAuthAuthority {
   /** A sign-in the user asked for, or `null` when the URL is not one this can sign in to. */
   signIn(url: string, open?: McpSignInOpener): McpSignIn | null {
     const key = mcpOAuthAccountKey(url);
-    if (!key) return null;
+    if (!key || (open?.telegramAuthorized && (!this.#options.telegramPublicOrigin || !open.telegramAuthorized())))
+      return null;
     this.#attempts.get(key)?.();
     const unanswered = this.#unanswered.get(key);
     this.#unanswered.delete(key);
@@ -442,20 +451,25 @@ export class McpOAuth implements McpOAuthAuthority {
     this.#waiting.set(state, (code) => {
       Deferred.doneUnsafe(grant, Effect.succeed(code));
     });
-    if (open) this.#openedElsewhere.add(state);
     // Set when the probe moves on: a discovery slow enough to outlast it must neither open a
     // browser afterwards nor wait out a grant nobody will answer.
     let abandoned = false;
     let cancelled = false;
     const resource = mcpOAuthServerUrl(key);
-    const provider = this.#provider(key, state, () => abandoned, open, unanswered);
+    const provider = this.#provider(
+      key,
+      state,
+      () => abandoned || open?.telegramAuthorized?.() === false,
+      open,
+      unanswered,
+    );
     const abandon = () => {
       // A received grant removes the waiting state. A failure before opening a page keeps the old name.
       const unansweredNow = provider.openedRedirectUrl ?? unanswered;
       if (!abandoned && this.#waiting.has(state) && unansweredNow) this.#unanswered.set(key, unansweredNow);
       abandoned = true;
       this.#waiting.delete(state);
-      this.#openedElsewhere.delete(state);
+      this.#telegramStates.delete(state);
       if (this.#attempts.get(key) === cancel) this.#attempts.delete(key);
     };
     // The user said stop: the wait ends now rather than at its deadline, with its own sentence.
@@ -465,6 +479,7 @@ export class McpOAuth implements McpOAuthAuthority {
       abandon();
     };
     this.#attempts.set(key, cancel);
+    if (open?.telegramAuthorized) this.#telegramStates.set(state, cancel);
     return {
       provider,
       begin: () =>
@@ -566,19 +581,24 @@ export class McpOAuth implements McpOAuthAuthority {
    * drop a link that belongs to no attempt instead of acting on it.
    */
   receiveAuthorizationCode(state: string, code: string): boolean {
+    if (this.#telegramStates.has(state)) return false;
+    return this.#deliverCode(state, code);
+  }
+
+  receiveTelegramAuthorization(state: string, code: string | null): boolean {
+    const cancel = this.#telegramStates.get(state);
+    if (!cancel || !this.#waiting.has(state)) return false;
+    if (code !== null) return this.#deliverCode(state, code);
+    cancel();
+    return true;
+  }
+
+  #deliverCode(state: string, code: string): boolean {
     const deliver = this.#waiting.get(state);
     if (!deliver) return false;
     this.#waiting.delete(state);
     deliver(code);
     return true;
-  }
-
-  /**
-   * Whether the sign-in waiting for this `state` showed its page in its own opener. Its return
-   * raises no window here: the person who signed in is at another computer.
-   */
-  openedElsewhere(state: string): boolean {
-    return this.#openedElsewhere.has(state);
   }
 
   cancelSignIn(url: string): boolean {
@@ -794,7 +814,9 @@ export class McpOAuth implements McpOAuthAuthority {
       resource: mcpOAuthServerUrl(key),
       state,
       storage: guarded,
-      redirectUrl: this.#options.redirectUrl,
+      redirectUrl: open?.telegramAuthorized
+        ? `${this.#options.telegramPublicOrigin}${TELEGRAM_MCP_CALLBACK_PATH}`
+        : this.#options.redirectUrl,
       openExternal: open ?? this.#options.openExternal,
       isAbandoned,
       legacyIssuer: legacyIssuer(stored),
@@ -897,13 +919,13 @@ class McpOAuthClientProvider implements OAuthClientProvider {
    * 7591 default, `client_secret_basic`, and Make refuses that registration with a 400: "No supported
    * Token Endpoint Auth Method provided."
    */
-  get clientMetadata(): OAuthClientMetadata & { application_type: "native" } {
+  get clientMetadata(): OAuthClientMetadata & { application_type: "native" | "web" } {
     const scope = this.#record().app?.scope;
     const methods = this.#discoveryState?.authorizationServerMetadata?.token_endpoint_auth_methods_supported;
     return {
       client_name: "Tommy",
       redirect_uris: [this.#retryRedirectUrl ?? this.#options.redirectUrl],
-      application_type: "native",
+      application_type: this.#options.redirectUrl.startsWith("https://") ? "web" : "native",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       ...tokenEndpointAuthMethod(methods),
@@ -1182,16 +1204,7 @@ class McpOAuthClientProvider implements OAuthClientProvider {
     this.recordSecret(tokens?.refresh_token);
   }
 
-  /**
-   * The user's own browser, not a window of this app.
-   *
-   * An embedded window would be Tommy standing between the user and their password manager, their
-   * existing session and the address bar that proves which site is asking - which is the whole
-   * reason RFC 8252 says a native app must not do it. The one other opener is a sign-in an
-   * administrator started from another computer: nobody is at this one, and only a browser here
-   * reaches the loopback address the grant comes back to, so the page opens in a private tab of this
-   * host's browser that the administrator watches.
-   */
+  /** Open the validated provider page through the callback selected for this attempt. */
   redirectToAuthorization(authorizationUrl: URL): Promise<void> {
     return runCauseEffect(
       Effect.gen({ self: this }, function* () {

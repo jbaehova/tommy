@@ -18,8 +18,6 @@ export interface AppLanguagePreference {
   language: AppLanguage;
 }
 
-export type SetAppLanguagePreferenceInput = AppLanguagePreference;
-
 export function isAppLanguage(value: unknown): value is AppLanguage {
   return APP_LANGUAGES.some((language) => language === value);
 }

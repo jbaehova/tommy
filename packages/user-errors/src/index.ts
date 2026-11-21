@@ -1,6 +1,6 @@
 import { localizeSourceText, type SourceMessages, sourceTranslateFor, type TranslatedLocale } from "@tommy/i18n/source";
 import { redactText } from "@tommy/logging";
-import { errnoCode, errorReference, NETWORK_MESSAGE, normalizeMessage } from "./reference";
+import { errnoCode, NETWORK_MESSAGE, normalizeMessage } from "./reference";
 
 export { errorReference, referenceCarrierName, referenceFrom, safeReference } from "./reference";
 
@@ -140,15 +140,4 @@ export function userErrorMessage(error: unknown, fallback: string, locale: Trans
     return fallback;
   }
   return redactText(localizeSourceText(message, locale));
-}
-
-/** What a screen shows for a failure: the sentence and the code a user can copy. */
-export interface UserErrorDetails {
-  message: string;
-  reference: string | null;
-}
-
-/** {@link userErrorMessage} with the failure's {@link errorReference}. */
-export function userErrorDetails(error: unknown, fallback: string, locale: TranslatedLocale = "en"): UserErrorDetails {
-  return { message: userErrorMessage(error, fallback, locale), reference: errorReference(error) };
 }

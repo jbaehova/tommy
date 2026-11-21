@@ -1,21 +1,6 @@
-import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
-import {
-  copyFile,
-  cp,
-  lstat,
-  mkdir,
-  readdir,
-  readFile,
-  readlink,
-  realpath,
-  rename,
-  rm,
-  rmdir,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
+import { lstat, mkdir, readdir, readFile, rename, rm, rmdir } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { avatarFileExtension, isAvatarMimeType, isValidAvatarImage } from "@tommy/contracts/avatar-images";
 import { INPUT_LIMITS } from "@tommy/contracts/input-limits";
 import type { AgentProfileDraft } from "@tommy/contracts/ipc";
@@ -68,12 +53,11 @@ import { type DynamicRecord, isBoolean, isNumber, isOneOf, isString } from "@tom
 import { isGeneratedAgentId, isUuidV4, legacyAgentId } from "@tommy/contracts/validation";
 import { sourceText } from "@tommy/i18n/source";
 import { createTommyLogger, toLogValue } from "@tommy/logging";
-import { Effect, Result, Semaphore, Stream } from "effect";
+import { Effect, Result, Semaphore } from "effect";
 import { ProfileCreationRecovery } from "./agent/profile-creation-recovery";
 import { isEmptyStoredFile, parseStoredJson, writeFileAtomically } from "./atomic-json-file";
 import { automationRoot } from "./automation-command";
 import type { AgentModelChange } from "./database/agent-roster";
-import { isPathInside } from "./path-containment";
 import { isRecord } from "./protocol";
 import { StoredStateFailure, storedIO, storedSync } from "./stored-state-effects";
 import { type ProviderSession, stableThreadId, TommyDatabase } from "./tommy-database";
@@ -380,144 +364,6 @@ export class AgentStore {
     }
   }, Effect.uninterruptible);
 
-  duplicateAgent(sourceId: string, operationId: string = randomUUID()) {
-    return this.#creationQueue.withPermit(this.#duplicateAgent(sourceId, operationId));
-  }
-
-  #duplicateAgent = Effect.fn("AgentStore.duplicateAgent")(function* (
-    this: AgentStore,
-    sourceId: string,
-    operationId: string,
-  ): Effect.fn.Return<AgentSummary, StoredStateFailure> {
-    try {
-      if (!isUuidV4(operationId)) throw new Error("Invalid agent duplication operation id.");
-      if (this.#database.commandResult(duplicationCommandId(operationId)) !== undefined) {
-        throw new Error("This agent duplication operation is already committed.");
-      }
-      if (this.#state.agents.length >= INPUT_LIMITS.agents) {
-        throw new Error(sourceText("error.agent.hostLimit", { limit: INPUT_LIMITS.agents }));
-      }
-      const source = this.#requireAgent(sourceId);
-      const sourceProfileSignature = duplicationProfileSignature(source);
-      const sourceWorkspaceManifest = yield* workspaceMetadataFingerprintEffect(source.workspacePath);
-      const sourceAvatar = this.resolveAvatar(source.id);
-      const sourceAvatarSignature = sourceAvatar ? yield* fileFingerprintEffect(sourceAvatar.path) : null;
-      const id = `agent-${randomUUID()}`;
-      const record = this.#createRecord(
-        id,
-        duplicateAgentName(source.name, this.#state.agents),
-        source.title,
-        source.description,
-      );
-      record.notifications = source.notifications;
-      record.provider = source.provider;
-      record.model = source.model;
-      record.reasoningEffort = source.reasoningEffort;
-      if (source.sessionSettingOverrides)
-        record.sessionSettingOverrides = structuredClone(source.sessionSettingOverrides);
-      record.access = source.access;
-      if (source.additionalFolders) record.additionalFolders = [...source.additionalFolders];
-      // An exclusion in the source workspace applies to the same folder in the copied workspace.
-      if (source.excludedFolders)
-        record.excludedFolders = source.excludedFolders.map((folder) =>
-          isPathInside(source.workspacePath, folder)
-            ? join(record.workspacePath, relative(source.workspacePath, folder))
-            : folder,
-        );
-      record.computerUse = source.computerUse;
-      if (source.busyMessageMode) record.busyMessageMode = source.busyMessageMode;
-      if (source.taskLimit !== undefined) record.taskLimit = source.taskLimit;
-      if (source.backupModels) record.backupModels = structuredClone(source.backupModels);
-      record.avatarSeed = source.avatarSeed;
-      record.avatarHue = source.avatarHue;
-
-      const stagedWorkspace = `${record.workspacePath}.tommy-stage`;
-      const avatarDirectory = join(this.#avatarsRoot, record.id);
-      const stagedAvatarDirectory = `${avatarDirectory}.tommy-stage`;
-      const duplicationMarker = this.#duplicationMarkerPath(record.id);
-      let stagedAvatarPath: string | null = null;
-      {
-        const attempt1 = yield* Effect.result(
-          Effect.gen({ self: this }, function* () {
-            try {
-              yield* storedIO(() =>
-                writeFile(duplicationMarker, `${JSON.stringify({ operationId, sourceAgentId: sourceId })}\n`, {
-                  encoding: "utf8",
-                  mode: 0o600,
-                  flag: "wx",
-                }),
-              );
-              yield* storedIO(() =>
-                cp(source.workspacePath, stagedWorkspace, {
-                  recursive: true,
-                  dereference: false,
-                  errorOnExist: true,
-                  force: false,
-                  verbatimSymlinks: true,
-                }),
-              );
-              if (sourceAvatar) {
-                yield* storedIO(() => mkdir(stagedAvatarDirectory, { recursive: true, mode: 0o700 }));
-                const extension = avatarFileExtension(sourceAvatar.mimeType);
-                const avatarCopy = join(stagedAvatarDirectory, `${sourceAvatar.version}.${extension}`);
-                stagedAvatarPath = avatarCopy;
-                yield* storedIO(() => copyFile(sourceAvatar.path, avatarCopy));
-                record.avatarUrl = agentAvatarUrl(record.id, sourceAvatar.version, sourceAvatar.mimeType);
-              }
-              if (
-                duplicationProfileSignature(source) !== sourceProfileSignature ||
-                (yield* workspaceMetadataFingerprintEffect(source.workspacePath)) !== sourceWorkspaceManifest ||
-                (stagedAvatarPath ? yield* fileFingerprintEffect(stagedAvatarPath) : null) !== sourceAvatarSignature ||
-                (sourceAvatar ? yield* fileFingerprintEffect(sourceAvatar.path) : null) !== sourceAvatarSignature
-              ) {
-                throw new Error(sourceText("error.agent.changedWhileDuplicating"));
-              }
-              yield* rewriteInternalWorkspaceSymlinksEffect(
-                source.workspacePath,
-                stagedWorkspace,
-                record.workspacePath,
-              );
-              if (this.#state.agents.length >= INPUT_LIMITS.agents) {
-                throw new Error(sourceText("error.agent.hostLimit", { limit: INPUT_LIMITS.agents }));
-              }
-              record.name = duplicateAgentName(source.name, this.#state.agents);
-              yield* storedIO(() => rename(stagedWorkspace, record.workspacePath));
-              if (sourceAvatar) yield* storedIO(() => rename(stagedAvatarDirectory, avatarDirectory));
-              this.#state.agents.unshift(record);
-              try {
-                this.#persist("agent.duplicated");
-              } catch (error) {
-                this.#state.agents = this.#state.agents.filter((candidate) => candidate.id !== record.id);
-                throw error;
-              }
-              return { ...record };
-            } catch (cause) {
-              return yield* new StoredStateFailure({ cause });
-            }
-          }),
-        );
-        if (Result.isFailure(attempt1)) {
-          const error = attempt1.failure.cause;
-          yield* Effect.all(
-            [
-              storedIO(() => rm(stagedWorkspace, { recursive: true, force: true })),
-              storedIO(() => rm(record.workspacePath, { recursive: true, force: true })),
-              storedIO(() => rm(stagedAvatarDirectory, { recursive: true, force: true })),
-              storedIO(() => rm(avatarDirectory, { recursive: true, force: true })),
-              storedIO(() => rm(duplicationMarker, { force: true })),
-            ],
-            { concurrency: "unbounded" },
-          );
-          throw error;
-        } else {
-          return attempt1.success;
-        }
-      }
-    } catch (cause) {
-      return yield* new StoredStateFailure({ cause });
-    }
-  }, Effect.uninterruptible);
-
   committedAgentDuplication(operationId: string, sourceAgentId: string): DuplicateAgentResult | null {
     if (!isUuidV4(operationId)) throw new Error("Invalid agent duplication operation id.");
     const value = this.#database.commandResult(duplicationCommandId(operationId));
@@ -547,50 +393,6 @@ export class AgentStore {
       layout: structuredClone(resultLayout),
     };
   }
-
-  commitAgentDuplication = Effect.fn("AgentStore.commitAgentDuplication")(function* (
-    this: AgentStore,
-    id: string,
-    operationId: string,
-    sourceAgentId: string,
-    layout: SidebarLayoutSnapshot,
-  ): Effect.fn.Return<DuplicateAgentResult, StoredStateFailure> {
-    try {
-      const agent = this.#requireAgent(id);
-      const marker = yield* this.#readDuplicationMarkerEffect(id);
-      if (!marker || marker.operationId !== operationId || marker.sourceAgentId !== sourceAgentId) {
-        throw new Error("This agent duplication marker is invalid.");
-      }
-      const result = { agent: { ...agent }, layout: structuredClone(layout) };
-      const receipt = this.#database.dispatch(
-        duplicationCommandId(operationId),
-        [
-          {
-            aggregateType: "agent-duplications",
-            aggregateId: id,
-            eventType: "agent-duplication.committed",
-            payload: { sourceAgentId, duplicateAgentId: id },
-          },
-        ],
-        () => ({ sourceAgentId, result }),
-      );
-      yield* storedIO(() => rm(this.#duplicationMarkerPath(id), { force: true }).catch(() => undefined));
-      if (
-        !isRecord(receipt) ||
-        !isRecord(receipt.result) ||
-        !isStoredAgent(receipt.result.agent) ||
-        !isSidebarLayoutSnapshot(receipt.result.layout)
-      ) {
-        throw new Error("The agent duplication receipt is invalid.");
-      }
-      return {
-        agent: { ...normalizeStoredAgent(receipt.result.agent) },
-        layout: structuredClone(receipt.result.layout),
-      };
-    } catch (cause) {
-      return yield* new StoredStateFailure({ cause });
-    }
-  }, Effect.uninterruptible).bind(this);
 
   saveReviewedProfile(agentId: string, draft: AgentProfileDraft): AgentSummary {
     draft = decodeAgentProfileDraft(draft);
@@ -1349,21 +1151,36 @@ export class AgentStore {
         // when the same build wrote both. Using the file name would filter nothing out of the roster and
         // hard-delete an id no row carries, leaving the half-made duplicate visible in the sidebar.
         const agentId = agent?.id ?? id;
-        if (agent && marker) {
-          const committed = this.committedAgentDuplication(marker.operationId, marker.sourceAgentId);
-          if (committed?.agent.id === agentId) {
-            yield* storedIO(() => rm(join(this.#duplicationsRoot, entry.name), { force: true }));
-            continue;
-          }
+        if (!marker) {
+          logger.warn("Kept an agent workspace because its duplication marker could not be read.");
+          continue;
         }
-        if (agent) {
-          this.#state.agents = this.#state.agents.filter((candidate) => candidate.id !== agentId);
-          this.#database.hardDeleteAgent(
-            `agents:duplicate-recovery:${randomUUID()}`,
-            agentId,
-            agent.threadId,
-            this.#state.agents,
-          );
+        if (legacyAgentId(marker.sourceAgentId) === legacyAgentId(agentId)) {
+          logger.warn("Kept an agent workspace because its duplication marker names the source.");
+          continue;
+        }
+        const receipt = yield* Effect.result(
+          Effect.try(() => this.committedAgentDuplication(marker.operationId, marker.sourceAgentId)),
+        );
+        if (Result.isFailure(receipt) || (receipt.success && receipt.success.agent.id !== agentId)) {
+          logger.warn("Kept an agent workspace because its duplication receipt does not match.");
+          continue;
+        }
+        if (receipt.success) {
+          yield* storedIO(() => rm(join(this.#duplicationsRoot, entry.name), { force: true }));
+          continue;
+        }
+        // The marker can name the wrong operation. A commit for this target still owns its workspace.
+        const ids = new Set([agentId, id, legacyAgentId(agentId)]);
+        if (
+          [...ids].some(
+            (target) =>
+              this.#database.hasAggregateEvents("agent-duplications", target) ||
+              this.#database.hasAggregateEvents("bot-duplications", target),
+          )
+        ) {
+          logger.warn("Kept a committed agent workspace with a stale duplication marker.");
+          continue;
         }
         // The copy this marker was tracking was made by whichever build crashed, so it can be sitting
         // under either root, under either spelling of the id. Removing only the current one reports a
@@ -1371,17 +1188,25 @@ export class AgentStore {
         const names = agentId === id ? [id] : [id, agentId];
         const roots = [this.#agentsRoot, this.#legacyAgentsRoot, this.#avatarsRoot];
         yield* Effect.all(
-          [
-            ...roots.flatMap((root) =>
-              names.flatMap((name) => [
-                storedIO(() => rm(join(root, name), { recursive: true, force: true })),
-                storedIO(() => rm(`${join(root, name)}.tommy-stage`, { recursive: true, force: true })),
-              ]),
-            ),
-            storedIO(() => rm(join(this.#duplicationsRoot, entry.name), { force: true })),
-          ],
+          roots.flatMap((root) =>
+            names.flatMap((name) => [
+              storedIO(() => rm(join(root, name), { recursive: true, force: true })),
+              storedIO(() => rm(`${join(root, name)}.tommy-stage`, { recursive: true, force: true })),
+            ]),
+          ),
           { concurrency: "unbounded" },
         );
+        if (agent) {
+          const remaining = this.#state.agents.filter((candidate) => candidate.id !== agentId);
+          this.#database.hardDeleteAgent(
+            `agents:duplicate-recovery:${randomUUID()}`,
+            agentId,
+            agent.threadId,
+            remaining,
+          );
+          this.#state.agents = remaining;
+        }
+        yield* storedIO(() => rm(join(this.#duplicationsRoot, entry.name), { force: true }));
       }
     } catch (cause) {
       return yield* new StoredStateFailure({ cause });
@@ -1444,48 +1269,16 @@ export class AgentStore {
   #readDuplicationMarkerEffect = Effect.fn("AgentStore.readDuplicationMarker")(function* (
     this: AgentStore,
     id: string,
-  ): Effect.fn.Return<AgentDuplicationMarker | null, StoredStateFailure> {
-    try {
-      {
-        const attempt7 = yield* Effect.result(
-          Effect.gen({ self: this }, function* () {
-            try {
-              const value = JSON.parse(yield* storedIO(() => readFile(this.#duplicationMarkerPath(id), "utf8")));
-              // A marker on disk was written by whichever build crashed, and a released one spells this
-              // `sourceBotId`. Failing to read it drops the file on the floor: recovery cannot then tell a
-              // duplication that finished from one that died mid-copy, so it deletes the agent the user kept
-              // along with its workspace.
-              const storedSource = isRecord(value) ? (value.sourceAgentId ?? value.sourceBotId) : null;
-              if (
-                !isRecord(value) ||
-                !isString(value.operationId) ||
-                !isUuidV4(value.operationId) ||
-                !isString(storedSource) ||
-                !storedSource
-              ) {
-                return null;
-              }
-              // The value beside that key names the source agent as it was spelled when the marker was written,
-              // and migration v13 has renamed it since. Nothing rewrites a file outside the database, so the
-              // receipt this is about to be compared against already says `agent-<uuid>` while the marker still
-              // says `bot-<uuid>`: comparing them raw throws "The agent duplication receipt is invalid." out of
-              // recovery, and the app never finishes starting.
-              const sourceAgentId = this.#agentByEitherSpelling(storedSource)?.id ?? storedSource;
-              return { operationId: value.operationId, sourceAgentId };
-            } catch (cause) {
-              return yield* new StoredStateFailure({ cause });
-            }
-          }),
-        );
-        if (Result.isFailure(attempt7)) {
-          return null;
-        } else {
-          return attempt7.success;
-        }
-      }
-    } catch (cause) {
-      return yield* new StoredStateFailure({ cause });
-    }
+  ): Effect.fn.Return<AgentDuplicationMarker | null> {
+    const marker = yield* Effect.result(
+      storedIO(async () => JSON.parse(await readFile(this.#duplicationMarkerPath(id), "utf8"))),
+    );
+    if (Result.isFailure(marker) || !isRecord(marker.success)) return null;
+    // Older markers keep the original key and ID spelling after SQLite has migrated.
+    const { operationId, sourceAgentId, sourceBotId } = marker.success;
+    const source = sourceAgentId ?? sourceBotId;
+    if (!isString(operationId) || !isUuidV4(operationId) || !isString(source) || !source) return null;
+    return { operationId, sourceAgentId: this.#agentByEitherSpelling(source)?.id ?? source };
   }, Effect.uninterruptible);
 
   ensureThreadId = Effect.fn("AgentStore.ensureThreadId")(function* (
@@ -1750,120 +1543,9 @@ function limitedText(value: string, label: string, maxLength: number): string {
   return trimmed;
 }
 
-function duplicateAgentName(sourceName: string, agents: readonly StoredAgent[]): string {
-  const match = /^(.*?)(?: copy(?: (\d+))?)$/iu.exec(sourceName);
-  const base = match?.[1]?.trim() || sourceName.trim();
-  const existing = new Set(agents.map((agent) => agent.name.toLocaleLowerCase()));
-  for (let index = 1; index <= INPUT_LIMITS.agents + 1; index += 1) {
-    const suffix = index === 1 ? " copy" : ` copy ${index}`;
-    const candidate = `${base.slice(0, Math.max(1, INPUT_LIMITS.agentName - suffix.length)).trimEnd()}${suffix}`;
-    if (!existing.has(candidate.toLocaleLowerCase())) return candidate;
-  }
-  throw new Error(sourceText("error.agent.copyNameFailed"));
-}
-
-/**
- * The part of an agent a copy is actually built from, which is what "the agent changed" has to mean.
- *
- * `preview`, `updatedAt` and `threadId` move on their own the moment a message lands, and a
- * duplicate takes none of the three — it gets a fresh thread and its own empty preview. Signing them
- * aborted duplications that were never incoherent, and copying a large workspace takes long enough
- * for an incoming message to land inside the window. Everything else is signed by omission, so a new
- * `AgentSummary` field is guarded until someone decides otherwise here.
- */
-export function duplicationProfileSignature(agent: AgentSummary): string {
-  const { preview, updatedAt, threadId, ...copied } = agent;
-  return JSON.stringify(copied);
-}
-
 function duplicationCommandId(operationId: string): string {
   return `agent-duplication:${operationId}`;
 }
-
-const rewriteInternalWorkspaceSymlinksEffect = Effect.fn("AgentStore.rewriteWorkspaceSymlinks")(function* (
-  sourceRoot: string,
-  stagedRoot: string,
-  finalRoot: string,
-) {
-  const canonicalSourceRoot = yield* storedIO(() => realpath(sourceRoot));
-  const visit = Effect.fn("AgentStore.visitWorkspaceSymlinks")(function* (
-    stagedDirectory: string,
-    sourceDirectory: string,
-    finalDirectory: string,
-  ): Effect.fn.Return<void, StoredStateFailure> {
-    const entries = yield* storedIO(() => readdir(stagedDirectory, { withFileTypes: true }));
-    for (const entry of entries) {
-      const stagedPath = join(stagedDirectory, entry.name);
-      const sourcePath = join(sourceDirectory, entry.name);
-      const finalPath = join(finalDirectory, entry.name);
-      if (entry.isSymbolicLink()) {
-        const target = yield* storedIO(() => readlink(stagedPath));
-        const resolvedSourceTarget = resolve(dirname(sourcePath), target);
-        const resolved = yield* Effect.result(storedIO(() => realpath(resolvedSourceTarget)));
-        let sourceRelativePath: string;
-        if (Result.isSuccess(resolved)) {
-          if (!isPathInside(canonicalSourceRoot, resolved.success)) continue;
-          sourceRelativePath = relative(canonicalSourceRoot, resolved.success);
-        } else {
-          if (!isPathInside(sourceRoot, resolvedSourceTarget)) continue;
-          sourceRelativePath = relative(sourceRoot, resolvedSourceTarget);
-        }
-        const finalTarget = join(finalRoot, sourceRelativePath);
-        const rewrittenTarget = isAbsolute(target) ? finalTarget : relative(dirname(finalPath), finalTarget) || ".";
-        yield* storedIO(() => rm(stagedPath));
-        yield* storedIO(() => symlink(rewrittenTarget, stagedPath));
-      } else if (entry.isDirectory()) yield* visit(stagedPath, sourcePath, finalPath);
-    }
-  });
-  yield* visit(stagedRoot, sourceRoot, finalRoot);
-});
-
-const workspaceMetadataFingerprintEffect = Effect.fn("AgentStore.workspaceFingerprint")(function* (root: string) {
-  const hash = createHash("sha256");
-  const visit = Effect.fn("AgentStore.visitWorkspaceMetadata")(function* (
-    directory: string,
-    prefix: string,
-  ): Effect.fn.Return<void, StoredStateFailure> {
-    const entries = yield* storedIO(() => readdir(directory, { withFileTypes: true }));
-    entries.sort((left, right) => left.name.localeCompare(right.name));
-    for (const entry of entries) {
-      const path = join(directory, entry.name);
-      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
-      const stats = yield* storedIO(() => lstat(path, { bigint: true }));
-      hash.update(`${relativePath}\0${stats.mode}\0${stats.size}\0${stats.mtimeNs}\0${stats.ctimeNs}\0`);
-      if (stats.isSymbolicLink()) hash.update(`link\0${yield* storedIO(() => readlink(path))}\0`);
-      else if (stats.isDirectory()) {
-        hash.update("directory\0");
-        yield* visit(path, relativePath);
-      } else if (stats.isFile()) hash.update("file\0");
-      else hash.update("other\0");
-    }
-  });
-  yield* visit(root, "");
-  return hash.digest("hex");
-});
-
-const fileFingerprintEffect = Effect.fn("AgentStore.fileFingerprint")(function* (path: string) {
-  const stats = yield* storedIO(() => lstat(path));
-  const hash = createHash("sha256");
-  hash.update(`${stats.mode}\0`);
-  yield* Effect.acquireUseRelease(
-    storedSync(() => createReadStream(path)),
-    (stream) =>
-      Stream.fromAsyncIterable(stream, (cause) => new StoredStateFailure({ cause })).pipe(
-        Stream.runForEach((chunk) =>
-          storedSync(() => {
-            hash.update(chunk);
-          }),
-        ),
-      ),
-    (stream) =>
-      Effect.sync(() => {
-        stream.destroy();
-      }),
-  );
-  return hash.digest("hex");
-});
 
 function validateAgentId(id: string): void {
   if (!isValidAgentId(id)) {

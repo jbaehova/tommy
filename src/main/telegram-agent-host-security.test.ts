@@ -48,9 +48,12 @@ describe("Telegram agent reply authorization", () => {
     }
     try {
       await runCauseEffect(mailbox.initialize());
-      const senderMember = { id: "telegram:10:20", name: "Telegram" };
+      const originalGeneration = "74860f7b-0000-4000-a000-000000000000";
+      let generation = originalGeneration;
+      const senderMember = { id: `telegram:10:20:${generation}`, name: "Telegram" };
       const human = { sender: { kind: "user" as const }, senderMember, text: "Ask for help", recipientAgentIds: ["a"] };
       const rootMessageId = await deliver(human, "user-turn");
+      await deliver({ ...human, senderMember: { id: "telegram:10:20", name: "Telegram" } }, "legacy-turn");
       const local = { ...human, senderMember: { id: "local", name: "Local" } };
       await deliver(local, "local-turn");
       // A request that agent a sent in its owner turn, as send_message keys it.
@@ -105,12 +108,14 @@ describe("Telegram agent reply authorization", () => {
           updateAgent: unused,
           sendMessage: unused,
           prepareImportedAttachments: unused,
+          discardDraftAttachment: unused,
           on: unused,
           off: unused,
         },
         new SidebarLayoutStore(join(directory, "layout.json")),
         mailbox,
         database,
+        () => generation,
       );
       const active = new Map([
         [10, "a"],
@@ -127,6 +132,14 @@ describe("Telegram agent reply authorization", () => {
       expect(inspect("a", "user-turn", 10, 21)).toBe(false);
       expect(inspect("a", "user-turn", 11)).toBe(false);
       expect(host.ownsTurn("a", "user-turn", 10, 20)).toBe(true);
+      expect(host.ownsTurn("a", "legacy-turn", 10, 20)).toBe(false);
+      expect(host.ownsTurn("a", "legacy-turn", 10, 20, originalGeneration)).toBe(true);
+      generation = "9f2f52de-0000-4000-8000-000000000000";
+      expect(host.ownsTurn("a", "user-turn", 10, 20)).toBe(false);
+      expect(host.ownsTurn("a", "legacy-turn", 10, 20, originalGeneration)).toBe(false);
+      expect(host.tracedChat("b", "peer-turn", 20, binding)).toBeNull();
+      expect(inspect("a", "user-turn", 10)).toBe(false);
+      generation = originalGeneration;
       expect(host.ownsTurn("a", "local-turn", 10, 20)).toBe(false);
 
       // The answer to a's own request belongs to the turn that asked, so its result reaches the owner.
@@ -145,9 +158,9 @@ describe("Telegram agent reply authorization", () => {
       expect(mailbox.telegramOriginsForTurn("b", "peer-turn")).toEqual([
         { requestFrom: { agentId: "a", turnId: "user-turn" } },
       ]);
-      expect(host.tracedChat("b", "peer-turn", 20)).toBe(10);
-      expect(host.tracedChat("b", "peer-turn", 21)).toBeNull();
-      expect(host.tracedChat("b", "private-peer-turn", 20)).toBeNull();
+      expect(host.tracedChat("b", "peer-turn", 20, binding)).toBe(10);
+      expect(host.tracedChat("b", "peer-turn", 21, binding)).toBeNull();
+      expect(host.tracedChat("b", "private-peer-turn", 20, binding)).toBeNull();
       expect(host.ownsTurn("b", "peer-turn", 10, 20)).toBe(false);
       expect(host.ownsTurn("b", "peer-turn", 11, 20)).toBe(false);
       expect(inspect("b", "peer-turn", 11)).toBe(false);
@@ -173,7 +186,10 @@ describe("Telegram agent reply authorization", () => {
       host.setRoutineChat(() => null);
       expect(host.ownsTurn("a", "routine-turn", 10, 20)).toBe(false);
 
+      active.set(10, "c");
+      expect(host.tracedChat("b", "peer-turn", 20, binding)).toBeNull();
       active.delete(10);
+      expect(host.tracedChat("b", "peer-turn", 20, binding)).toBeNull();
       expect(inspect("a", "user-turn", 10)).toBe(false);
       active.set(10, "a");
       agents.splice(0, 1);
@@ -194,7 +210,7 @@ describe("Telegram agent reply authorization", () => {
     );
     const digest = createHash("sha256").update(bytes).digest("hex");
     const mailbox = {
-      generatedImageDigest: (id: string, agentId: string, threadId: string) =>
+      generatedAttachmentDigest: (id: string, agentId: string, threadId: string) =>
         id === "picture" && agentId === "a" && threadId === "t" ? digest : null,
       resolveAttachment: () => Effect.succeed({ path, mimeType: "image/png", name: "image.png" }),
     };

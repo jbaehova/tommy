@@ -3,11 +3,9 @@ import type { DatabaseSync } from "node:sqlite";
 import type { StoredProviderId } from "@tommy/contracts/agent-providers";
 import type {
   AgentSummary,
-  ConversationFileSearchPage,
   ConversationMessage,
   ConversationPage,
   ConversationPageAnchor,
-  ConversationSearchPage,
   ConversationSnapshot,
 } from "@tommy/contracts/ipc";
 import { AgentHistoryQueries, type AgentHistorySelection } from "./database/agent-history-queries";
@@ -168,13 +166,6 @@ export class TommyDatabase {
     return this.#conversations.readConversationRevision(agentId, threadId);
   }
 
-  readConversationRuntime(
-    agentId: string,
-    threadId: string | null,
-  ): { activeTurnId: string | null; latestMessage: ConversationMessage | null } {
-    return this.#conversations.readConversationRuntime(agentId, threadId);
-  }
-
   readAgentHistory(agentId: string, threadId: string, selection: AgentHistorySelection) {
     return this.#agentHistory.read(agentId, threadId, selection);
   }
@@ -215,20 +206,6 @@ export class TommyDatabase {
     options: ConversationMarkerExclusions = {},
   ): string | null {
     return this.#conversations.supportedConversationCursor(threadId, throughMessageId, options);
-  }
-
-  searchConversationMessages(
-    query: string,
-    agentId?: string,
-    cursor?: string,
-    requestedLimit = 100,
-    includeSideThreads = false,
-  ): ConversationSearchPage {
-    return this.#conversations.searchConversationMessages(query, agentId, cursor, requestedLimit, includeSideThreads);
-  }
-
-  searchConversationFiles(query: string, cursor?: string, requestedLimit = 50): ConversationFileSearchPage {
-    return this.#conversations.searchConversationFiles(query, cursor, requestedLimit);
   }
 
   persistConversation(
@@ -511,10 +488,6 @@ export class TommyDatabase {
     pendingOnly?: boolean;
   }): ProviderHistoryStagedItem[] {
     return this.#providerHistory.readStagedItems(input);
-  }
-
-  markProviderHistoryTurnImported(sessionId: string, turnId: string): void {
-    this.#providerHistory.markTurnImported(sessionId, turnId);
   }
 
   markProviderHistoryImportState(

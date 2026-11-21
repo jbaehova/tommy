@@ -10,5 +10,4 @@ export const messages = defineMessages("error.mcp", {
   "error.mcp.redirectSignedIn": "Tommy is signed in. You can close this window.",
   "error.mcp.signInFileUnreadable": "The MCP sign-in file is unreadable.",
   "error.mcp.signInFileTooLarge": "The MCP sign-in file is too large.",
-  "error.mcp.redirectRelayed": "Tommy sent the sign-in to the server. You can close this window.",
 });

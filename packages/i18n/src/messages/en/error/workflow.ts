@@ -10,6 +10,7 @@ export const messages = defineMessages("error.workflow", {
   "error.workflow.conditionBranch": "Each connection from a condition must be yes or no.",
   "error.workflow.duplicateEdge": "These two steps already have this connection.",
   "error.workflow.nodeUnsupported": "This version of Tommy cannot run image, file and message steps yet.",
+  "error.workflow.discordUnavailable": "Discord workflow steps are unavailable on this server.",
   "error.workflow.interrupted": "Tommy stopped while this step ran. Run it again.",
   "error.workflow.agentMissing": "Choose an agent for this step.",
   "error.workflow.handoffFailed": "Tommy could not send this step to its agent.",

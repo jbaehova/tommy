@@ -206,10 +206,6 @@ export class AgentMemories {
     if (this.#memories.clear(agentId) > 0) this.stateChanged(agentId);
   }
 
-  duplicate(sourceAgentId: string, targetAgentId: string): void {
-    this.#memories.duplicate(sourceAgentId, targetAgentId);
-  }
-
   /** The memories that a background review reads, with the epoch that its changes must still match. */
   reviewBase(agentId: string): MemoryReviewBase {
     const read = (ownerId: string) => {

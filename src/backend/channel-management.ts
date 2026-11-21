@@ -15,13 +15,13 @@ import {
 } from "@tommy/contracts/ipc";
 import { type DynamicRecord, isBoolean, isString } from "@tommy/contracts/runtime-values";
 import { sourceText } from "@tommy/i18n/source";
-import { RoutineInputError } from "@tommy/team-client/routine-schedule";
 import {
   routineToolArguments,
   routineToolPolicies,
   routineToolSchedule,
   routineToolString,
 } from "./agent/routine-tools";
+import { RoutineInputError } from "./routine-schedule";
 
 const ROUTINE_TOOLS: ReadonlySet<string> = new Set([
   "channel_list_routines",

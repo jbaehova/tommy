@@ -3,13 +3,9 @@ import { CHAT_VISUAL_ITEM_TYPE_PREFIX } from "@tommy/contracts/chat-visual";
 import {
   AGENT_EXCHANGE_ITEM_TYPE,
   AGENT_INSTRUCTIONS_CHANGE_ITEM_TYPE,
-  type AgentSummary,
   CONTEXT_RESET_ITEM_TYPE,
   CONVERSATION_MEMORY_CHANGES_ITEM_TYPE,
-  CONVERSATION_PLAN_ITEM_TYPE,
-  CONVERSATION_SUBAGENTS_ITEM_TYPE,
   type ConversationReadState,
-  type ConversationSnapshot,
   HOSTED_SITE_EVENT_ITEM_TYPE_PREFIX,
   MARKETPLACE_SUGGESTION_ITEM_TYPE_PREFIX,
   MODEL_SWITCH_ITEM_TYPE_PREFIX,
@@ -20,7 +16,6 @@ import {
   SKILL_EVENT_ITEM_TYPE_PREFIX,
 } from "@tommy/contracts/ipc";
 import { isDynamicRecord, isNumber, isString } from "@tommy/contracts/runtime-values";
-import { sourceText } from "@tommy/i18n/source";
 import {
   type ConversationMarkerExclusions,
   ORDER_KEY_COLUMNS,
@@ -33,16 +28,6 @@ export type { ConversationMarkerExclusions } from "./database/conversation-queri
 
 export class ConversationReadStore {
   constructor(readonly database: TommyDatabase) {}
-
-  listStates(
-    memberId: string,
-    agents: AgentSummary[],
-    options: ConversationMarkerExclusions = {},
-  ): Record<string, ConversationReadState> {
-    return Object.fromEntries(
-      agents.map((agent) => [agent.id, this.readStateForThread(memberId, agent.threadId, options)]),
-    );
-  }
 
   readStateForThread(
     memberId: string,
@@ -68,66 +53,6 @@ export class ConversationReadStore {
     return this.#withSupportedCursor(threadId, state, options);
   }
 
-  adoptMemberState(sourceMemberId: string, targetMemberId: string): void {
-    if (sourceMemberId === targetMemberId) return;
-    const rows = this.database.connection
-      .prepare(
-        `SELECT thread_id, through_message_id FROM projection_thread_reads
-         WHERE member_id = ?`,
-      )
-      .all(sourceMemberId);
-    if (!Array.isArray(rows)) throw new Error("The conversation read states are malformed.");
-    for (const value of rows) {
-      if (!isDynamicRecord(value) || !isString(value.thread_id)) {
-        throw new Error("The conversation read state is malformed.");
-      }
-      const cursor = value.through_message_id;
-      if (cursor !== null && !isString(cursor)) {
-        throw new Error("The conversation read cursor is malformed.");
-      }
-      if (this.#storedCursor(value.thread_id, targetMemberId) === undefined) {
-        this.#saveCursor(value.thread_id, targetMemberId, cursor, "initialized");
-      }
-    }
-  }
-
-  readState(memberId: string, snapshot: ConversationSnapshot): ConversationReadState {
-    if (!snapshot.threadId) return emptyReadState();
-    const stored = this.#storedCursor(snapshot.threadId, memberId);
-    if (stored === undefined) {
-      const baseline = this.#migrationCursor(snapshot.threadId);
-      const initialCursor =
-        baseline && !snapshot.messages.some((message) => message.id === baseline)
-          ? (snapshot.messages.at(-1)?.id ?? null)
-          : baseline;
-      return this.#initialize(memberId, snapshot, initialCursor);
-    }
-    if (stored !== null && !snapshot.messages.some((message) => message.id === stored)) {
-      return this.#initialize(memberId, snapshot, snapshot.messages.at(-1)?.id ?? null);
-    }
-    return stateFromSnapshot(snapshot, stored);
-  }
-
-  markRead(
-    memberId: string,
-    snapshot: ConversationSnapshot,
-    throughMessageId: string | null,
-    options: ConversationMarkerExclusions = {},
-  ): ConversationReadState {
-    if (!snapshot.threadId) return emptyReadState();
-    const requestedIndex = throughMessageId
-      ? snapshot.messages.findIndex((message) => message.id === throughMessageId)
-      : -1;
-    if (throughMessageId && requestedIndex < 0) {
-      throw new Error(sourceText("error.backend.readBoundaryUnavailable"));
-    }
-    const stored = this.#storedCursor(snapshot.threadId, memberId);
-    const storedIndex = stored ? snapshot.messages.findIndex((message) => message.id === stored) : -1;
-    const nextThroughMessageId = storedIndex > requestedIndex ? (stored ?? null) : (throughMessageId ?? null);
-    this.#saveCursor(snapshot.threadId, memberId, nextThroughMessageId, "marked");
-    return this.#withSupportedCursor(snapshot.threadId, stateFromSnapshot(snapshot, nextThroughMessageId), options);
-  }
-
   /**
    * Marks a database boundary without loading the thread messages. The public conversation reader
    * uses this for marker actions because a marker can target a message older than the working
@@ -151,30 +76,6 @@ export class ConversationReadStore {
     }
     this.#saveCursor(threadId, memberId, nextThroughMessageId, "marked");
     return this.#withSupportedCursor(threadId, this.#stateFromDatabase(threadId, nextThroughMessageId), options);
-  }
-
-  markUnread(memberId: string, snapshot: ConversationSnapshot): ConversationReadState {
-    if (!snapshot.threadId) return emptyReadState();
-    // Explicit user action only. Ordinary read acknowledgements remain monotonic.
-    this.#saveCursor(snapshot.threadId, memberId, null, "marked");
-    return stateFromSnapshot(snapshot, null);
-  }
-
-  /**
-   * Marks a thread unread without reading its message rows. With `fromMessageId`, that message and
-   * the messages after it are unread: the cursor moves back to the message shown before it.
-   */
-  markUnreadForThread(
-    memberId: string,
-    threadId: string | null,
-    fromMessageId: string | null = null,
-  ): ConversationReadState {
-    if (!threadId) return emptyReadState();
-    const fromKey = fromMessageId ? this.#messageOrderKey(threadId, fromMessageId) : undefined;
-    if (fromMessageId && !fromKey) throw new Error(sourceText("error.backend.readBoundaryUnavailable"));
-    const throughMessageId = fromKey ? this.#messageBefore(threadId, fromKey) : null;
-    this.#saveCursor(threadId, memberId, throughMessageId, "marked");
-    return this.#stateFromDatabase(threadId, throughMessageId);
   }
 
   #withSupportedCursor(
@@ -252,22 +153,6 @@ export class ConversationReadStore {
     );
   }
 
-  #messageBefore(threadId: string, boundary: MessageOrderKey): string | null {
-    const row = this.database.connection
-      .prepare(
-        `${ORDERED_THREAD_MESSAGES}
-         SELECT message_id FROM ordered
-         WHERE (${ORDER_KEY_COLUMNS}) < (?, ?, ?, ?, ?, ?, ?)
-         ORDER BY ${ORDER_KEY_DESC} LIMIT 1`,
-      )
-      .get(threadId, ...boundary);
-    if (row === undefined) return null;
-    if (!isDynamicRecord(row) || !isString(row.message_id)) {
-      throw new Error("The previous conversation message is malformed.");
-    }
-    return row.message_id;
-  }
-
   #latestMessageId(threadId: string): string | null {
     const row = this.database.connection
       .prepare(
@@ -339,16 +224,6 @@ export class ConversationReadStore {
     throw new Error("The conversation read baseline cursor is malformed.");
   }
 
-  #initialize(
-    memberId: string,
-    snapshot: ConversationSnapshot,
-    throughMessageId: string | null,
-  ): ConversationReadState {
-    if (!snapshot.threadId) return emptyReadState();
-    this.#saveCursor(snapshot.threadId, memberId, throughMessageId, "initialized");
-    return stateFromSnapshot(snapshot, throughMessageId);
-  }
-
   #saveCursor(
     threadId: string,
     memberId: string,
@@ -383,40 +258,6 @@ export class ConversationReadStore {
       },
     );
   }
-}
-
-function stateFromSnapshot(snapshot: ConversationSnapshot, throughMessageId: string | null): ConversationReadState {
-  const throughIndex = throughMessageId
-    ? snapshot.messages.findIndex((message) => message.id === throughMessageId)
-    : -1;
-  const unread = snapshot.messages
-    .slice(throughIndex + 1)
-    .filter(
-      (message) =>
-        message.author !== "user" &&
-        message.itemType !== "commentary" &&
-        message.itemType !== CONVERSATION_PLAN_ITEM_TYPE &&
-        message.itemType !== CONVERSATION_SUBAGENTS_ITEM_TYPE &&
-        message.itemType !== CONVERSATION_MEMORY_CHANGES_ITEM_TYPE &&
-        message.itemType !== PLAN_CONTINUATION_ITEM_TYPE &&
-        message.itemType !== AGENT_INSTRUCTIONS_CHANGE_ITEM_TYPE &&
-        message.itemType !== ROUTINE_QUIET_ANSWER_ITEM_TYPE &&
-        message.itemType !== "agent_attachment" &&
-        !message.itemType?.startsWith(CHAT_VISUAL_ITEM_TYPE_PREFIX) &&
-        message.itemType !== AGENT_EXCHANGE_ITEM_TYPE &&
-        !message.itemType?.startsWith(SKILL_EVENT_ITEM_TYPE_PREFIX) &&
-        !message.itemType?.startsWith(ROUTINE_EVENT_ITEM_TYPE_PREFIX) &&
-        !message.itemType?.startsWith(ROUTINE_RUN_EVENT_ITEM_TYPE_PREFIX) &&
-        !message.itemType?.startsWith(HOSTED_SITE_EVENT_ITEM_TYPE_PREFIX) &&
-        !message.itemType?.startsWith(MARKETPLACE_SUGGESTION_ITEM_TYPE_PREFIX) &&
-        !message.itemType?.startsWith(MODEL_SWITCH_ITEM_TYPE_PREFIX) &&
-        message.itemType !== CONTEXT_RESET_ITEM_TYPE,
-    );
-  return {
-    unreadCount: unread.length,
-    firstUnreadMessageId: unread[0]?.id ?? null,
-    throughMessageId,
-  };
 }
 
 /** The shown-order key of a message: its group's start, first ordinal and id, its rank in the turn, then its own time, ordinal and id. */

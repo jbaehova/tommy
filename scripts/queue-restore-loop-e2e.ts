@@ -241,7 +241,6 @@ const memory: HostMemory = {
   turnLimit: () => 8,
   reserveTurn: () => () => {},
   subscribe: () => () => {},
-  hostedPlan: false,
 };
 const unused = () => Effect.die(new Error("Not used by this check."));
 const browser: AgentBrowserHost = {
@@ -249,14 +248,9 @@ const browser: AgentBrowserHost = {
   unshareThread: () => {},
   agentTab: () => null,
   listTabs: () => [],
-  beginTakeover: unused,
-  endTakeover: () => {},
-  userControlTabFor: () => null,
-  awaitUserControlRelease: unused,
   resolveUploadTarget: unused,
   handleDynamicTool: unused,
   onChanged: () => () => {},
-  onControlChanged: () => () => {},
   onDocumentChanged: () => () => {},
   clearControls: () => {},
   endControl: () => {},

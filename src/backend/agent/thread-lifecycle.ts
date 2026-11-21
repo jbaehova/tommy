@@ -1288,6 +1288,7 @@ export class ThreadLifecycle {
       sectionTeammates: section,
       homeSkills,
       workspaceSkills,
+      computerUse: mcpServers.some((config) => config.id === AGENT_DESKTOP_MCP_SERVER_ID),
       httpMcpServers: mcpServers.some((config) => config.transport === "http"),
       deferredMcpServers:
         client.provider === "codex" ? codexDeferredMcpServers(mcpServers).map((config) => config.name) : [],

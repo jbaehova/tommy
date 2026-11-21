@@ -1,7 +1,6 @@
 import type { BrowserEnvironment, BrowserPreview, BrowserTab } from "@tommy/contracts/ipc";
-import type { BrowserViewContextMenu } from "@tommy/contracts/team-protocol/browser-view-v1";
 import type { Deferred, Effect, Scope } from "effect";
-import { BrowserWindow, type Session, type WebContents, type WebContentsView, webContents } from "electron";
+import type { WebContents, WebContentsView } from "electron";
 import type { BrowserCdpEngine } from "./browser-cdp";
 import type { BrowserDiagnostics } from "./browser-diagnostics";
 import type { BrowserOperationError } from "./browser-effects";
@@ -53,11 +52,6 @@ export interface BrowserHostTab {
    */
   workerExposedOrigins?: Set<string>;
   /**
-   * A session of this tab and its popups only, kept in memory: a sign-in page that the host opened
-   * for someone else. Such a tab is not saved, and its cookies go when it closes.
-   */
-  privateSession?: Session;
-  /**
    * The persistent session this tab and its popups use: the agent's own session or a named profile.
    * Absent: the shared session. Fixed for the life of the tab.
    */
@@ -101,41 +95,16 @@ export interface BrowserHostTab {
   sleeping?: { title: string; preview: BrowserPreview | null } | undefined;
   /** When a person or an agent last used the tab. A preview request does not count as use. */
   lastUsedAt: number;
-  focusOnVisible: boolean;
-  /** The next document keeps the focus that it takes when it commits: a person opened the tab or entered its address. */
-  focusOnCommit?: boolean | undefined;
-  /** Whether the tab had focus when its page closed itself, so its opener can take focus over. */
-  focusedAtPageClose?: boolean | undefined;
   environment: BrowserEnvironment;
   engine: BrowserCdpEngine;
   diagnostics: BrowserDiagnostics;
   recording: boolean;
   captureGeneration: number;
-  /** Counts the addresses loaded after the tab opened. A later load that aborts the first load does not close the tab. */
-  loadGeneration: number;
-  viewInvalidations: Set<() => void>;
-  /**
-   * The live view that made the last right-click, until the menu of that click opens. The menu then
-   * goes to that view, and does not open on this screen.
-   */
-  viewContextMenu: { deliver: (menu: BrowserViewContextMenu) => void; until: number } | null;
-  /** The host of the last page reported as a site visit, so a navigation inside one site is not reported again. */
-  visitedHost?: string | undefined;
-  // Pending consent permits human takeover; submission blocks captures until document replacement.
+  // A pending or submitted secret blocks owner screenshots.
   secret?: { origin: string; submitted: boolean; replaced: boolean; running: boolean } | undefined;
 }
 
 export type KeepQueueBlocked = (work: Effect.Effect<unknown, BrowserOperationError>) => void;
-
-export function restoreWebContentsFocus(previous: WebContents | null, controlled: WebContents): void {
-  const current = webContents.getFocusedWebContents();
-  if (current && current !== controlled) return;
-  if (previous && !previous.isDestroyed()) {
-    const window = BrowserWindow.fromWebContents(previous);
-    if (window && !window.isDestroyed()) window.focus();
-    previous.focus();
-  }
-}
 
 /** Whether history has a page with an address at `offset` from the current one, as back and forward need. */
 export function hasHistoryEntry(contents: WebContents, offset: -1 | 1): boolean {

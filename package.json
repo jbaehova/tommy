@@ -60,7 +60,6 @@
     "typecheck:logging": "bun run --cwd packages/logging typecheck",
     "typecheck:user-errors": "bun run --cwd packages/user-errors typecheck",
     "typecheck:i18n": "bun run --cwd packages/i18n typecheck",
-    "typecheck:team-client": "bun run --cwd packages/team-client typecheck",
     "typecheck": "bun run --parallel 'typecheck:*'",
     "lint": "biome check --max-diagnostics=none .",
     "format": "biome check --write --max-diagnostics=none .",
@@ -71,7 +70,7 @@
     "test:changed": "git merge-base origin/main HEAD > /dev/null && vitest run --changed origin/main --maxWorkers=1",
     "test:related": "vitest related --run --maxWorkers=1",
     "test:backend": "vitest run src/backend",
-    "package:linux": "bun run build && electron-builder --dir --linux --x64 --publish never"
+    "package:linux": "bun run build && electron-builder --linux dir --publish never"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.9.0",
@@ -88,11 +87,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.13",
-    "@electron/fuses": "1.8.0",
     "@tommy/contracts": "workspace:*",
     "@tommy/i18n": "workspace:*",
     "@tommy/logging": "workspace:*",
-    "@tommy/team-client": "workspace:*",
     "@tommy/user-errors": "workspace:*",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
@@ -102,14 +99,11 @@
     "knip": "6.42.1",
     "playwright-core": "1.64.1",
     "tsrs": "0.16.0-ts7.1.0-dev.20260929",
-    "tsx": "^4.23.15",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
   },
   "trustedDependencies": [
-    "electron-winstaller",
-    "esbuild",
-    "workerd"
+    "esbuild"
   ]
 }

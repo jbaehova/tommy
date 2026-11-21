@@ -98,17 +98,10 @@ import {
   updateProfileToolSchema,
   widensAgentSettings,
 } from "./profile-tools";
-import { apiKeyFormSpec, browserUserControlResult } from "./prompts";
+import { apiKeyFormSpec } from "./prompts";
 import { ROUTINE_NO_UPDATE_TOOL, ROUTINE_REPORT_FAILURE_TOOL } from "./routine-quiet-runs";
 import type { RoutineScheduler } from "./routine-scheduler";
 import { type TommyToolResponse, tommyToolFailure, tommyToolResult } from "./routine-tools";
-import {
-  captureScreenToolSchema,
-  type ScreenCaptureFailed,
-  type ScreenCaptureHost,
-  type ScreenCaptureImage,
-  type ScreenCaptureRequest,
-} from "./screen-capture";
 import { type AgentSidebar, handleSidebarTool } from "./sidebar-tools";
 import { LOCAL_SKILL_TOOL_DEFINITIONS, type LocalSkillTools, runLocalSkillTool } from "./skill-tools";
 import { isDynamicToolCall } from "./thread-items";
@@ -143,11 +136,6 @@ function listedDescription(description: string): string {
     .slice(0, LISTED_DESCRIPTION_LENGTH - 1)
     .join("")
     .trimEnd()}…`;
-}
-
-/** The reason says what to grant or to correct, and holds no screen content. */
-function captureFailure(failure: ScreenCaptureFailed) {
-  return tommyToolFailure(failure.reason);
 }
 
 export interface TommyToolRouterHooks {
@@ -213,8 +201,6 @@ export interface TommyToolRouterOptions {
   approvalAutomation?: ApprovalAutomationPolicy | undefined;
   /** Draws pages for `html_preview`; null where no window can draw one. */
   visualPreview?: ChatVisualPreviewHost | null | undefined;
-  /** Captures the desktop for `capture_screen`; null where this process has no desktop. */
-  screenCapture?: ScreenCaptureHost | null | undefined;
   /** The MCP servers of this Tommy server, for the MCP tools; null where nothing holds them. */
   mcpServers?: AgentMcpServers | null | undefined;
   /** The saved server that a Marketplace app installs, or null when it is not installed. */
@@ -253,7 +239,6 @@ export class TommyToolRouter {
   readonly #workflowTools: (() => WorkflowTools) | undefined;
   readonly #approvalAutomation: ApprovalAutomationPolicy;
   readonly #visualPreview: ChatVisualPreviewHost | null;
-  readonly #screenCapture: ScreenCaptureHost | null;
   readonly #mcpServers: AgentMcpServers | null;
   readonly #apiKeys: AgentApiKeys | null;
   readonly #hooks: TommyToolRouterHooks;
@@ -286,7 +271,6 @@ export class TommyToolRouter {
     this.#workflowTools = options.workflowTools;
     this.#approvalAutomation = options.approvalAutomation ?? NO_APPROVAL_AUTOMATION;
     this.#visualPreview = options.visualPreview ?? null;
-    this.#screenCapture = options.screenCapture ?? null;
     this.#mcpServers = options.mcpServers ?? null;
     this.#apiKeys = options.apiKeys ?? null;
     this.#hooks = options.hooks;
@@ -447,7 +431,12 @@ export class TommyToolRouter {
             if (this.#attention.hasBrowserTakeoverForAgent(agentId)) {
               client.respond(toolRequest.id, {
                 success: false,
-                contentItems: [{ type: "inputText", text: "Browser tools are unavailable during user takeover." }],
+                contentItems: [
+                  {
+                    type: "inputText",
+                    text: "Browser tools are unavailable while the owner answers a secure request.",
+                  },
+                ],
               });
               return;
             }
@@ -456,12 +445,7 @@ export class TommyToolRouter {
               threadId: this.#conversation.publicThreadId(agentId, toolRequest.params.threadId),
               ownerAgentId: agentId,
             };
-            // While the user controls the tab, the call waits for the release and does not run.
-            const userControl = (tabId: string) =>
-              this.#browser.awaitUserControlRelease(tabId).pipe(Effect.as(browserUserControlResult()));
             const operation = Effect.gen({ self: this }, function* () {
-              const heldTabId = this.#browser.userControlTabFor(params);
-              if (heldTabId) return yield* userControl(heldTabId);
               switch (params.tool) {
                 case "upload_files":
                   return yield* this.#browserUploads.uploadFiles(agentId, params);
@@ -475,7 +459,6 @@ export class TommyToolRouter {
                   return yield* this.#attention.deleteVaultItem(params);
                 default: {
                   return yield* this.#browser.handleDynamicTool(params, {
-                    onUserControl: userControl,
                     cardVault: this.#attention.cardVault(client, toolRequest, params),
                   });
                 }
@@ -511,7 +494,7 @@ export class TommyToolRouter {
               return;
             }
             if (toolRequest.params.tool === "capture_screen" || toolRequest.params.tool === "list_capture_sources") {
-              const result = yield* this.#screenCaptureTool(client, toolRequest, toolRequest.params);
+              const result = tommyToolFailure(sourceText("error.agent.screenCaptureUnavailable"));
               if (!toolRequest.signal?.aborted && client.running) client.respond(toolRequest.id, result);
               return;
             }
@@ -1174,7 +1157,7 @@ export class TommyToolRouter {
 
   /**
    * `html_render`: stores the page as an HTML attachment and adds a visual reply message, which the
-   * app shows in a sandboxed frame above the final answer. A retried call finds its message by id.
+   * delivery reads after the turn ends. A retried call reuses the stored attachments.
    */
   readonly #renderVisual = Effect.fn("TommyToolRouter.renderVisual")(function* (
     this: TommyToolRouter,
@@ -1190,8 +1173,21 @@ export class TommyToolRouter {
     if (
       this.#conversation.ensureSnapshot(senderAgentId, executionThreadId).messages.some(({ id }) => id === messageId)
     ) {
-      return tommyToolResult({ status: "shown", messageId });
+      return tommyToolResult({ status: "queued", messageId });
     }
+    const preview = this.#visualPreview
+      ? yield* this.#visualPreview
+          .capture({
+            html: args.html,
+            width: CHAT_VISUAL_PREVIEW_DEFAULT_WIDTH,
+            appearance: "dark",
+          })
+          .pipe(Effect.orElseSucceed(() => null))
+      : null;
+    const prefix = "data:image/png;base64,";
+    const png = preview?.imageUrl.startsWith(prefix)
+      ? Buffer.from(preview.imageUrl.slice(prefix.length), "base64")
+      : null;
     yield* this.#addGeneratedMessage({
       agentId: senderAgentId,
       threadId: executionThreadId,
@@ -1203,11 +1199,12 @@ export class TommyToolRouter {
         mimeType: "text/html",
       },
       text: args.title,
-      itemType: chatVisualItemType(args.height),
+      itemType: chatVisualItemType(args.height, args.includeSource || preview?.interactive),
+      ...(png?.length && png.length <= 10_000_000 ? { preview: png } : {}),
       eventType: "response.visual-added",
       detail: (attachmentId) => ({ turnId: params.turnId, messageId, attachmentId }),
     });
-    return tommyToolResult({ status: "shown", messageId });
+    return tommyToolResult({ status: "queued", messageId });
   });
 
   /**
@@ -1222,6 +1219,7 @@ export class TommyToolRouter {
       turnId: string;
       messageId: string;
       file: { bytes: Uint8Array; name: string; mimeType: string };
+      preview?: Uint8Array;
       text: string;
       itemType: string;
       eventType: string;
@@ -1231,9 +1229,26 @@ export class TommyToolRouter {
     const attachment = yield* this.#mailbox
       .stageGeneratedBytes({ ...message.file, ownerAgentId: message.agentId, ownerThreadId: message.threadId })
       .pipe(toToolOperationFailed);
+    const preview = message.preview
+      ? yield* this.#mailbox
+          .stageGeneratedBytes({
+            bytes: message.preview,
+            name: message.file.name.replace(/\.html$/u, ".png"),
+            mimeType: "image/png",
+            ownerAgentId: message.agentId,
+            ownerThreadId: message.threadId,
+          })
+          .pipe(Effect.orElseSucceed(() => null))
+      : null;
+    const attachments = preview ? [attachment, preview] : [attachment];
+    const ids = attachments.map((item) => item.id);
     // A concurrent `attach_files_to_response` keeps the live snapshot while it reads files, then saves
     // it. A replaced snapshot would make that save delete this message, so the message goes in place.
     const snapshot = this.#conversation.ensureSnapshot(message.agentId, message.threadId);
+    if (snapshot.messages.some((row) => row.id === message.messageId)) {
+      yield* this.#mailbox.discardStagedGeneratedAttachments(ids).pipe(toToolOperationFailed);
+      return;
+    }
     snapshot.messages.push({
       id: message.messageId,
       turnId: message.turnId,
@@ -1243,7 +1258,7 @@ export class TommyToolRouter {
       createdAt: new Date().toISOString(),
       status: "completed",
       itemType: message.itemType,
-      attachments: [attachment],
+      attachments,
     });
     sortConversationMessages(snapshot.messages);
     try {
@@ -1251,13 +1266,13 @@ export class TommyToolRouter {
         snapshot,
         message.eventType,
         message.detail(attachment.id),
-        [attachment.id],
+        ids,
       );
       snapshot.revision = persisted.revision;
     } catch (error) {
       const messageIndex = snapshot.messages.findIndex((candidate) => candidate.id === message.messageId);
       if (messageIndex >= 0) snapshot.messages.splice(messageIndex, 1);
-      yield* this.#mailbox.discardStagedGeneratedAttachments([attachment.id]).pipe(toToolOperationFailed);
+      yield* this.#mailbox.discardStagedGeneratedAttachments(ids).pipe(toToolOperationFailed);
       throw error;
     }
     this.#conversation.publishConversation(snapshot);
@@ -1294,66 +1309,6 @@ export class TommyToolRouter {
         ),
         Effect.catchTag("ChatVisualPreviewFailed", (failure) => Effect.succeed(tommyToolFailure(failure.reason))),
       );
-  });
-
-  /**
-   * `list_capture_sources` and `capture_screen`. The agent's Computer Use setting allows both. Each
-   * capture waits for the user's approval, and the user sees the image in the conversation.
-   */
-  readonly #screenCaptureTool = Effect.fn("TommyToolRouter.screenCaptureTool")(function* (
-    this: TommyToolRouter,
-    client: AgentClient,
-    request: AppServerRequest,
-    params: DynamicToolCallParams,
-  ) {
-    const agentId = this.#conversation.agentForThread(params.threadId);
-    const agent = agentId ? this.#hooks.listAgents().find((candidate) => candidate.id === agentId) : undefined;
-    if (!agent) return tommyToolFailure(sourceText("error.agent.toolRequestInvalid"));
-    if (!agentComputerUseEnabled(agent)) return tommyToolFailure(sourceText("error.agent.screenCaptureOff"));
-    const host = this.#screenCapture;
-    if (!host) return tommyToolFailure(sourceText("error.agent.screenCaptureUnavailable"));
-    const threadId = this.#conversation.publicThreadId(agent.id, params.threadId);
-    // A channel shows the image to each member who reads it, so each capture asks, with Full access too.
-    const channelId = this.#channels.store.channelForThread(threadId);
-    if (params.tool === "list_capture_sources") {
-      const sources = yield* Effect.result(host.listSources());
-      return Result.isFailure(sources) ? captureFailure(sources.failure) : tommyToolResult(sources.success);
-    }
-    const parsed = captureScreenToolSchema.safeParse(params.arguments, { reportInput: true });
-    if (!parsed.success) return tommyToolFailure(profileToolErrorMessage(parsed.error));
-    const capture = parsed.data;
-    const messageId = responseAttachmentMessageId(params.threadId, params.turnId, params.callId);
-    if (this.#conversation.ensureSnapshot(agent.id, threadId).messages.some(({ id }) => id === messageId)) {
-      return tommyToolResult({ status: "shown", messageId });
-    }
-    const target = yield* this.#captureApprovalReason(host, capture);
-    if (typeof target !== "string") return target;
-    const channelName = channelId ? this.#channels.store.get(channelId).name : null;
-    const reason =
-      channelName === null
-        ? target
-        : `${target} ${sourceText("status.agent.screenCaptureChannel", { channel: channelName })}`;
-    const decision = yield* this.#attention.awaitToolApproval(
-      client,
-      request,
-      {
-        requestId: request.id,
-        agentId: agent.id,
-        threadId,
-        turnId: params.turnId,
-        kind: "permissions",
-        command: null,
-        cwd: null,
-        reason,
-        grantRoot: null,
-        permissions: null,
-      },
-      { alwaysAsk: channelId !== null },
-    );
-    if (decision !== "accept") return tommyToolFailure(sourceText("error.agent.screenCaptureDeclined"));
-    const image = yield* Effect.result(host.capture(capture));
-    if (Result.isFailure(image)) return captureFailure(image.failure);
-    return yield* this.#showCapture(agent.id, threadId, params, messageId, image.success);
   });
 
   /**
@@ -1441,7 +1396,7 @@ export class TommyToolRouter {
     if (messages.some((message) => message.turnId === turnId && message.itemType === itemType)) return;
     this.#postSystemCard(agentId, threadId, turnId, {
       itemType,
-      text: sourceText("status.agent.mcpSignInRequested", { name: config.name }),
+      text: sourceText("status.agent.mcpSignInConnect", { name: config.name }),
       eventType: "mcp.sign_in_requested",
       detail: { mcpServerId: config.id },
     });
@@ -1492,79 +1447,6 @@ export class TommyToolRouter {
     this.#conversation.setSnapshot(agentId, snapshot);
     this.#conversation.publishConversation(snapshot);
   }
-
-  /** What the approval card says. A window that is gone is a result the agent can correct. */
-  readonly #captureApprovalReason = Effect.fn("TommyToolRouter.captureApprovalReason")(function* (
-    host: ScreenCaptureHost,
-    capture: ScreenCaptureRequest,
-  ) {
-    if (capture.target === "region") {
-      const { x, y, width, height } = capture.region;
-      return sourceText("status.agent.screenCaptureRegion", { x, y, width, height });
-    }
-    // A failure here, such as a missing permission, is the same failure that the capture would give.
-    const listed = yield* Effect.result(host.listSources());
-    if (Result.isFailure(listed)) return captureFailure(listed.failure);
-    const sources = listed.success;
-    if (capture.target === "window") {
-      const window = sources.windows.find(({ id }) => id === capture.windowId);
-      if (!window) return tommyToolFailure(sourceText("error.agent.screenCaptureWindowMissing"));
-      return sourceText("status.agent.screenCaptureWindow", { name: window.name });
-    }
-    const display = capture.displayId
-      ? sources.displays.find(({ id }) => id === capture.displayId)
-      : sources.displays.find(({ primary }) => primary);
-    if (capture.displayId && !display) return tommyToolFailure(sourceText("error.agent.screenCaptureDisplayMissing"));
-    return display?.name
-      ? sourceText("status.agent.screenCaptureDisplay", { name: display.name })
-      : sourceText("status.agent.screenCaptureScreen");
-  });
-
-  /**
-   * Stores the capture as an attachment of a message in the conversation and gives the agent the
-   * image. The image and its message are saved together, as for `html_render`.
-   */
-  readonly #showCapture = Effect.fn("TommyToolRouter.showCapture")(function* (
-    this: TommyToolRouter,
-    agentId: string,
-    threadId: string,
-    params: DynamicToolCallParams,
-    messageId: string,
-    image: ScreenCaptureImage,
-  ) {
-    yield* this.#addGeneratedMessage({
-      agentId,
-      threadId,
-      turnId: params.turnId,
-      messageId,
-      file: {
-        bytes: image.png,
-        name: `Screen capture ${new Date().toISOString().replace(/[:.]/gu, "-")}.png`,
-        mimeType: "image/png",
-      },
-      text: "",
-      itemType: "agent_attachment",
-      eventType: "response.attachments-added",
-      detail: () => ({ turnId: params.turnId, messageId, attachmentCount: 1 }),
-    });
-    const result: DynamicToolResult = {
-      success: true,
-      contentItems: [
-        {
-          type: "inputText",
-          text: JSON.stringify({
-            status: "shown",
-            messageId,
-            source: image.sourceName,
-            width: image.width,
-            height: image.height,
-          }),
-        },
-        { type: "inputImage", imageUrl: `data:image/png;base64,${Buffer.from(image.png).toString("base64")}` },
-      ],
-    };
-    return result;
-  }, Effect.uninterruptible);
 
   readonly #createAgent = Effect.fn("TommyToolRouter.createAgent")(
     function* (

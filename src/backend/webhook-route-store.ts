@@ -1,15 +1,9 @@
 import { randomUUID } from "node:crypto";
-import {
-  type EventActivity,
-  type EventRoutineOwner,
-  isEventActivity,
-  isEventRoutineOwner,
-  type WebhookReceiptReason,
-} from "@tommy/contracts/ipc-events";
+import { type EventRoutineOwner, isEventRoutineOwner, type WebhookReceiptReason } from "@tommy/contracts/ipc-events";
 import { type DynamicRecord, isDynamicRecord } from "@tommy/contracts/runtime-values";
 import { sourceText } from "@tommy/i18n/source";
-import { RoutineInputError } from "@tommy/team-client/routine-schedule";
 import { databaseRows, optionalStringColumn, requiredStringColumn } from "./database/database-rows";
+import { RoutineInputError } from "./routine-schedule";
 import { ROUTINE_TABLES } from "./routine-tables";
 import type { TommyDatabase } from "./tommy-database";
 
@@ -60,11 +54,7 @@ const ROUTE_TABLES = [
   "workflow_trigger_webhooks",
 ];
 
-/**
- * Owns the public side of webhook triggers: the route that the relay forwards, its secret, the
- * revocations that the relay still has to drain, and the receipts that make a redelivery a no-op.
- * The trigger row itself belongs to the routine, and `RoutineStore` writes it.
- */
+/** Stores signed webhook routes, pending revocations and delivery receipts. */
 export class WebhookRouteStore {
   constructor(private readonly database: TommyDatabase) {}
 
@@ -77,27 +67,11 @@ export class WebhookRouteStore {
     return databaseRows(this.database.connection.prepare(`${ROUTE_SELECT} ORDER BY route_id`).all()).map(route);
   }
 
-  /** Saves the relay URL only while the route is still the routine's, so a late registration cannot win. */
+  /** Only update a URL while its route still exists. */
   setUrl(routeId: string, url: string | null): void {
     for (const webhookTable of ROUTE_TABLES) {
       this.database.connection.prepare(`UPDATE ${webhookTable} SET url = ? WHERE route_id = ?`).run(url, routeId);
     }
-  }
-
-  /**
-   * Gives a route a new random ID and no URL, after the relay refused the old ID for good: it was
-   * revoked, or another host or account owns it. The secret stays, so only the URL changes. No
-   * revocation is queued, because the relay refuses that too. Returns `null` when the route is gone.
-   */
-  replaceRouteId(routeId: string, now = new Date()): string | null {
-    const replacement = randomUUID();
-    for (const webhookTable of ROUTE_TABLES) {
-      const replaced = this.database.connection
-        .prepare(`UPDATE ${webhookTable} SET route_id = ?, url = NULL, updated_at = ? WHERE route_id = ?`)
-        .run(replacement, now.toISOString(), routeId);
-      if (replaced.changes > 0) return replacement;
-    }
-    return null;
   }
 
   rotateSecret(owner: EventRoutineOwner, routineId: string, secretCiphertext: string, now = new Date()): void {
@@ -122,7 +96,7 @@ export class WebhookRouteStore {
 
   /**
    * Gives a webhook trigger of a workflow a new secret. The first secret also makes its route, with a
-   * random ID and no URL until the relay registers it. Returns false when the node is not a webhook
+   * random ID and no URL until the host registers it. Returns false when the node is not a webhook
    * trigger of that workflow.
    */
   rotateWorkflowSecret(workflowId: string, nodeId: string, secretCiphertext: string, now = new Date()): boolean {
@@ -151,22 +125,6 @@ export class WebhookRouteStore {
     this.database.connection
       .prepare("DELETE FROM projection_webhook_route_revocations WHERE route_id = ?")
       .run(routeId);
-  }
-
-  listReceipts(ownerKind: EventRoutineOwner["kind"], routineId: string, limit: number): EventActivity[] {
-    return databaseRows(
-      this.database.connection
-        .prepare(
-          `SELECT 'received' AS kind, receipt_id AS id, delivery_id AS deliveryId, event_type AS eventType, status,
-                  reason, run_id AS runId, received_at AS occurredAt
-           FROM projection_webhook_receipts WHERE owner_kind = ? AND routine_id = ?
-           ORDER BY received_at DESC, receipt_id LIMIT ?`,
-        )
-        .all(ownerKind, routineId, limit),
-    ).map((row) => {
-      if (!isEventActivity(row)) throw new Error("The stored webhook receipt is invalid.");
-      return row;
-    });
   }
 }
 
@@ -213,7 +171,7 @@ export function webhookReceiptCutoff(receivedAt: string): string {
 }
 
 /**
- * Queues the relay revocation of each webhook route of these routines, in the caller's transaction,
+ * Queues the revocation of each webhook route of these routines, in the caller's transaction,
  * before their trigger rows go. A routine delete, a switch to a schedule and an owner delete all
  * pass through here, so the public URL stops working with the trigger that it named.
  */

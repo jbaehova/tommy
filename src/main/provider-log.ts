@@ -1,38 +1,15 @@
 import { join } from "node:path";
 import { teeLogLines } from "@tommy/logging";
 import { Effect } from "effect";
-import { appendRemoteDiagnosticLog } from "./remote-diagnostics";
+import { appendDiagnosticLog } from "./remote-diagnostics";
 
-/**
- * The loggers whose lines also go to the provider log: provider starts, CLI checks, model lists,
- * state changes and errors (`provider-runtime`), runtime downloads (`provider-runtimes`), and model
- * list members that the window refuses (`provider-models`), and the cause of each agent error that
- * the app reported (`agent-error`), which the screen can replace with a general sentence.
- */
 const PROVIDER_LOG_PREFIXES = ["provider-runtime", "provider-runtimes", "provider-models", "agent-error"] as const;
 
-/**
- * Keeps the provider lines in `<logs>/providers/providers.log`, 1 MB with one rotated copy. An app
- * started from the Dock has no terminal that keeps stdout, so this file is the only record of why a
- * provider failed. The logger already redacted each line, and the writer redacts it again. Returns
- * the removal.
- */
+/** Keeps provider failures and runtime diagnostics in a rotating, redacted log. */
 export function startProviderLog(logsDirectory: string): () => void {
   const directory = join(logsDirectory, "providers");
   return teeLogLines(PROVIDER_LOG_PREFIXES, (line) => {
-    Effect.runFork(appendRemoteDiagnosticLog(directory, "providers", `${line}\n`));
-  });
-}
-
-/**
- * Keeps the account lines in `<logs>/account/account.log`, with the same size limit. A session file
- * that cannot be read or written names only its stage and an error code, so a support report can show
- * why the app signed out after a restart.
- */
-export function startAccountLog(logsDirectory: string): () => void {
-  const directory = join(logsDirectory, "account");
-  return teeLogLines(["central-auth"], (line) => {
-    Effect.runFork(appendRemoteDiagnosticLog(directory, "account", `${line}\n`));
+    Effect.runFork(appendDiagnosticLog(directory, "providers", `${line}\n`));
   });
 }
 
@@ -43,23 +20,14 @@ export function startAccountLog(logsDirectory: string): () => void {
 export function startAgentLog(logsDirectory: string): () => void {
   const directory = join(logsDirectory, "agents");
   return teeLogLines(["agent-removal"], (line) => {
-    Effect.runFork(appendRemoteDiagnosticLog(directory, "agents", `${line}\n`));
+    Effect.runFork(appendDiagnosticLog(directory, "agents", `${line}\n`));
   });
 }
 
-/**
- * Keeps the lines of the main process logger in `<logs>/main/main.log`, with the same size limit:
- * startup failures, uncaught errors, and why the app quit. Without it, a window that disappeared on
- * Windows left no record of whether Tommy quit or crashed (#2675). It runs for the life of the
- * process, so the teardown's own lines reach the file too. The shutdown deadline exits before its
- * line can be written. The update logger goes here too: `update.log` names only the failure code of
- * a check, download or install, and this file keeps the reason (#3724). A failed channel routing turn
- * goes here too, with its redacted cause (#3041). So does a message that did not start, with its redacted
- * reason: a channel shows only "The provider could not start this assignment" (#3957).
- */
+/** Keeps a process-wide record of startup, shutdown and message-routing failures. */
 export function startMainLog(logsDirectory: string): void {
   const directory = join(logsDirectory, "main");
   teeLogLines(["main", "update", "channel-routing", "drain-scheduler"], (line) => {
-    Effect.runFork(appendRemoteDiagnosticLog(directory, "main", `${line}\n`));
+    Effect.runFork(appendDiagnosticLog(directory, "main", `${line}\n`));
   });
 }

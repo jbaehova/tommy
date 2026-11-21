@@ -40,15 +40,12 @@ const eventOptions: HostEventsServiceOptions = {
   routines: {
     routes,
     ownerExists: () => false,
-    list: () => [],
     get: () => null,
-    listRuns: () => [],
     changed: () => {},
     save: () => {
       throw new Error("No routine owner is configured in this check.");
     },
     delete: () => Effect.void,
-    test: () => Effect.void,
     receiveWebhook: () => Effect.succeed({ kind: "unavailable" as const }),
   },
   workflows: {
@@ -64,7 +61,6 @@ const eventOptions: HostEventsServiceOptions = {
     decrypt: (value) => Buffer.from(value).reverse().toString(),
   },
   relay,
-  accountPrincipal: () => "example-direct-host-owner",
 };
 const events = new HostEventsService(eventOptions);
 const ingress = new DirectWebhookIngress({ events: () => events, enabled: () => true });
@@ -147,6 +143,12 @@ try {
   check("the existing route store has a direct HTTPS URL", route.url === `https://hooks.example.com${path}`);
   check("the sender key is not stored as plaintext", !route.secretCiphertext.includes(SECRET));
   check("route status follows the local HTTPS listener", relay.connected());
+  const moved = new HostEventsService({ ...eventOptions, relay: new DirectWebhookRoutes("https://new.example.com") });
+  await Effect.runPromise(moved.syncRoutes({ all: true }));
+  check(
+    "startup rebuilds an existing route for a changed origin",
+    routes.find(route.routeId)?.url === `https://new.example.com${path}`,
+  );
   const disabled = new HostEventsService({ ...eventOptions, relay: new DirectWebhookRoutes(null) });
   await Effect.runPromise(disabled.syncRoutes({ all: true }));
   check(
@@ -164,6 +166,13 @@ try {
     "webhook-timestamp": timestamp,
     "webhook-signature": signStandardWebhookBody(SECRET, timestamp, deliveryId, Buffer.from(body)),
   };
+  await assert.rejects(
+    Effect.runPromise(events.rotateWorkflowSecret({ workflowId: "other-workflow", nodeId: "trigger" })),
+  );
+  check(
+    "another workflow cannot rotate this route's key",
+    routes.find(route.routeId)?.secretCiphertext === route.secretCiphertext,
+  );
   check(
     "an invalid Standard signature cannot start a workflow",
     (await post(path, body, { ...headers, "webhook-signature": "v1,invalid" })).status === 401,
@@ -216,9 +225,14 @@ try {
     workflows.saveGraph({ workflowId, baseRevision: detail.revision, graph: { nodes: [], edges: [], strokes: [] } }),
   );
   assert.ok(removed.ok);
+  check(
+    "a deleted trigger leaves its route ID in the reconciliation queue",
+    routes.pendingRevocations().includes(route.routeId),
+  );
   await Effect.runPromise(events.syncRoutes({ all: false }));
   check("removing a trigger immediately revokes its public route", (await post(path, body, headers)).status === 404);
   check("removing a trigger clears its durable route", routes.find(route.routeId) === null);
+  check("reconciliation clears the handled revocation", !routes.pendingRevocations().includes(route.routeId));
   check("a wrong HTTP method leaves the route unmatched", (await fetch(`${origin}${path}`)).status === 404);
   relay.setListening(false);
   check("listener shutdown changes route status", !relay.connected());

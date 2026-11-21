@@ -1,3 +1,4 @@
+import { CHAT_VISUAL_ITEM_TYPE_PREFIX, chatVisualReply } from "@tommy/contracts/chat-visual";
 import { INPUT_LIMITS } from "@tommy/contracts/input-limits";
 import {
   type AgentEvent,
@@ -36,8 +37,10 @@ export interface TelegramAgentReply extends TelegramReplyRef {
 /** How many requests between agents a turn is traced back through to the owner's message. */
 const TRACE_DEPTH_LIMIT = 8;
 
-function senderId(telegramId: number, ownerId: number): string {
-  return `telegram:${telegramId}:${ownerId}`;
+const telegramSender = /^telegram:([1-9]\d{0,15}):([1-9]\d{0,15}):([\da-f-]{36})$/u;
+
+function senderId(telegramId: number, ownerId: number, generation: string): string {
+  return `telegram:${telegramId}:${ownerId}:${generation}`;
 }
 
 /** Connects a verified Telegram identity to a local agent and its completed public answer. */
@@ -51,15 +54,17 @@ export class TelegramAgentHost {
       | "deleteAgent"
       | "sendMessage"
       | "prepareImportedAttachments"
+      | "discardDraftAttachment"
       | "on"
       | "off"
     >,
     private readonly sidebar: Pick<SidebarLayoutStore, "getSnapshot" | "withProfileAssignment">,
     private readonly mailbox: Pick<
       MailboxStore,
-      "telegramOriginsForTurn" | "deliveryForMessage" | "resolveAttachment" | "generatedImageDigest"
+      "telegramOriginsForTurn" | "deliveryForMessage" | "resolveAttachment" | "generatedAttachmentDigest"
     >,
     private readonly database: Pick<TommyDatabase, "readTurnAssistantMessages">,
+    private readonly generationFor: (chat: number, agentId: string) => string | null,
   ) {}
 
   isAvailable(agentId: string): boolean {
@@ -131,22 +136,40 @@ export class TelegramAgentHost {
     updateId: number,
     text: string,
     files: readonly AttachmentDataInput[] = [],
+    expectedGeneration?: string,
   ) {
+    const generation = expectedGeneration ?? this.generationFor(telegramId, agentId);
     // sendMessage can create some missing built-in agents. A revoked Telegram binding must never do so.
-    if (!this.isAvailable(agentId))
+    if (!generation || generation !== this.generationFor(telegramId, agentId) || !this.isAvailable(agentId))
       return yield* new RemoteWorkflowError({ cause: new Error(sourceText("error.agent.gone")) });
-    const drafts = files.length ? yield* this.service.prepareImportedAttachments([], [...files]) : [];
-    yield* this.service.sendMessage(
-      {
-        agentId,
-        text: redactText(text),
-        clientMessageId: `telegram:${telegramId}:${updateId}`,
-        ...(drafts.length ? { attachmentDraftIds: drafts.map((draft) => draft.id) } : {}),
+    yield* Effect.acquireUseRelease(
+      files.length ? this.service.prepareImportedAttachments([], [...files], "telegram") : Effect.succeed([]),
+      (drafts) => {
+        if (generation !== this.generationFor(telegramId, agentId)) return Effect.void;
+        return this.service
+          .sendMessage(
+            {
+              agentId,
+              text: redactText(text),
+              clientMessageId: `telegram:${telegramId}:${updateId}`,
+              ...(drafts.length ? { attachmentDraftIds: drafts.map((draft) => draft.id) } : {}),
+            },
+            { id: senderId(telegramId, ownerId, generation), name: "Telegram" },
+          )
+          .pipe(Effect.asVoid);
       },
-      {
-        id: senderId(telegramId, ownerId),
-        name: "Telegram",
-      },
+      // A duplicate update or a revoked connection can leave freshly downloaded drafts unclaimed.
+      (drafts) =>
+        Effect.forEach(
+          drafts,
+          (draft) =>
+            this.service
+              .discardDraftAttachment(draft.id)
+              .pipe(
+                Effect.catch(() => Effect.sync(() => logger.warn("Could not remove a Telegram attachment draft."))),
+              ),
+          { discard: true },
+        ),
     );
   }).bind(this);
 
@@ -159,7 +182,7 @@ export class TelegramAgentHost {
   readonly ask = Effect.fn("TelegramAgentHost.ask")(function* (
     this: TelegramAgentHost,
     agentId: string,
-    chat: { telegramId: number; ownerId: number } | null,
+    chat: { telegramId: number; ownerId: number; generation: string } | null,
     text: string,
     timeoutMs: number,
     afterSend: Effect.Effect<void> = Effect.void,
@@ -168,6 +191,8 @@ export class TelegramAgentHost {
     AgentLifecycleFailed | RemoteWorkflowError
   > {
     if (!this.isAvailable(agentId))
+      return yield* new RemoteWorkflowError({ cause: new Error(sourceText("error.agent.gone")) });
+    if (chat && chat.generation !== this.generationFor(chat.telegramId, agentId))
       return yield* new RemoteWorkflowError({ cause: new Error(sourceText("error.agent.gone")) });
     // Listen before the send, so that a fast answer is not missed.
     const completed: AgentTurnCompletedEvent[] = [];
@@ -181,7 +206,7 @@ export class TelegramAgentHost {
     return yield* Effect.gen({ self: this }, function* () {
       const receipt = yield* this.service.sendMessage(
         { agentId, text: redactText(text) },
-        chat ? { id: senderId(chat.telegramId, chat.ownerId), name: "Telegram" } : undefined,
+        chat ? { id: senderId(chat.telegramId, chat.ownerId, chat.generation), name: "Telegram" } : undefined,
       );
       yield* afterSend;
       const deadline = Date.now() + timeoutMs;
@@ -234,8 +259,13 @@ export class TelegramAgentHost {
     return origins.length > 0 && origins.every((origin) => origin.routineRunId !== undefined);
   }
 
-  ownsTurn(agentId: string, turnId: string, telegramId: number, ownerId: number): boolean {
-    if (this.#turnSender(agentId, turnId) === senderId(telegramId, ownerId)) return true;
+  ownsTurn(agentId: string, turnId: string, telegramId: number, ownerId: number, queuedGeneration?: string): boolean {
+    const current = this.generationFor(telegramId, agentId);
+    if (!current || (queuedGeneration && queuedGeneration !== current)) return false;
+    const sender = this.#turnSender(agentId, turnId);
+    if (sender === senderId(telegramId, ownerId, current)) return true;
+    // Existing pending deliveries already contain the generation that authorized their original enqueue.
+    if (queuedGeneration && sender === `telegram:${telegramId}:${ownerId}`) return true;
     const chat = this.routineTurn(agentId, turnId) ? this.#routineChat(agentId) : null;
     return chat !== null && chat.telegramId === telegramId && chat.ownerId === ownerId;
   }
@@ -249,7 +279,8 @@ export class TelegramAgentHost {
     rootAgentForBot: (rootTelegramId: number) => string | null,
   ): boolean {
     if (rootAgentForBot(telegramId) !== agentId || !this.isAvailable(agentId)) return false;
-    return this.#turnSender(agentId, turnId) === senderId(telegramId, ownerId);
+    const generation = this.generationFor(telegramId, agentId);
+    return Boolean(generation && this.#turnSender(agentId, turnId) === senderId(telegramId, ownerId, generation));
   }
 
   /** A turn that only reads teammates' answers inside Tommy belongs to the turn that asked them. */
@@ -269,31 +300,33 @@ export class TelegramAgentHost {
    * The Telegram chat whose owner message started this work, following requests between agents
    * inside Tommy. Only browser requests use it: a reply still goes only to the agent's own chat.
    */
-  tracedChat(agentId: string, turnId: string, ownerId: number, depth = 0): number | null {
+  tracedChat(
+    agentId: string,
+    turnId: string,
+    ownerId: number,
+    rootAgentForBot: (id: number) => string | null,
+    depth = 0,
+  ): number | null {
     if (!this.isAvailable(agentId)) return null;
     const origins = this.mailbox.telegramOriginsForTurn(agentId, turnId);
     const chats = origins.map((origin) => {
       if (origin.requestFrom)
         return depth < TRACE_DEPTH_LIMIT
-          ? this.tracedChat(origin.requestFrom.agentId, origin.requestFrom.turnId, ownerId, depth + 1)
+          ? this.tracedChat(origin.requestFrom.agentId, origin.requestFrom.turnId, ownerId, rootAgentForBot, depth + 1)
           : null;
-      const sender = this.#turnSender(agentId, turnId)?.match(/^telegram:([1-9]\d{0,15}):([1-9]\d{0,15})$/u);
-      return sender && Number(sender[2]) === ownerId ? Number(sender[1]) : null;
+      const sender = this.#turnSender(agentId, turnId)?.match(telegramSender);
+      return sender &&
+        Number(sender[2]) === ownerId &&
+        rootAgentForBot(Number(sender[1])) === agentId &&
+        this.generationFor(Number(sender[1]), agentId) === sender[3]
+        ? Number(sender[1])
+        : null;
     });
     const first = chats[0] ?? null;
     return first !== null && chats.every((chat) => chat === first) ? first : null;
   }
 
-  onReply(receive: (reply: TelegramAgentReply) => void): () => void {
-    const replies = this.replies(receive);
-    this.service.on("event", replies.observe);
-    return () => {
-      replies.stop();
-      this.service.off("event", replies.observe);
-    };
-  }
-
-  /** The same as onReply, for a caller that already listens to agent events. */
+  /** Listen to completed replies until the owning runtime stops. */
   replies(receive: (reply: TelegramAgentReply) => void) {
     let active = true;
     const observe = (event: AgentEvent) => {
@@ -318,7 +351,7 @@ export class TelegramAgentHost {
     event: AgentTurnCompletedEvent,
   ) {
     const { agentId, threadId, turnId } = event;
-    const identity = this.#turnSender(agentId, turnId)?.match(/^telegram:([1-9]\d{0,15}):([1-9]\d{0,15})$/u);
+    const identity = this.#turnSender(agentId, turnId)?.match(telegramSender);
     // A routine result goes to the agent's own chat, as it went to its chat in the app.
     const routine = identity ? null : this.routineTurn(agentId, turnId) ? this.#routineChat(agentId) : null;
     if (!identity && !routine) return null;
@@ -344,9 +377,10 @@ export class TelegramAgentHost {
   readonly readReply = Effect.fn("TelegramAgentHost.readReply")(function* (
     this: TelegramAgentHost,
     address: TelegramReplyRef,
+    queuedGeneration?: string,
   ): Effect.fn.Return<TelegramAgentReply | null> {
     const { agentId, threadId, turnId } = address;
-    if (!this.ownsTurn(agentId, turnId, address.telegramId, address.ownerId)) return null;
+    if (!this.ownsTurn(agentId, turnId, address.telegramId, address.ownerId, queuedGeneration)) return null;
     if (address.status !== "completed")
       return {
         ...address,
@@ -358,7 +392,12 @@ export class TelegramAgentHost {
         files: [],
       };
     const rows = this.database.readTurnAssistantMessages(agentId, threadId, turnId);
-    const answer = latestTurnAnswer(rows, turnId);
+    const answer = latestTurnAnswer(
+      rows.filter(
+        (row) => !row.itemType?.startsWith(CHAT_VISUAL_ITEM_TYPE_PREFIX) && row.itemType !== "agent_attachment",
+      ),
+      turnId,
+    );
     const text = answer?.status === "completed" ? redactText(maskEmails(answer.text.trim())) : "";
     const generated = rows.findLast(
       (row) =>
@@ -373,7 +412,10 @@ export class TelegramAgentHost {
     const image = attachment
       ? yield* readTelegramImage(this.mailbox, agentId, threadId, attachment).pipe(Effect.orElseSucceed(() => null))
       : null;
-    const files: TelegramFile[] = image ? [{ name: "image.png", mimeType: "image/png", bytes: image }] : [];
+    const files: TelegramFile[] =
+      image && attachment
+        ? [{ attachmentId: attachment.id, name: "image.png", mimeType: "image/png", bytes: image }]
+        : [];
     // Files that attach_files_to_response staged in this turn.
     const attached = rows
       .filter((row) => row.itemType === "agent_attachment" && row.status === "completed")
@@ -382,6 +424,29 @@ export class TelegramAgentHost {
     for (const item of attached) {
       const file = yield* readTelegramFile(this.mailbox, item).pipe(Effect.orElseSucceed(() => null));
       if (file) files.push(file);
+    }
+    for (const row of rows) {
+      const visual = row.status === "completed" ? chatVisualReply(row) : null;
+      if (!visual) continue;
+      const preview = visual.preview
+        ? yield* readTelegramImage(this.mailbox, agentId, threadId, visual.preview).pipe(
+            Effect.orElseSucceed(() => null),
+          )
+        : null;
+      if (preview && visual.preview)
+        files.push({
+          attachmentId: visual.preview.id,
+          name: visual.preview.name,
+          mimeType: "image/png",
+          bytes: preview,
+        });
+      if (!preview || visual.includeSource) {
+        const source = visual.attachment;
+        const digest = this.mailbox.generatedAttachmentDigest(source.id, agentId, threadId, "text/html");
+        if (!digest) continue;
+        const file = yield* readTelegramFile(this.mailbox, source, digest).pipe(Effect.orElseSucceed(() => null));
+        if (file) files.push(file);
+      }
     }
     return text || files.length ? { ...address, text, files } : null;
   }).bind(this);

@@ -5,7 +5,6 @@ import type {
   AgentEvent,
   AgentPromptQuestion,
   AgentPromptResolution,
-  AgentRuntimeSnapshot,
   BrowserTab,
   BrowserTakeoverRequest,
   ConversationMessageSender,
@@ -14,7 +13,7 @@ import type {
   RespondToBrowserTakeoverInput,
   RespondToPromptInput,
 } from "@tommy/contracts/ipc";
-import { AGENT_RUNTIME_ATTENTION_LIMIT, BROWSER_TAKEOVER_REASONS, cardBrand } from "@tommy/contracts/ipc";
+import { BROWSER_TAKEOVER_REASONS, cardBrand } from "@tommy/contracts/ipc";
 import { type DynamicRecord, isOneOf } from "@tommy/contracts/runtime-values";
 import {
   type ConversationUiBlock,
@@ -45,7 +44,12 @@ import type { AgentClient } from "../agent-client";
 import { type BrowserOperationError, browserFailure } from "../browser-effects";
 import type { PreparedBrowserSecret } from "../browser-host";
 import type { BrowserCardVault } from "../browser-tool-actions";
-import { type BrowserToolArguments, parseBrowserToolCall } from "../browser-tools";
+import {
+  type BrowserManualStepRequest,
+  type BrowserToolArguments,
+  MANUAL_BROWSER_STEPS,
+  parseBrowserToolCall,
+} from "../browser-tools";
 import { causeHelpers } from "../effect-boundary";
 import type { PasswordVault, PasswordVaultError } from "../password-vault";
 import {
@@ -91,7 +95,6 @@ import {
   vaultPromptResult,
   vaultRequestFormSpec,
 } from "./prompts";
-import { compactRuntimeApproval, compactRuntimeQuestion } from "./runtime-snapshot";
 import { isDynamicToolCall } from "./thread-items";
 
 const logger = createTommyLogger("attention-registry");
@@ -174,7 +177,7 @@ const MESSAGING_QUESTION_REFUSED =
 /** The agent reads these, not the user. */
 const VAULT_UNAVAILABLE = "No Vault is available on this computer. Ask the user.";
 const VAULT_LOGIN_ADD_REFUSED =
-  "You cannot add a login: a password comes only from the user. Call request_vault_item kind=login, or sign in with submit_secret, and the user can save the password from the card.";
+  "You cannot add a login: a password comes only from the user. Call request_vault_item kind=login, to let the user save it in the private form.";
 const VAULT_CARD_ADD_REFUSED =
   "You cannot add a card: its number comes only from the user. Call request_vault_item kind=card.";
 const VAULT_FIELDS: Record<BrowserToolArguments<"save_vault_item">["kind"], readonly string[]> = {
@@ -330,14 +333,12 @@ export interface RoutineAttention {
 }
 
 /**
- * The browser surface a takeover needs: the tab roster, to check that the agent asking owns the tab it
- * names, and the pair of calls that suspend and resume agent control of it. `BrowserHost` satisfies it.
+ * The registry verifies ownership before it prepares a private login form or sends a manual step.
  */
 export interface AttentionBrowserHost {
   prepareSecret?(params: DynamicToolCallParams): Effect.Effect<PreparedBrowserSecret, BrowserOperationError>;
   listTabs(): BrowserTab[];
-  beginTakeover(tabId: string): Effect.Effect<void, BrowserOperationError>;
-  endTakeover(tabId: string): void;
+  reportManualStep?(request: BrowserManualStepRequest, signal?: AbortSignal): Effect.Effect<boolean>;
 }
 
 /** What the registry reads of the conversation runtime, so a test can give it a small one. */
@@ -365,7 +366,6 @@ export interface AttentionRegistryOptions {
   messagingThread?(threadId: string): boolean;
   emit(event: AgentEvent): void;
   emitError(code: string, error: unknown, agentId?: string): void;
-  emitRuntimeSnapshot(): void;
   /**
    * The vault the user shared with Tommy, or null. A password or authenticator request for a login
    * saved there is filled without a card: putting the login in the shared vault is the consent.
@@ -375,7 +375,6 @@ export interface AttentionRegistryOptions {
   vaultItems?: VaultItems | null | undefined;
   /** The credit cards in 1Password, or null. `fill_card` types them as it types Vault cards. */
   sharedCards?: SharedCards | null | undefined;
-  /** The Link account of this computer, or null. Agents ask it for one-time cards that the user approves in Link. */
   /** The name of an agent now. An item that an agent adds to the Vault keeps it. */
   agentName?(agentId: string): string | undefined;
   /** Adds a note to the chat that an agent changed the Vault. `text` is source text. */
@@ -399,11 +398,6 @@ function isPrivatePrompt(pending: PendingPrompt): boolean {
     pending.uiBlock?.vault || pending.uiBlock?.apiKey || pending.questions.some((question) => question.isSecret),
   );
 }
-
-export type RuntimeAttention = Pick<
-  AgentRuntimeSnapshot,
-  "attentionComplete" | "pendingPrompts" | "pendingApprovals" | "pendingBrowserTakeovers"
->;
 
 export type LocalAttentionResponse =
   | { kind: "prompt"; requestId: string; answers: Record<string, string[]> }
@@ -430,7 +424,6 @@ export class AttentionRegistry {
   readonly #messagingThread: (threadId: string) => boolean;
   readonly #emit: (event: AgentEvent) => void;
   readonly #emitError: (code: string, error: unknown, agentId?: string) => void;
-  readonly #emitRuntimeSnapshot: () => void;
   readonly #passwordVault: PasswordVault | null;
   readonly #vaultItems: VaultItems | null;
   readonly #sharedCards: SharedCards | null;
@@ -456,7 +449,6 @@ export class AttentionRegistry {
     this.#messagingThread = options.messagingThread ?? (() => false);
     this.#emit = options.emit;
     this.#emitError = options.emitError;
-    this.#emitRuntimeSnapshot = options.emitRuntimeSnapshot;
     this.#passwordVault = options.passwordVault ?? null;
     this.#vaultItems = options.vaultItems ?? null;
     this.#sharedCards = options.sharedCards ?? null;
@@ -465,7 +457,7 @@ export class AttentionRegistry {
     this.#apiKeys = options.apiKeys ?? null;
   }
 
-  /** The agent that asks `requestId`: a prompt, an approval, a browser takeover or a browser secret. */
+  /** The agent that owns this prompt, approval or private browser form. */
   agentIdForRequest(requestId: RequestId): string | undefined {
     return (
       this.#prompts.get(requestId)?.agentId ??
@@ -552,27 +544,8 @@ export class AttentionRegistry {
     return handle;
   }
 
-  /** The attention section of the runtime snapshot, budgeted prompts first and takeovers last. */
-  runtimeAttention(): RuntimeAttention {
-    const attentionComplete =
-      this.#prompts.size + this.#approvals.size + this.#takeovers.size <= AGENT_RUNTIME_ATTENTION_LIMIT;
-    let remainingAttention = AGENT_RUNTIME_ATTENTION_LIMIT;
-    const pendingPrompts = [...this.#prompts.values()].slice(0, remainingAttention).map((pending) => ({
-      requestId: pending.id,
-      agentId: pending.agentId,
-      threadId: pending.publicThreadId,
-      turnId: pending.turnId,
-      questions: pending.questions.map(compactRuntimeQuestion),
-    }));
-    remainingAttention -= pendingPrompts.length;
-    const pendingApprovals = [...this.#approvals.values()]
-      .slice(0, remainingAttention)
-      .map((pending) => compactRuntimeApproval(pending.approval));
-    remainingAttention -= pendingApprovals.length;
-    const pendingBrowserTakeovers = [...this.#takeovers.values()]
-      .slice(0, remainingAttention)
-      .map((pending) => structuredClone(pending.request));
-    return { attentionComplete, pendingPrompts, pendingApprovals, pendingBrowserTakeovers };
+  pendingBrowserTakeovers(): BrowserTakeoverRequest[] {
+    return [...this.#takeovers.values()].filter((item) => item.secret).map((item) => structuredClone(item.request));
   }
 
   readonly respondToPrompt = Effect.fn("AttentionRegistry.respondToPrompt")(function* (
@@ -647,7 +620,6 @@ export class AttentionRegistry {
       } catch (error) {
         this.#emitError("prompt_persistence_failed", error, pending.agentId);
       }
-      this.#emitRuntimeSnapshot();
     });
   }).bind(this);
 
@@ -759,29 +731,14 @@ export class AttentionRegistry {
     }
     this.#approvals.delete(input.requestId);
     this.#emitInputResolved("approval", input.requestId, pending.approval.agentId);
-    this.#emitRuntimeSnapshot();
   }, Effect.uninterruptible).bind(this);
 
   /**
-   * Whether this agent is waiting on a takeover. Its browser tools are refused while one is outstanding:
-   * the user has the tab, every reference the agent holds is already stale, and a tool call landing
-   * mid-login would act on a page the user is in the middle of.
+   * Stop agent browser tools while the owner or the Vault supplies secure input.
    */
   hasBrowserTakeoverForAgent(agentId: string): boolean {
     return [...this.#takeovers.values()].some((pending) => pending.request.agentId === agentId);
   }
-
-  readonly respondToBrowserTakeover = Effect.fn("AttentionRegistry.respondToBrowserTakeover")(
-    (input: RespondToBrowserTakeoverInput) =>
-      attentionStep(() => {
-        const pending = this.#takeovers.get(input.requestId);
-        if (!pending) throw new Error(sourceText("error.backend.takeoverInactive"));
-        if (pending.submitting) throw new Error(sourceText("error.backend.authSubmitting"));
-        pending.secret?.cancel();
-        this.#routines.markRunningForTurn(pending.request.turnId);
-        this.#resolveBrowserTakeover(input.requestId, pending, input.decision);
-      }),
-  ).bind(this);
 
   readonly respondToBrowserSecret = Effect.fnUntraced(function* (
     this: AttentionRegistry,
@@ -799,47 +756,39 @@ export class AttentionRegistry {
       return;
     }
     if (input.decision === "takeover") {
-      secret.cancel();
-    } else {
-      pending.submitting = true;
-      const username = input.username?.trim() || undefined;
-      const outcome = yield* secret.submit(input.secret, pending.vaultLoginId !== undefined, username).pipe(
-        Effect.catch((failure) =>
-          Effect.succeed({
-            status: "failed" as const,
-            reason: failure.cause instanceof Error ? failure.cause.message : "The fill failed.",
-          }),
-        ),
-        Effect.ensuring(
-          Effect.sync(() => {
-            pending.submitting = false;
-          }),
-        ),
-      );
-      if (this.#takeovers.get(input.requestId) !== pending) return;
-      if (outcome.status === "submitted") {
-        const vault = pending.vaultLoginId
-          ? `Tommy filled saved login ${pending.vaultLoginId}; the user did not type it.`
-          : input.saveToVault && secret.request.method === "password"
-            ? yield* this.#saveTypedPassword(pending, secret.request.origin, input.secret, username)
-            : undefined;
-        if (this.#takeovers.get(input.requestId) !== pending) return;
-        this.#resolveBrowserTakeover(input.requestId, pending, "complete", vault);
-        return;
-      }
-      // The form asks again when the agent calls it again, so nobody has to take over the tab.
-      logger.warn("A secure fill was not confirmed", { reason: toLogValue(outcome.reason) });
-      this.#resolveBrowserTakeover(input.requestId, pending, "cancel", undefined, outcome.reason);
+      // A released client may still ask to take the tab. End protected input without exposing the form.
+      this.#resolveBrowserTakeover(input.requestId, pending, "cancel");
       return;
     }
-    secret.cancel();
-    delete pending.secret;
-    // The user finishes in the tab, so a later completion is theirs.
-    delete pending.vaultLoginId;
-    delete pending.request.secret;
-    yield* this.#browser.beginTakeover(pending.request.tabId).pipe(toAttentionOperationFailed);
-    this.#emit({ type: "browser-takeover-requested", request: pending.request });
-    this.#emitRuntimeSnapshot();
+    pending.submitting = true;
+    const username = input.username?.trim() || undefined;
+    const outcome = yield* secret.submit(input.secret, pending.vaultLoginId !== undefined, username).pipe(
+      Effect.catch((failure) =>
+        Effect.succeed({
+          status: "failed" as const,
+          reason: failure.cause instanceof Error ? failure.cause.message : "The fill failed.",
+        }),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          pending.submitting = false;
+        }),
+      ),
+    );
+    if (this.#takeovers.get(input.requestId) !== pending) return;
+    if (outcome.status === "submitted") {
+      const vault = pending.vaultLoginId
+        ? `Tommy filled saved login ${pending.vaultLoginId}; the user did not type it.`
+        : input.saveToVault && secret.request.method === "password"
+          ? yield* this.#saveTypedPassword(pending, secret.request.origin, input.secret, username)
+          : undefined;
+      if (this.#takeovers.get(input.requestId) !== pending) return;
+      this.#resolveBrowserTakeover(input.requestId, pending, "complete", vault);
+      return;
+    }
+    // The form asks again when the agent calls it again, so nobody has to take over the tab.
+    logger.warn("A secure fill was not confirmed", { reason: toLogValue(outcome.reason) });
+    this.#resolveBrowserTakeover(input.requestId, pending, "cancel", undefined, outcome.reason);
   }, Effect.uninterruptible);
 
   /**
@@ -1017,8 +966,7 @@ export class AttentionRegistry {
       !tab ||
       tab.ownerThreadId !== publicThreadId ||
       tab.ownerAgentId !== agentId ||
-      // A second request for a tab the user already holds would be answered by whichever card they
-      // happened to press, and resolving either one would hand control back while the other still waits.
+      // Only the active private form may act on its tab.
       [...this.#takeovers.values()].some((pending) => pending.request.tabId === tabId)
     ) {
       return browserTakeoverError();
@@ -1034,6 +982,27 @@ export class AttentionRegistry {
       tabId,
       ...(params.tool === "request_takeover" && isOneOf(BROWSER_TAKEOVER_REASONS, reason) ? { reason } : {}),
     };
+    if (params.tool === "request_takeover") {
+      const step = args?.step;
+      if (step !== undefined && !isOneOf(MANUAL_BROWSER_STEPS, step)) return browserTakeoverError();
+      const sent = yield* this.#browser.reportManualStep?.(
+        { ...takeover, ...(step ? { step } : {}) },
+        request.signal,
+      ) ?? Effect.succeed(false);
+      return {
+        success: true,
+        contentItems: [
+          {
+            type: "inputText" as const,
+            text: JSON.stringify({
+              status: "manual-step-required",
+              screenshotSent: sent,
+              next: "Tell the user which step requires direct browser interaction. End this task here.",
+            }),
+          },
+        ],
+      };
+    }
     const completion = Deferred.makeUnsafe<DynamicToolResult>();
     const resolve = (result: DynamicToolResult) => Deferred.doneUnsafe(completion, Effect.succeed(result));
     const pending: PendingBrowserTakeover = {
@@ -1045,28 +1014,21 @@ export class AttentionRegistry {
     };
     this.#takeovers.set(requestId, pending);
     return yield* Effect.gen({ self: this }, function* () {
-      // The card is only shown once the tab has actually been handed over -- references invalidated,
-      // diagnostics cleared, any recording stopped. Asking the user for control Tommy then failed to
-      // give them would leave the agent acting on the page underneath them.
       const prepare = Effect.gen({ self: this }, function* () {
-        if (params.tool === "submit_secret") {
-          const prepareSecret = this.#browser.prepareSecret?.bind(this.#browser);
-          if (!prepareSecret)
-            return yield* new AttentionOperationFailed({
-              cause: new Error(sourceText("error.backend.secureAuthUnavailable")),
-            });
-          const secret = yield* prepareSecret({
-            ...params,
-            threadId: publicThreadId,
-            ownerAgentId: agentId,
-          }).pipe(toAttentionOperationFailed);
-          if (this.#takeovers.get(requestId) !== pending) {
-            secret.cancel();
-            return;
-          }
-          pending.secret = secret;
-          pending.request.secret = secret.request;
-        } else yield* this.#browser.beginTakeover(takeover.tabId).pipe(toAttentionOperationFailed);
+        const prepareSecret = this.#browser.prepareSecret?.bind(this.#browser);
+        if (!prepareSecret)
+          return yield* new AttentionOperationFailed({
+            cause: new Error(sourceText("error.backend.secureAuthUnavailable")),
+          });
+        const secret = yield* prepareSecret({ ...params, threadId: publicThreadId, ownerAgentId: agentId }).pipe(
+          toAttentionOperationFailed,
+        );
+        if (this.#takeovers.get(requestId) !== pending) {
+          secret.cancel();
+          return;
+        }
+        pending.secret = secret;
+        pending.request.secret = secret.request;
       });
       const prepared = yield* Effect.result(prepare);
       if (Result.isSuccess(prepared)) {
@@ -1088,7 +1050,6 @@ export class AttentionRegistry {
               ? browserTakeoverError(error.message)
               : browserTakeoverError(),
           );
-          this.#emitRuntimeSnapshot();
         }
       }
       return yield* Deferred.await(completion);
@@ -1211,8 +1172,8 @@ export class AttentionRegistry {
           else
             reason =
               others.length > 0
-                ? sourceText("status.agent.vaultCardFillVaultFrames", { ...values, origins })
-                : sourceText("status.agent.vaultCardFillVault", values);
+                ? sourceText("status.agent.vaultSiteApprovalFrames", { ...values, origins })
+                : sourceText("status.agent.vaultSiteApproval", values);
           const decision = yield* this.awaitToolApproval(
             client,
             request,
@@ -1668,7 +1629,6 @@ export class AttentionRegistry {
    * MCP elicitations and browser takeovers stay: a message must not refuse an action or end a sign-in.
    */
   releaseForUserMessage(agentId: string, publicThreadId: string, turnId: string): void {
-    let changed = false;
     for (const [requestId, pending] of this.#prompts) {
       if (pending.agentId !== agentId || pending.publicThreadId !== publicThreadId || pending.turnId !== turnId)
         continue;
@@ -1682,9 +1642,7 @@ export class AttentionRegistry {
         { status: "cancelled" },
         pending.uiBlock ? answeredUiBlockState(pending.uiBlock.spec, null, undefined, undefined) : undefined,
       );
-      changed = true;
     }
-    if (changed) this.#emitRuntimeSnapshot();
   }
 
   /** Expires the prompts of one lost provider client, or of all clients when none is given. */
@@ -1701,27 +1659,22 @@ export class AttentionRegistry {
    * turn continues without it.
    */
   cancelRequest(client: AgentClient, requestId: RequestId): void {
-    let changed = false;
     const prompt = this.#prompts.get(requestId);
     if (prompt?.client === client) {
       this.#routines.markRunningForTurn(prompt.turnId);
       this.#expirePrompt(requestId, prompt);
-      changed = true;
     }
     const approval = this.#approvals.get(requestId);
     if (approval?.client === client) {
       this.#routines.markRunningForTurn(approval.approval.turnId);
       this.#approvals.delete(requestId);
       this.#cancelApproval(approval);
-      changed = true;
     }
     for (const [key, takeover] of this.#takeovers) {
-      // Resolving emits its own runtime snapshot.
       if (takeover.client === client && takeover.providerRequestId === requestId) {
         this.#resolveBrowserTakeover(key, takeover, "cancel");
       }
     }
-    if (changed) this.#emitRuntimeSnapshot();
   }
 
   /**
@@ -1906,7 +1859,7 @@ export class AttentionRegistry {
       }),
     );
     if (Result.isFailure(submitted)) {
-      // The tab could not be handed to the user. Answer the agent, so it does not wait forever.
+      // Return a failure to the agent if the saved login could not be submitted.
       logger.warn("Unable to submit the shared login", { error: toLogValue(submitted.failure.cause) });
       if (this.#takeovers.get(requestId) === pending) this.#resolveBrowserTakeover(requestId, pending, "cancel");
       return true;
@@ -1925,17 +1878,11 @@ export class AttentionRegistry {
     pending.secret?.cancel();
     this.#routines.markRunningForTurn(pending.request.turnId);
     this.#takeovers.delete(requestId);
-    // `surfaceBrowserTakeover` refuses a second request for the same tab, so this is belt and braces --
-    // but returning control while another request still waits on the tab would be the worse mistake.
-    if (![...this.#takeovers.values()].some((candidate) => candidate.request.tabId === pending.request.tabId)) {
-      this.#browser.endTakeover(pending.request.tabId);
-    }
     this.#emit({
       type: "browser-takeover-resolved",
       requestId: pending.request.requestId,
       agentId: pending.request.agentId,
     });
-    this.#emitRuntimeSnapshot();
     pending.resolve(
       failure
         ? browserSecretFailedResult(failure, pending.vaultSkipped)

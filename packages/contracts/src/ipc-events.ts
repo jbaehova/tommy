@@ -236,10 +236,6 @@ function isRoutineScheduleTrigger(value: unknown): value is RoutineScheduleTrigg
   return isDynamicRecord(value) && value.kind === "schedule" && isRoutineSchedule(value.schedule);
 }
 
-export function isEventRoutineTriggerInput(value: unknown): value is EventRoutineTriggerInput {
-  return isRoutineWebhookTriggerInput(value) || isRoutineScheduleTrigger(value);
-}
-
 export function isEventRoutineTrigger(value: unknown): value is EventRoutineTrigger {
   return (
     isRoutineScheduleTrigger(value) ||

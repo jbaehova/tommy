@@ -13,13 +13,6 @@ export const WEBHOOK_MAX_CLOCK_SKEW_SECONDS = 5 * 60;
 
 export const WEBHOOK_TIMESTAMP_PATTERN = /^[0-9]{1,12}$/u;
 export const WEBHOOK_DELIVERY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
-export const WEBHOOK_SIGNATURE_PATTERN = /^sha256=[A-Fa-f0-9]{64}$/u;
 
 // One host may register many webhook routines, but the route ticket must stay bounded.
 export const WEBHOOK_ROUTES_LIMIT = 64;
-
-export interface WebhookRoute {
-  id: string;
-  /** When the account service registered this route, in milliseconds. */
-  linkedAt: number;
-}

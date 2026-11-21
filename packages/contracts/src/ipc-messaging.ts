@@ -97,21 +97,6 @@ export interface HostAddMessagingOrchestratorInput extends HostMessagingPlatform
   workspaceId: string | null;
 }
 
-/** The host of each platform's connect page. A joined server names the page, so nothing else opens. */
-const MESSAGING_PAGE_HOSTS: Record<MessagingPlatform, string> = {
-  slack: "slack.com",
-  discord: "discord.com",
-  telegram: "t.me",
-};
-
-/** The connect page that a joined server named, when it is the platform's own https page. */
-export function messagingPage(platform: MessagingPlatform, address: string | null): string | null {
-  const url = address === null ? null : URL.parse(address);
-  return url?.protocol === "https:" && url.hostname === MESSAGING_PAGE_HOSTS[platform] && url.port === ""
-    ? url.toString()
-    : null;
-}
-
 /**
  * Reads a joined server's connections. A later host can name a state or a credential state that this
  * build does not know: it shows as an error, and the connection stays in the list.

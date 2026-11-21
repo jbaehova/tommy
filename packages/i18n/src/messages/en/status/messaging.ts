@@ -1,6 +1,15 @@
 import { defineMessages } from "../../../message";
 
 export const messages = defineMessages("status.messaging", {
+  "status.messaging.telegramManualCaptcha": "The site requires a CAPTCHA. You cannot complete this step in Telegram.",
+  "status.messaging.telegramManualPasskey": "The site requires a passkey. You cannot complete this step in Telegram.",
+  "status.messaging.telegramManualAccount": "You must choose an account on the site. You cannot select it in Telegram.",
+  "status.messaging.telegramManualPayment":
+    "The payment provider requires confirmation on its site. You cannot confirm it in Telegram.",
+  "status.messaging.telegramManualStep":
+    "This step needs direct interaction with the site. You cannot complete it in Telegram.",
+  "status.messaging.telegramBlockedLogin":
+    "The site could not complete sign-in on the server. You cannot complete this step in Telegram.",
   // Text that Tommy posts in a Slack conversation. Slack users read it. It names no agent: in
   // Slack, every answer comes from Tommy.
   // The name and title of the agent that Tommy adds to answer in Slack. The user can rename it.
@@ -163,4 +172,10 @@ export const messages = defineMessages("status.messaging", {
   "status.messaging.telegramFileFailed": "Tommy could not read the file. Files up to 20 MB work.",
   "status.messaging.telegramT3LinkExpiring":
     "⏳ The link to T3 Code {name} ({origin}) ends on {date}. After that, agents cannot use T3 Code there. To keep it, run t3 pair on that computer, then run sudo tommy t3 link --name {name} {origin} on the Tommy server.",
+  "status.messaging.telegramMcpConnect": "Connect",
+  "status.messaging.telegramMcpRequested": "{name} needs a sign-in.",
+  "status.messaging.telegramMcpConnected": "{name} is connected.",
+  "status.messaging.telegramMcpDenied": "Sign-in to {name} was declined.",
+  "status.messaging.telegramMcpExpired": "The sign-in request for {name} expired.",
+  "status.messaging.telegramMcpFailed": "Tommy could not connect to {name}.",
 });

@@ -84,23 +84,3 @@ export function conversationPlanText(plan: ConversationPlan): string {
   const lines = plan.steps.map((step) => `- [${step.status === "completed" ? "x" : " "}] ${step.text}`);
   return plan.explanation ? `${plan.explanation}\n\n${lines.join("\n")}` : lines.join("\n");
 }
-
-const CHECKLIST_LINE = /^- \[( |x)\] (.+)$/u;
-
-/**
- * The plan read back from `conversationPlanText`. A checklist has no running step, so every open
- * step is pending. Returns null when the text is not a checklist.
- */
-export function parseConversationPlanText(text: string): ConversationPlan | null {
-  const lines = text.split("\n");
-  const firstStep = lines.findIndex((line) => CHECKLIST_LINE.test(line));
-  if (firstStep < 0) return null;
-  const steps: ConversationPlanStep[] = [];
-  for (const line of lines.slice(firstStep)) {
-    const match = CHECKLIST_LINE.exec(line);
-    if (!match) return null;
-    steps.push({ id: String(steps.length), text: match[2] ?? "", status: match[1] === "x" ? "completed" : "pending" });
-  }
-  const explanation = lines.slice(0, firstStep).join("\n").trim();
-  return clampConversationPlan({ explanation: explanation || null, steps });
-}

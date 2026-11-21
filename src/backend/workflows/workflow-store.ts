@@ -40,7 +40,7 @@ import {
   requiredStringColumn,
 } from "../database/database-rows";
 import type { TommyDatabase } from "../tommy-database";
-import { nodeTimezone } from "./workflow-graph";
+import { isDiscordNode, nodeTimezone } from "./workflow-graph";
 import { workflowTransaction } from "./workflow-transaction";
 
 /**
@@ -152,6 +152,7 @@ export class WorkflowStore {
   create(input: { title: string; graph?: WorkflowGraph }, now = new Date()): WorkflowDetail {
     const graph = input.graph ?? { nodes: [], edges: [], strokes: [] };
     assertRunnable(graph);
+    if (graph.nodes.some(isDiscordNode)) throw discordUnavailable();
     const workflowId = this.#createId();
     return this.#transaction(() => {
       const at = now.toISOString();
@@ -194,6 +195,15 @@ export class WorkflowStore {
     return this.#transaction(() => {
       const revision = this.#revision(workflowId);
       if (revision !== baseRevision) return { ok: false, conflict: this.#requireDetail(workflowId) };
+      const legacy = graph.nodes.filter(isDiscordNode);
+      if (legacy.length) {
+        const previous = new Map(
+          this.#requireDetail(workflowId)
+            .graph.nodes.filter(isDiscordNode)
+            .map((node) => [node.id, node.kind]),
+        );
+        if (legacy.some((node) => previous.get(node.id) !== node.kind)) throw discordUnavailable();
+      }
       this.#writeGraph(workflowId, graph, now);
       const next = this.#bumpRevision(workflowId, now);
       const last = this.#lastVersionAt(workflowId);
@@ -512,6 +522,10 @@ const SUMMARY_SELECT = `
 function assertRunnable(graph: WorkflowGraph): void {
   const problem = workflowGraphProblem(graph);
   if (problem) throw new WorkflowStoreError({ code: "refused", message: sourceText(PROBLEM_TEXT[problem]) });
+}
+
+function discordUnavailable(): WorkflowStoreError {
+  return new WorkflowStoreError({ code: "refused", message: sourceText("error.workflow.discordUnavailable") });
 }
 
 function missing(): WorkflowStoreError {

@@ -4,7 +4,7 @@ import {
   type SkillSuggestionTarget,
   skillSuggestionTarget,
 } from "@tommy/contracts/ipc-skill-learning";
-import { promptJson } from "./side-question";
+import { promptJson } from "./chat-transcript";
 
 /** The tool steps that a review or a note reads, failed steps and the step after them first. */
 const WORK_STEP_LIMIT = 80;

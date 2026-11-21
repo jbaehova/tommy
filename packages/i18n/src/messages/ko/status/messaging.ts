@@ -2,6 +2,14 @@ import type { PartialTranslation } from "../../../message";
 import type { messages as source } from "../../en/status/messaging";
 
 export const messages = {
+  "status.messaging.telegramManualCaptcha":
+    "사이트에서 CAPTCHA 확인을 요구해요. Telegram에서는 이 단계를 완료할 수 없어요.",
+  "status.messaging.telegramManualPasskey": "사이트에서 패스키를 요구해요. Telegram에서는 이 단계를 완료할 수 없어요.",
+  "status.messaging.telegramManualAccount": "사이트에서 계정을 선택해야 해요. Telegram에서는 선택할 수 없어요.",
+  "status.messaging.telegramManualPayment": "결제 서비스에서 직접 승인을 요청했어요. Telegram에서는 승인할 수 없어요.",
+  "status.messaging.telegramManualStep": "이 단계는 브라우저에서 직접 조작해야 해요. Telegram에서는 완료할 수 없어요.",
+  "status.messaging.telegramBlockedLogin":
+    "서버에서 이 사이트에 로그인할 수 없어요. Telegram에서는 이 단계를 완료할 수 없어요.",
   "status.messaging.integrationsSection": "연동",
   "status.messaging.telegramTaskFailed": "에이전트가 요청한 작업을 완료하지 못했습니다.",
   "status.messaging.telegramTaskCancelled": "에이전트가 작업을 중단했습니다.",
@@ -156,4 +164,10 @@ export const messages = {
   "status.messaging.telegramFileFailed": "파일을 읽지 못했어요. 20MB 이하 파일만 보낼 수 있어요.",
   "status.messaging.telegramT3LinkExpiring":
     "⏳ T3 Code {name}({origin}) 연결이 {date}에 끝나요. 그 뒤에는 에이전트가 그곳의 T3 Code를 쓸 수 없어요. 계속 쓰려면 그 컴퓨터에서 t3 pair를 실행하고, Tommy 서버에서 sudo tommy t3 link --name {name} {origin} 을 실행해 주세요.",
+  "status.messaging.telegramMcpConnect": "연결",
+  "status.messaging.telegramMcpRequested": "{name}에 로그인이 필요해요.",
+  "status.messaging.telegramMcpConnected": "{name}에 연결했어요.",
+  "status.messaging.telegramMcpDenied": "{name} 로그인이 거부되었어요.",
+  "status.messaging.telegramMcpExpired": "{name} 로그인 요청이 만료되었어요.",
+  "status.messaging.telegramMcpFailed": "{name}에 연결하지 못했어요.",
 } as const satisfies PartialTranslation<typeof source>;

@@ -463,7 +463,7 @@ describe("TommyDatabase", () => {
     database.close();
   });
 
-  it("reads bounded runtime metadata without loading a full conversation", async () => {
+  it("reads the active turn from its owning thread", async () => {
     const database = await createDatabase();
     const agent = testAgent();
     database.replaceAgents("agents-runtime", [agent], "agents.imported");
@@ -518,14 +518,12 @@ describe("TommyDatabase", () => {
       { turnId: "turn-active" },
     );
 
-    expect(database.readConversationRuntime(agent.id, agent.threadId)).toEqual({
-      activeTurnId: "turn-active",
-      latestMessage: expect.objectContaining({ id: "assistant-latest", text: "Latest answer" }),
-    });
+    expect(database.readActiveTurnId(agent.id, agent.threadId)).toBe("turn-active");
+    expect(database.readActiveTurnId("other-agent", agent.threadId)).toBeNull();
     database.close();
   });
 
-  it("pages and searches a 1,000-message conversation without gaps", async () => {
+  it("pages a 1,000-message conversation without gaps", async () => {
     const database = await createDatabase();
     const agent = testAgent();
     database.replaceAgents("agents-large-history", [agent], "agents.imported");
@@ -576,11 +574,6 @@ describe("TommyDatabase", () => {
       100,
     );
 
-    const search = database.searchConversationMessages("pagination needle", agent.id, undefined, 100);
-    expect(search.total).toBe(1);
-    expect(search.results.map((result) => result.message.id)).toEqual(["message-00234"]);
-    expect(search.nextCursor).toBeNull();
-    expect(database.searchConversationMessages("pagination needle")).toEqual(search);
     database.close();
   });
 
@@ -776,7 +769,7 @@ describe("TommyDatabase", () => {
     database.close();
   });
 
-  it("keeps the channel thread of an agent out of the conversation search", async () => {
+  it("keeps a channel thread separate from its agent conversation", async () => {
     const database = await createDatabase();
     const agent = testAgent();
     database.replaceAgents("agents-channel-search", [agent], "agents.imported");
@@ -823,12 +816,12 @@ describe("TommyDatabase", () => {
       "conversation.channel-search-channel",
     );
 
-    // A result names an agent and a message, and opening one shows the normal conversation of that
-    // agent. A channel message is not there, so the search must not offer it.
-    const search = database.searchConversationMessages("unique channel needle");
-    expect(search.results.map((result) => result.message.id)).toEqual(["normal-hit"]);
-    expect(search.total).toBe(1);
-    expect(database.searchConversationMessages("unique channel needle", agent.id).total).toBe(1);
+    expect(
+      database.readConversationPage(agent.id, agent.threadId, { type: "latest" }, 20).messages.map(({ id }) => id),
+    ).toEqual(["normal-hit"]);
+    expect(
+      database.readConversationPage(agent.id, channelThreadId, { type: "latest" }, 20).messages.map(({ id }) => id),
+    ).toEqual(["channel-hit"]);
     database.close();
   });
 
@@ -931,10 +924,6 @@ describe("TommyDatabase", () => {
     );
     expect(older.messages.map((message) => message.id)).toEqual(["reply-old"]);
     expect(older.pageInfo.hasOlder).toBe(false);
-    expect(database.searchConversationMessages("Morning brief", agent.id).total).toBe(0);
-    expect(database.searchConversationMessages("Launch page", agent.id).total).toBe(0);
-    // A quiet routine answer is not news, and a Team API client never gets it.
-    expect(database.searchConversationMessages("Nothing to report", agent.id).total).toBe(0);
     database.close();
   });
 

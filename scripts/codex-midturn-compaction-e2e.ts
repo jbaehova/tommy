@@ -10,7 +10,7 @@
 //      continues once. Without the deadline, the turn showed "Compacting context" until a Stop.
 //   3. A second failure in the same request does not continue again. The error shows in plain words,
 //      not Codex's text.
-// No provider, account or network is used. `bun run test:codex-midturn-compaction`.
+// No provider, account or network is used. `bun scripts/codex-midturn-compaction-e2e.ts`.
 // Writes .tommy-build/codex-midturn-compaction-e2e/report.json.
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -165,14 +165,9 @@ const report: {
 const unused = () => Effect.die(new Error("Not used by this check."));
 const browser: AgentBrowserHost = {
   listTabs: () => [],
-  beginTakeover: unused,
-  endTakeover: () => {},
   resolveUploadTarget: unused,
   handleDynamicTool: unused,
-  userControlTabFor: () => null,
-  awaitUserControlRelease: unused,
   onChanged: () => () => {},
-  onControlChanged: () => () => {},
   onDocumentChanged: () => () => {},
   clearControls: () => {},
   endControl: () => {},

@@ -370,14 +370,3 @@ export function isAgentEvent(value: unknown): value is AgentEvent {
       return false;
   }
 }
-
-export interface ScopedAgentEvent {
-  serverId: string;
-  event: AgentEvent;
-  bufferedLive?: boolean;
-}
-
-export interface AgentIpcRequest<T = unknown> {
-  serverId: string;
-  payload: T;
-}

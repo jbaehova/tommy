@@ -5,6 +5,13 @@
 
 import type { WorkflowFieldValue, WorkflowNode, WorkflowNodeKind } from "@tommy/contracts/ipc";
 
+export function isDiscordNode(node: WorkflowNode): boolean {
+  return (
+    (node.kind === "trigger" && node.fields.trigger === "discord") ||
+    (node.kind === "output" && node.fields.target === "discord")
+  );
+}
+
 /** The zone that a trigger node names, or null when it names none. */
 export function nodeTimezone(node: WorkflowNode): string | null {
   const timezone = node.fields.timezone;

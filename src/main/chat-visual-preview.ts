@@ -17,11 +17,10 @@ import {
 import { chatVisualResponse } from "./chat-visual-protocol";
 
 /**
- * Draws a visual reply page for `html_preview` in a window that is never shown.
+ * Draws a preview for the agent and for Telegram in a hidden window.
  *
  * The window has its own session in memory, so the page cannot read the app's cookies, storage or
- * attachments. The page gets the same sandbox and frame script as in the chat, and it can load files
- * from the network, as it can there. It cannot ask for a permission, download a file, open a window
+ * attachments. The page uses the visual document sandbox and can load network resources. It cannot ask for a permission, download a file, open a window
  * or leave its address.
  */
 
@@ -38,8 +37,12 @@ const SCRIPT_WORLD = 1_017;
 /** The measure of the frame script in the chat: `scrollHeight` is never less than the window. */
 const SETTLED_HEIGHT_SCRIPT = `new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() =>
   setTimeout(() => resolve(Math.ceil(document.documentElement.getBoundingClientRect().height)), 250))))`;
-const NEXT_FRAME_SCRIPT =
-  "new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))";
+const INTERACTIVE_AFTER_RESIZE = `new Promise(resolve => {
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const selector = 'a[href],button,input:not([type=hidden]),select,textarea,summary,[contenteditable=true],[role=button],[onclick],audio[controls],video[controls],iframe';
+    resolve(document.querySelector(selector) !== null);
+  }));
+})`;
 
 const CONSOLE_LEVELS: Record<string, string> = { warning: "warn", error: "error" };
 
@@ -100,6 +103,7 @@ export class ChatVisualPreviewer implements ChatVisualPreviewHost {
             // so a chart comes out empty.
             const window = new BrowserWindow({
               show: false,
+              focusable: false,
               width: request.width,
               height: INITIAL_HEIGHT,
               useContentSize: true,
@@ -168,8 +172,8 @@ export class ChatVisualPreviewer implements ChatVisualPreviewHost {
       );
       const height = Math.min(Math.max(contentHeight, CHAT_VISUAL_MIN_HEIGHT), CHAT_VISUAL_MAX_HEIGHT);
       window.setContentSize(request.width, height);
-      yield* Effect.tryPromise({
-        try: () => contents.executeJavaScriptInIsolatedWorld(SCRIPT_WORLD, [{ code: NEXT_FRAME_SCRIPT }]),
+      const interactive = yield* Effect.tryPromise({
+        try: () => contents.executeJavaScriptInIsolatedWorld(SCRIPT_WORLD, [{ code: INTERACTIVE_AFTER_RESIZE }]),
         catch: () => previewFailure("The page did not finish drawing."),
       });
       const image = yield* Effect.tryPromise({
@@ -180,7 +184,7 @@ export class ChatVisualPreviewer implements ChatVisualPreviewHost {
         try: () => boundedPng(image),
         catch: () => previewFailure("The page drew nothing."),
       });
-      return { imageUrl, contentHeight, console: [...console] };
+      return { imageUrl, contentHeight, interactive: interactive === true, console: [...console] };
     }).pipe(
       Effect.timeoutOrElse({
         duration: PREVIEW_TIMEOUT,

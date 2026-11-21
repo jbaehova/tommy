@@ -1,10 +1,10 @@
 import type { HostTimezoneSettings } from "@tommy/contracts/ipc";
 import { isDynamicRecord, isString } from "@tommy/contracts/runtime-values";
-import { sourceText } from "@tommy/i18n/source";
-import { Effect, Result, Semaphore } from "effect";
+
+import { Effect, Result } from "effect";
 import { localTimezone } from "../backend/agent/routine-tools";
 import { isMissingFileError } from "../backend/file-errors";
-import { type PreferenceFileFailure, readPreferenceFile, writePreferenceFile } from "./preference-file";
+import { type PreferenceFileFailure, readPreferenceFile } from "./preference-file";
 import { validTimezone } from "./valid-timezone";
 
 /**
@@ -14,12 +14,11 @@ import { validTimezone } from "./valid-timezone";
  * before the setting existed.
  *
  * A file that is missing, unreadable as JSON, or names a zone this runtime cannot resolve reads as
- * automatic. Writes are chained for the reason `update-preference-store.ts` chains its own.
+ * automatic.
  */
 export class ServerTimezonePreferenceStore {
   readonly #path: string;
   #timezone: string | null = null;
-  #writes = Semaphore.makeUnsafe(1);
 
   constructor(path: string) {
     this.#path = path;
@@ -48,28 +47,4 @@ export class ServerTimezonePreferenceStore {
   effective(): string {
     return this.#timezone ?? localTimezone();
   }
-
-  /** The caller reads the zone with `parseServerTimezone` first. */
-  readonly set = Effect.fn("ServerTimezonePreference.set")((timezone: string | null) =>
-    this.#writes.withPermit(
-      Effect.uninterruptible(
-        writePreferenceFile(this.#path, { version: 1, timezone }).pipe(
-          Effect.tap(() =>
-            Effect.sync(() => {
-              this.#timezone = timezone;
-            }),
-          ),
-          Effect.map(() => this.get()),
-        ),
-      ),
-    ),
-  );
-}
-
-/** A zone this runtime resolves, or `null` for automatic. */
-export function parseServerTimezone(value: unknown): string | null {
-  if (value === null) return null;
-  if (!isString(value) || value.length > 128 || !validTimezone(value))
-    throw new Error(sourceText("error.host.timezoneInvalid"));
-  return value;
 }

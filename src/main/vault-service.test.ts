@@ -82,8 +82,7 @@ describe("Vault secret redaction", () => {
     expect(redactText("OPENAI_API_KEY=vault-api-key-secret-1")).not.toContain("vault-api-key-secret-1");
     const reader = service();
     await Effect.runPromise(reader.load());
-    const id = reader.state().items.find((item) => item.kind === "apiKey")?.id ?? "";
-    expect(reader.reveal({ id, field: "key" })).toBe("vault-api-key-secret-1");
+    expect(reader.items.apiKeys()).toContainEqual({ name: API_KEY.name, value: API_KEY.key });
   });
 
   it("redacts the secrets of a file that a new process loads", async () => {
@@ -110,7 +109,9 @@ describe("Vault secret redaction", () => {
     const upgraded = service();
     await Effect.runPromise(upgraded.load());
     expect(upgraded.state().items.map((item) => item.kind)).toEqual(["login", "card", "apiKey"]);
-    expect(upgraded.reveal({ id: "l1", field: "password" })).toBe("vault-login-secret-2");
+    expect(await Effect.runPromise(upgraded.logins.secretFor("l1", "https://example.com", "password"))).toBe(
+      "vault-login-secret-2",
+    );
   });
 
   it("keeps the summary free of secrets and leaves an unreadable file in place", async () => {

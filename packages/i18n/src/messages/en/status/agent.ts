@@ -15,13 +15,10 @@ export const messages = defineMessages("status.agent", {
   "status.agent.channelRoutineCreated": "{agent} created the routine {routine}. {person} asked for it.",
   "status.agent.channelRoutineUpdated": "{agent} changed the routine {routine}. {person} asked for it.",
   "status.agent.channelRoutineDeleted": "{agent} deleted the routine {routine}. {person} asked for it.",
-  "status.agent.screenCaptureScreen": "Capture the main screen and send the image to the agent's model.",
-  "status.agent.screenCaptureChannel":
-    "The image shows in the channel {channel}, and each member of this server who reads the channel can see it.",
-  "status.agent.screenCaptureDisplay": "Capture the display {name} and send the image to the agent's model.",
-  "status.agent.screenCaptureWindow": "Capture the window {name} and send the image to the agent's model.",
-  "status.agent.screenCaptureRegion":
-    "Capture the screen area at {x}, {y}, {width} × {height} points and send the image to the agent's model.",
+  "status.agent.vaultSiteApproval":
+    "Amount: {amount} (read by the agent)\nCard: {card}\nSite: {site}\nNext fills here need no approval.",
+  "status.agent.vaultSiteApprovalFrames":
+    "Amount: {amount} (read by the agent)\nCard: {card}\nSite: {site}\nPayment frames: {origins}\nNext fills here need no approval.",
   "status.agent.vaultCardFillVault":
     "Amount: {amount} (read by the agent)\nCard: {card}\nSite: {site}\nNext fills here need no approval. Remove the site in Server settings > Vault.",
   "status.agent.vaultCardFillVaultFrames":
@@ -69,6 +66,7 @@ export const messages = defineMessages("status.agent", {
   "status.agent.mcpServerEnable": "Turn on the MCP server {name} for every agent on this server.",
   "status.agent.mcpServerDisable": "Turn off the MCP server {name} for every agent on this server.",
   "status.agent.mcpServerRemove": "Remove the MCP server {name} and its sign-in from every agent on this server.",
+  "status.agent.mcpSignInConnect": "{name} needs a sign-in. Tap Connect in Telegram.",
   "status.agent.mcpSignInRequested": "The MCP server {name} needs a sign-in. Sign in from Server settings, MCP.",
   "status.agent.vaultAdded": "Saved to Vault: {name}",
   "status.agent.vaultUpdated": "Changed in Vault: {name}",

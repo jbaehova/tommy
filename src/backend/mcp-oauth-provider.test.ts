@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Effect } from "effect";
@@ -37,6 +38,7 @@ const registrationSchema = z.object({
 async function authorizationServer(refuseNumericRedirect = false) {
   const registrations: Array<z.infer<typeof registrationSchema>> = [];
   let origin = "";
+  let grant: { challenge: string; redirect: string } | null = null;
   origin = await serverFor((request, response) => {
     const path = new URL(request.url ?? "/", origin).pathname;
     response.setHeader("content-type", "application/json");
@@ -62,6 +64,32 @@ async function authorizationServer(refuseNumericRedirect = false) {
       );
       return;
     }
+    if (path === "/token" && request.method === "POST") {
+      let body = "";
+      request.setEncoding("utf8");
+      request.on("data", (part: string) => {
+        body += part;
+      });
+      request.on("end", () => {
+        const form = new URLSearchParams(body);
+        const challenge = createHash("sha256")
+          .update(form.get("code_verifier") ?? "")
+          .digest("base64url");
+        if (
+          !grant ||
+          form.get("grant_type") !== "authorization_code" ||
+          form.get("code") !== "fixture-code" ||
+          form.get("redirect_uri") !== grant.redirect ||
+          challenge !== grant.challenge
+        ) {
+          response.writeHead(400).end('{"error":"invalid_grant"}');
+          return;
+        }
+        grant = null;
+        response.end('{"access_token":"fixture-access-token","token_type":"Bearer","expires_in":3600}');
+      });
+      return;
+    }
     if (path !== "/register" || request.method !== "POST") {
       response.writeHead(404).end("{}");
       return;
@@ -85,10 +113,16 @@ async function authorizationServer(refuseNumericRedirect = false) {
       response.writeHead(201).end(JSON.stringify({ ...decoded.data, client_id: `fixture-${registrations.length}` }));
     });
   });
-  return { origin, registrations };
+  return {
+    origin,
+    registrations,
+    allowGrant: (value: { challenge: string; redirect: string }) => {
+      grant = value;
+    },
+  };
 }
 
-function signInClient(origin: string, app?: McpOAuthRecord["app"]) {
+function signInClient(origin: string, app?: McpOAuthRecord["app"], telegramPublicOrigin?: string) {
   const resource = `${origin}/mcp`;
   const records = new Map<string, McpOAuthRecord>(app ? [[resource, { app }]] : []);
   const opened: URL[] = [];
@@ -105,6 +139,7 @@ function signInClient(origin: string, app?: McpOAuthRecord["app"]) {
   };
   const oauth = new McpOAuth({
     storage,
+    telegramPublicOrigin,
     redirectUrl: `${origin}/mcp-auth`,
     openExternal: async (url) => {
       opened.push(new URL(url));
@@ -133,6 +168,57 @@ describe("MCP OAuth loopback registration boundary", () => {
     expect(retried.pathname).toBe(initial.pathname);
     expect(opened[0]?.searchParams.get("redirect_uri")).toBe(retried.href);
     attempt.abandon();
+  });
+
+  it("keeps the public PKCE callback separate from local attempts and consumes state once", async () => {
+    const host = await authorizationServer();
+    const origin = "https://server.example.com";
+    const { oauth, resource } = signInClient(host.origin, undefined, origin);
+    let page: string | null = null;
+    const open = Object.assign(
+      async (url: string) => {
+        page = url;
+      },
+      { telegramAuthorized: () => true },
+    );
+    const begin = async () => {
+      const attempt = oauth.signIn(resource, open);
+      if (!attempt) throw new Error("Missing public sign-in.");
+      expect(await Effect.runPromise(attempt.begin())).toBe(true);
+      if (!page) throw new Error("Missing public authorization page.");
+      const auth = new URL(page);
+      expect(auth.searchParams.get("redirect_uri")).toBe(`${origin}/tommy/telegram/app/mcp/callback`);
+      expect(auth.searchParams.get("code_challenge_method")).toBe("S256");
+      expect(auth.searchParams.get("code_challenge")).toBeTruthy();
+      const state = auth.searchParams.get("state");
+      if (!state) throw new Error("Missing public state.");
+      return {
+        attempt,
+        state,
+        challenge: auth.searchParams.get("code_challenge") ?? "",
+        redirect: auth.searchParams.get("redirect_uri") ?? "",
+      };
+    };
+    const first = await begin();
+    expect(host.registrations[0]?.application_type).toBe("web");
+    expect(oauth.receiveAuthorizationCode(first.state, "fixture-code")).toBe(false);
+    expect(oauth.receiveTelegramAuthorization(first.state, null)).toBe(true);
+    expect(first.attempt.cancelled()).toBe(true);
+    expect(oauth.receiveTelegramAuthorization(first.state, "fixture-code")).toBe(false);
+    const second = await begin();
+    host.allowGrant(second);
+    expect(oauth.receiveTelegramAuthorization(second.state, "fixture-code")).toBe(true);
+    expect(oauth.receiveTelegramAuthorization(second.state, "fixture-code")).toBe(false);
+    await Effect.runPromise(second.attempt.complete());
+    expect(oauth.signedIn(resource)).toBe(true);
+    second.attempt.abandon();
+    const local = oauth.signIn(resource);
+    if (!local) throw new Error("Missing local attempt.");
+    const state = await local.provider.state?.();
+    if (typeof state !== "string") throw new Error("Missing local state.");
+    expect(oauth.receiveTelegramAuthorization(state, "fixture-code")).toBe(false);
+    expect(oauth.receiveAuthorizationCode(state, "fixture-code")).toBe(true);
+    local.abandon();
   });
 
   it("tries the other loopback name after an unanswered browser trip", async () => {

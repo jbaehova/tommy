@@ -306,33 +306,6 @@ try {
   assert.equal(removedCursors.get("other-agent", null), "message-other");
   checked("Conversation cursors survive restart and deletion preserves other agents' cursors.");
 
-  const remoteBundle = (instructions: string) =>
-    zipSync({
-      "SKILL.md": new TextEncoder().encode(
-        `---\nname: Remote preview example\ndescription: A remote skill preview.\n---\n${instructions}\n`,
-      ),
-    });
-  const remoteSkill = await runCauseEffect(
-    library.createFromBundle(remoteBundle("Keep EXAMPLE_PRIVATE_TOKEN_123 on the host.")),
-  );
-  const remoteList = await runCauseEffect(service.listLocalSkills());
-  assert.ok(remoteList.length <= 200);
-  assert.ok(
-    remoteList.every((skill) => skill.instructions === "" && skill.files.length === 0 && skill.iconUrl === null),
-  );
-  const preview = await runCauseEffect(service.readLocalSkill({ skillId: remoteSkill.id, revision: 1 }));
-  assert.equal(preview.version, 1);
-  assert.ok(preview.instructions.includes("[REDACTED]"));
-  assert.ok(!JSON.stringify(preview).includes("EXAMPLE_PRIVATE_TOKEN_123"));
-  const largeText = "Long instructions. ".repeat(5_000);
-  await runCauseEffect(library.reviseFromBundle(remoteSkill.id, 1, remoteBundle(largeText)));
-  await assert.rejects(runCauseEffect(service.readLocalSkill({ skillId: remoteSkill.id })));
-  assert.equal((await runCauseEffect(library.get(remoteSkill.id))).instructions, largeText.trim());
-  assert.equal((await runCauseEffect(service.readLocalSkill({ skillId: remoteSkill.id, revision: 1 }))).version, 1);
-  checked(
-    "Remote previews fetch exact revisions, redact known secrets and refuse oversized content without changing the local skill.",
-  );
-
   assert.ok(!(await readFile(preferencePath, "utf8")).includes("EXAMPLE_PRIVATE_TOKEN_123"));
   report.passed = true;
 } catch (failure) {

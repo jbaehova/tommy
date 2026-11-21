@@ -1,6 +1,5 @@
 import { configDefaults, defineConfig } from "vitest/config";
 import { TEST_TIMEOUT_MS } from "./src/backend/test-deadlines";
-import BalancedSequencer from "./tools/vitest/balanced-sequencer";
 
 export default defineConfig({
   test: {
@@ -19,9 +18,6 @@ export default defineConfig({
     // worker there. The worker then ran out of heap before it was recycled ("Worker exited
     // unexpectedly") in the unsharded release run.
     vmMemoryLimit: "1GiB",
-    // Only `shard()` is overridden, so a local run orders files exactly as before. See the
-    // sequencer for why `--shard` alone splits this suite badly.
-    sequence: { sequencer: BalancedSequencer },
     // The default triggers make `--changed` and `related` select every test when `package.json`
     // or a vitest config changes, but only in a checkout path with no dot directory. Never select
     // the full suite for a focused run: `test:changed` must stay on the dependents of a change.

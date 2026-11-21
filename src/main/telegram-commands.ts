@@ -26,7 +26,7 @@ export type TelegramCommandService = Pick<
   | "updateRoutine"
   | "testRoutine"
   | "readConversation"
-  | "getRuntimeSnapshot"
+  | "activeTurnId"
   | "instructionsSaving"
 >;
 
@@ -205,7 +205,7 @@ export class TelegramCommands {
   }
 
   #status(agent: AgentSummary, t: Translate): TelegramCommandReply {
-    const working = this.#options.service.getRuntimeSnapshot().activeTurns.some((turn) => turn.agentId === agent.id);
+    const working = this.#options.service.activeTurnId(agent.id) !== null;
     const pending = agent.pendingRuntime;
     const lines = [
       `<b>${html(agent.name)}</b>`,

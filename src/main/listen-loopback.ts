@@ -18,14 +18,6 @@ export async function listenLoopback(server: Server, noPort: () => Error, prefer
   return listenOn(server, noPort, 0);
 }
 
-/**
- * Listens on exactly `port` of the loopback address, or rejects. For an address that another
- * computer chose, such as the callback of a relayed sign-in: any other port is no answer at all.
- */
-export function listenLoopbackExact(server: Server, noPort: () => Error, port: number): Promise<number> {
-  return listenOn(server, noPort, port);
-}
-
 function listenOn(server: Server, noPort: () => Error, port: number): Promise<number> {
   return new Promise<number>((resolve, reject) => {
     server.once("error", reject);

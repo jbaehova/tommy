@@ -1,21 +1,18 @@
-# Gate D — IPC channels — `packages/contracts/src/ipc-endpoints.ts`
+# Server trust boundaries
 
-Triggered by a change to the channel list **or to any of its mirrors** — `src/main/index.ts`,
-`src/main/ipc/`, `src/preload/index.ts`. Deleting a
-handler or an `invoke` breaks a live channel without touching the list at all, and the coverage
-test below is what catches it, so a gate that only watched the list would skip the one run that
-would have found it.
+Follow each changed entry point from its caller to the operation. Check the Telegram webhook secret,
+the chat owner's identity, signed Mini App launch data and the credential of the bot that sent it.
+Confirm authorization again when a pending action resumes after a connection changes. Check the
+public nginx route and the local-only operator interfaces separately.
 
-Renderer and main ship in one binary, so a channel rename is **not** an upgrade hazard — nothing
-older ever calls it. The hazard is drift between the list and its hand-written mirrors, which is a
-runtime rejection in the build you are about to sign. Confirm all of them moved together, per the
-table in `packages/contracts/AGENTS.md`: the handlers that `registerIpcGroups` binds from
-`src/main/ipc/`, and the `bridgeGroup` maps and hand-written calls in `src/preload/index.ts`.
+For browser and command changes check navigation policy, Electron sandboxing, attachment realpaths
+and the separate database process. A production browser has no privileged preload. A background
+web preview must not gain access to credentials or application APIs. Check both a valid request
+and an untrusted caller, including after a restart or revoked connection. Select the matching check.
 
-```bash
-bun run test:desktop -- src/main/ipc-channel-coverage.test.ts
+```sh
+bun run test:desktop -- src/main/telegram-mini-app.test.ts
+bun run test:desktop -- src/main/telegram-agent-host-security.test.ts
+bun run test:desktop -- src/main/chat-visual-protocol.test.ts
+bun scripts/agent-database-safety-e2e.ts
 ```
-
-That test links main and preload. The mock is covered by `tsc` in both directions, so what is left
-for you to judge is its *behaviour* — a mock method that satisfies the type by returning an empty
-array is a story that silently shows nothing.

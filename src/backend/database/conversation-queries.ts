@@ -1,17 +1,12 @@
-import { CHAT_VISUAL_ITEM_TYPE_PREFIX } from "@tommy/contracts/chat-visual";
 import { sortConversationMessages } from "@tommy/contracts/conversation-order";
 import type {
-  ConversationFileSearchPage,
-  ConversationFileSearchResult,
   ConversationMessage,
   ConversationPage,
   ConversationPageAnchor,
-  ConversationSearchPage,
   ConversationSnapshot,
 } from "@tommy/contracts/ipc";
 import {
   HOSTED_SITE_EVENT_ITEM_TYPE_PREFIX,
-  isAttachmentSummary,
   MARKETPLACE_SUGGESTION_ITEM_TYPE_PREFIX,
   ROUTINE_EVENT_ITEM_TYPE_PREFIX,
   ROUTINE_QUIET_ANSWER_ITEM_TYPE,
@@ -19,7 +14,7 @@ import {
   SKILL_EVENT_ITEM_TYPE_PREFIX,
 } from "@tommy/contracts/ipc";
 import { type DynamicRecord, isDynamicRecord, isNumber, isString } from "@tommy/contracts/runtime-values";
-import { COLLAPSE_WHITESPACE_FUNCTION, type DatabaseCore, LOWERCASE_FUNCTION } from "./database-core";
+import type { DatabaseCore } from "./database-core";
 import {
   databaseRow,
   databaseRows,
@@ -41,20 +36,6 @@ export interface ConversationMarkerExclusions {
   excludeHostedSiteEvents?: boolean;
   excludeRoutineQuietAnswers?: boolean;
 }
-
-/**
- * A channel gives each of its members a thread of its own, and a side thread has one too, under the same
- * agent id as the normal chat. A search result carries an agent id and a message, and opening one
- * shows the normal conversation of that agent, where a channel or task message does not exist. These
- * threads stay out of the search until a result can name the channel or task it belongs to. A message
- * search that asks for side threads names the thread of each result.
- */
-const CHANNEL_THREAD_EXCLUSION = "AND message.thread_id NOT IN (SELECT thread_id FROM projection_channel_contexts)";
-const SIDE_THREAD_EXCLUSION = `${CHANNEL_THREAD_EXCLUSION}
-             AND message.thread_id NOT IN (SELECT thread_id FROM projection_agent_threads)`;
-/** An archived side thread does not show, so its messages stay out of the search. */
-const ARCHIVED_SIDE_THREAD_EXCLUSION = `${CHANNEL_THREAD_EXCLUSION}
-             AND message.thread_id NOT IN (SELECT thread_id FROM projection_agent_threads WHERE archived_at IS NOT NULL)`;
 
 /**
  * Every read of a thread's messages: the whole snapshot, one anchored page, a page's supported
@@ -159,42 +140,6 @@ export class ConversationQueries {
         .get(threadId, agentId),
     );
     return row ? requiredNumberColumn(row, "last_event_sequence") : 0;
-  }
-
-  readConversationRuntime(
-    agentId: string,
-    threadId: string | null,
-  ): { activeTurnId: string | null; latestMessage: ConversationMessage | null } {
-    if (!threadId) return { activeTurnId: null, latestMessage: null };
-    const row = databaseRow(
-      this.#core.connection
-        .prepare(
-          `SELECT thread.active_turn_id,
-                  (SELECT message.message_json
-                   FROM projection_thread_messages message
-                   WHERE message.thread_id = thread.thread_id
-                     AND json_extract(message.message_json, '$.author') IN ('assistant', 'agent')
-                     AND COALESCE(json_extract(message.message_json, '$.itemType'), '') != 'commentary'
-                     AND COALESCE(json_extract(message.message_json, '$.itemType'), '') != 'question_prompt'
-                     AND COALESCE(json_extract(message.message_json, '$.itemType'), '') != 'agent_attachment'
-                     AND COALESCE(json_extract(message.message_json, '$.itemType'), '') NOT LIKE '${CHAT_VISUAL_ITEM_TYPE_PREFIX}%'
-                     AND COALESCE(json_extract(message.message_json, '$.itemType'), '') != 'plan'
-                     AND COALESCE(json_extract(message.message_json, '$.itemType'), '') != 'subagents'
-                     AND COALESCE(json_extract(message.message_json, '$.itemType'), '') != '${ROUTINE_QUIET_ANSWER_ITEM_TYPE}'
-                     AND json_extract(message.message_json, '$.senderAgentId') IS NULL
-                   ORDER BY message.created_at DESC, message.ordinal DESC, message.message_id DESC
-                   LIMIT 1) AS latest_message_json
-           FROM projection_threads thread
-           WHERE thread.thread_id = ? AND thread.agent_id = ?`,
-        )
-        .get(threadId, agentId),
-    );
-    if (!row) return { activeTurnId: null, latestMessage: null };
-    const latestMessage = optionalStringColumn(row, "latest_message_json");
-    return {
-      activeTurnId: optionalStringColumn(row, "active_turn_id"),
-      latestMessage: latestMessage ? decodeConversationMessageJson(latestMessage) : null,
-    };
   }
 
   /** Reads only named messages for a row-level conversation update. */
@@ -352,138 +297,6 @@ export class ConversationQueries {
         .get(threadId, ...pageKeyValues(conversationRowCursor(boundary))),
     );
     return row ? requiredStringColumn(row, "message_id") : null;
-  }
-
-  searchConversationMessages(
-    query: string,
-    agentId?: string,
-    cursor?: string,
-    requestedLimit = 100,
-    includeSideThreads = false,
-  ): ConversationSearchPage {
-    const normalized = query.trim().replace(/\s+/g, " ").toLocaleLowerCase();
-    if (!normalized) return { results: [], total: 0, nextCursor: null };
-    const limit = pageLimit(requestedLimit);
-    const offset = cursor ? decodeSearchCursor(cursor) : 0;
-    const pattern = `%${escapeLike(normalized)}%`;
-    const storedText = "json_extract(message.message_json, '$.text')";
-    const textMatch = `LOWER(${storedText}) LIKE ? ESCAPE '\\'`;
-    const terms = normalized.split(" ");
-    // A query with a space can match across a line break. Only the rows that contain its longest
-    // term pay for the whitespace call.
-    const longestTerm = terms.reduce((longest, term) => (term.length > longest.length ? term : longest));
-    const textFilter =
-      terms.length > 1
-        ? `${textMatch} AND LOWER(${COLLAPSE_WHITESPACE_FUNCTION}(${storedText})) LIKE ? ESCAPE '\\'`
-        : textMatch;
-    const textParameters = terms.length > 1 ? [`%${escapeLike(longestTerm)}%`, pattern] : [pattern];
-    const filter = agentId ? "AND thread.agent_id = ?" : "";
-    const parameters = agentId ? [...textParameters, agentId] : textParameters;
-    // The text filter reads every stored message, so it runs one time: the matches keep only their
-    // keys, the total counts them, and only the page's rows read their message (#2279). The left
-    // join gives the total also for a cursor past the last page.
-    const rows = databaseRows(
-      this.#core.connection
-        .prepare(
-          `WITH matches AS MATERIALIZED (
-             SELECT message.rowid AS message_rowid, thread.agent_id, message.created_at, message.ordinal, message.message_id
-             FROM projection_thread_messages message
-             JOIN projection_threads thread ON thread.thread_id = message.thread_id
-             WHERE ${textFilter}
-               AND COALESCE(json_extract(message.message_json, '$.delivery.status'), '') NOT IN ('queued', 'cancelled')
-               AND COALESCE(message.item_type, '') NOT IN ('commentary', '${ROUTINE_QUIET_ANSWER_ITEM_TYPE}')
-               AND COALESCE(message.item_type, '') NOT LIKE '${SKILL_EVENT_ITEM_TYPE_PREFIX}%' AND COALESCE(message.item_type, '') NOT LIKE '${ROUTINE_EVENT_ITEM_TYPE_PREFIX}%'
-               AND COALESCE(message.item_type, '') NOT LIKE '${ROUTINE_RUN_EVENT_ITEM_TYPE_PREFIX}%'
-               AND COALESCE(message.item_type, '') NOT LIKE '${HOSTED_SITE_EVENT_ITEM_TYPE_PREFIX}%'
-               AND COALESCE(message.item_type, '') NOT LIKE '${MARKETPLACE_SUGGESTION_ITEM_TYPE_PREFIX}%'
-               AND json_extract(message.message_json, '$.routine') IS NULL
-               ${includeSideThreads ? ARCHIVED_SIDE_THREAD_EXCLUSION : SIDE_THREAD_EXCLUSION}
-               ${filter}
-           )
-           SELECT counted.count, page.agent_id, message.message_json,
-             COALESCE(side.legacy_task_id, side.thread_id) AS task_id
-           FROM (SELECT COUNT(*) AS count FROM matches) counted
-           LEFT JOIN (
-             SELECT * FROM matches
-             ORDER BY created_at DESC, ordinal DESC, message_id DESC
-             LIMIT ? OFFSET ?
-           ) page
-           LEFT JOIN projection_thread_messages message ON message.rowid = page.message_rowid
-           LEFT JOIN projection_agent_threads side ON side.thread_id = message.thread_id
-           ORDER BY page.created_at DESC, page.ordinal DESC, page.message_id DESC`,
-        )
-        .all(...parameters, limit, offset),
-    );
-    const total = rows[0] ? requiredNumberColumn(rows[0], "count") : 0;
-    // An empty page is one row with the count only.
-    const results = rows.flatMap((row) => {
-      const messageJson = optionalStringColumn(row, "message_json");
-      if (messageJson === null) return [];
-      const taskId = optionalStringColumn(row, "task_id");
-      return [
-        {
-          agentId: requiredStringColumn(row, "agent_id"),
-          message: decodeConversationMessageJson(messageJson),
-          ...(taskId === null ? {} : { taskId }),
-        },
-      ];
-    });
-    const nextOffset = offset + results.length;
-    return {
-      results,
-      total,
-      nextCursor: nextOffset < total ? encodeSearchCursor(nextOffset) : null,
-    };
-  }
-
-  /**
-   * The files of agent chat messages whose name contains the query, newest first. The owner of a
-   * chat attachment is `${threadId}:${messageId}`, and a thread id has no colon. Channel threads
-   * stay out for the same reason as in the message search.
-   */
-  searchConversationFiles(query: string, cursor?: string, requestedLimit = 50): ConversationFileSearchPage {
-    const normalized = query.trim().replace(/\s+/g, " ").toLocaleLowerCase();
-    const limit = pageLimit(requestedLimit);
-    const offset = cursor ? decodeSearchCursor(cursor) : 0;
-    const threadId = "substr(attachment.owner_id, 1, instr(attachment.owner_id, ':') - 1)";
-    const messageId = "substr(attachment.owner_id, instr(attachment.owner_id, ':') + 1)";
-    const nameFilter = normalized
-      ? `AND ${LOWERCASE_FUNCTION}(${COLLAPSE_WHITESPACE_FUNCTION}(attachment.name)) LIKE ? ESCAPE '\\'`
-      : "";
-    const parameters = normalized ? [`%${escapeLike(normalized)}%`] : [];
-    const rows = databaseRows(
-      this.#core.connection
-        .prepare(
-          `SELECT thread.agent_id, message.message_id, attachment.created_at, attachment.metadata_json
-           FROM projection_attachments attachment
-           JOIN projection_threads thread ON thread.thread_id = ${threadId}
-           JOIN projection_thread_messages message
-             ON message.thread_id = thread.thread_id AND message.message_id = ${messageId}
-           WHERE attachment.owner_kind = 'thread-message'
-             AND instr(attachment.owner_id, ':') > 1
-             AND COALESCE(json_extract(message.message_json, '$.delivery.status'), '') NOT IN ('queued', 'cancelled')
-             ${nameFilter}
-             ${SIDE_THREAD_EXCLUSION}
-           ORDER BY attachment.created_at DESC, attachment.attachment_id DESC
-           LIMIT ? OFFSET ?`,
-        )
-        // One row more than the page tells if another page follows.
-        .all(...parameters, limit + 1, offset),
-    );
-    const hasMore = rows.length > limit;
-    const results = rows.slice(0, limit).flatMap((row): ConversationFileSearchResult[] => {
-      const attachment = JSON.parse(requiredStringColumn(row, "metadata_json"));
-      if (!isAttachmentSummary(attachment)) return [];
-      return [
-        {
-          agentId: requiredStringColumn(row, "agent_id"),
-          messageId: requiredStringColumn(row, "message_id"),
-          createdAt: requiredStringColumn(row, "created_at"),
-          attachment,
-        },
-      ];
-    });
-    return { results, nextCursor: hasMore ? encodeSearchCursor(offset + limit) : null };
   }
 
   #conversationPageRows(
@@ -783,30 +596,4 @@ function decodeConversationCursor(value: string): ConversationPageCursor | Conve
   } catch {
     throw new Error("The conversation page cursor is invalid.");
   }
-}
-
-function encodeSearchCursor(offset: number): string {
-  return Buffer.from(JSON.stringify({ version: 1, offset }), "utf8").toString("base64url");
-}
-
-function decodeSearchCursor(value: string): number {
-  try {
-    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
-    if (
-      !isDynamicRecord(parsed) ||
-      parsed.version !== 1 ||
-      !isNumber(parsed.offset) ||
-      !Number.isSafeInteger(parsed.offset) ||
-      parsed.offset < 0
-    ) {
-      throw new Error("invalid cursor");
-    }
-    return parsed.offset;
-  } catch {
-    throw new Error("The conversation search cursor is invalid.");
-  }
-}
-
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (character) => `\\${character}`);
 }

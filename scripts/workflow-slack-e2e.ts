@@ -129,7 +129,6 @@ async function open() {
       notify: () => {},
       connectionOn: (connectionId) => connectionIds.has(connectionId),
       post: () => Effect.succeed({ failure: "refused" as const }),
-      discordSend: () => Effect.succeed({ failure: "refused" as const }),
       slackSend: (connectionId, send) =>
         Effect.suspend(() => {
           sends.push(send);

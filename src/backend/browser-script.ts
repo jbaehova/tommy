@@ -26,15 +26,11 @@ const LOG_LIMIT_CHARS = 8_000;
 export type BrowserStepOutcome =
   | { status: "ok"; value?: BrowserJsonValue | BrowserSnapshot }
   | { status: "error"; error: string }
-  | { status: "user_control" }
   | { status: "tab_closed" }
   | { status: "dialog"; dialog: DialogTabResult };
 
-export const BROWSER_SCRIPT_USER_CONTROL_ERROR =
-  "A person took control of the tab. Wait for the release, then take a fresh snapshot.";
-
 export interface BrowserScriptResult {
-  status: "completed" | "failed" | "timeout" | "step_limit" | "user_control" | "tab_closed" | "dialog";
+  status: "completed" | "failed" | "timeout" | "step_limit" | "tab_closed" | "dialog";
   value?: BrowserJsonValue;
   error?: string;
   /** The page dialog that a step opened. The script stops, and the agent answers it with `handle_dialog`. */
@@ -356,10 +352,6 @@ export const runBrowserScript = Effect.fn("BrowserScript.run")(function* (option
             case "error":
               sandbox.reject(state.deferred, outcome.success.error);
               break;
-            case "user_control":
-              return result("user_control", {
-                error: BROWSER_SCRIPT_USER_CONTROL_ERROR,
-              });
             case "tab_closed":
               return result("tab_closed", { error: "A step closed the tab." });
             case "dialog":

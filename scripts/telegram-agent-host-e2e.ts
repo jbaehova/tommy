@@ -3,13 +3,14 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { EventEmitter } from "node:events";
+import { EventEmitter, once } from "node:events";
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { AGENT_PROVIDERS, type AgentTurnCompletedEvent } from "@tommy/contracts/ipc";
 import { Effect } from "effect";
+import { ChatVisualPreviewFailed } from "../src/backend/agent/chat-visual-preview";
 import type { AgentBrowserHost } from "../src/backend/agent/turn-lifecycle";
 import { AgentService } from "../src/backend/agent-service";
 import { AgentStore } from "../src/backend/agent-store";
@@ -20,10 +21,14 @@ import { SidebarLayoutStore } from "../src/backend/sidebar-layout-store";
 import { TommyDatabase } from "../src/backend/tommy-database";
 import { TelegramAgentHost, type TelegramAgentReply } from "../src/main/telegram-agent-host";
 
+import { decodeTelegramUpdate } from "../src/main/telegram-api";
+import { TelegramDelivery } from "../src/main/telegram-delivery";
+
 const artifact = resolve(import.meta.dirname, "../.tommy-build/telegram-agent-host-e2e.json");
 const telegramId = 41001;
 const ownerId = 42001;
 const operationId = randomUUID();
+const previewPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+kx6kAAAAASUVORK5CYII=";
 
 function fixtureExecutable(log: string) {
   return `#!/usr/bin/env node
@@ -40,7 +45,7 @@ createInterface({input:process.stdin}).on("line", line => {
   const finishTool = pending.get(id);
   if (finishTool) {
     pending.delete(id);
-    finishTool(packet.result?.success === true);
+    finishTool(packet.result?.success === true, packet.result?.contentItems);
     return;
   }
   if (id === undefined) return;
@@ -60,13 +65,14 @@ createInterface({input:process.stdin}).on("line", line => {
     case "turn/start": {
       const threadId = params.threadId, turnId = randomUUID();
       const input = params.input.map(item => item.text || "").join("\\n");
-      const label = Array.from(input.matchAll(/VERIFY_(SEED|OWNER|PRIVATE|AFTER|DELEGATE|WORK|SYNTH|ROUTINE)/g)).at(-1)?.[1] || "OTHER";
+      const label = Array.from(input.matchAll(/VERIFY_(SEED|OWNER|PRIVATE|AFTER|DELEGATE|WORK|SYNTH|ROUTINE|STATIC|INTERACTIVE|REQUESTED|FALLBACK)/g)).at(-1)?.[1] || "OTHER";
       appendFileSync(${JSON.stringify(log)}, label + "\\n");
       result({turn:{id:turnId,status:"inProgress",items:[]}});
       setImmediate(() => {
         write({method:"turn/started",params:{threadId,turn:{id:turnId}}});
+        const visual = ["STATIC", "INTERACTIVE", "REQUESTED", "FALLBACK"].includes(label);
         const finish = (ok = true) => {
-          write({method:"item/completed",params:{threadId,turnId,item:{id:randomUUID(),type:"agentMessage",phase:"final_answer",text:"Result " + (ok ? label : "FAILED")}}});
+          if (!ok || !visual) write({method:"item/completed",params:{threadId,turnId,item:{id:randomUUID(),type:"agentMessage",phase:"final_answer",text:"Result " + (ok ? label : "FAILED")}}});
           write({method:"turn/completed",params:{threadId,turn:{id:turnId,status:"completed"}}});
         };
         const tool = args => {
@@ -74,7 +80,21 @@ createInterface({input:process.stdin}).on("line", line => {
           pending.set(callId,finish);
           write({id:callId,method:"item/tool/call",params:{threadId,turnId,namespace:"tommy",tool:"send_message",callId,arguments:args}});
         };
-        if (label === "DELEGATE") {
+        if (visual) {
+          const callId = randomUUID();
+          const render = (previousMessageId) => {
+            const id = randomUUID();
+            pending.set(id, (ok, items) => {
+              const ack = items?.[0]?.text ? JSON.parse(items[0].text) : null;
+              if (!ok || ack?.status !== "queued" || !ack.messageId) return finish(false);
+              if (previousMessageId) return finish(ack.messageId === previousMessageId);
+              render(ack.messageId);
+            });
+            write({id,method:"item/tool/call",params:{threadId,turnId,namespace:"tommy",tool:"html_render",callId,
+              arguments:{html:"<html><body>" + (label === "INTERACTIVE" ? "<button>INTERACTIVE</button>" : label) + "</body></html>",title:label,includeSource:label === "REQUESTED"}}});
+          };
+          render();
+        } else if (label === "DELEGATE") {
           const recipient = /VERIFY_DELEGATE (agent-[a-zA-Z0-9-]+)/.exec(input)[1];
           tool({recipientAgentIds:[recipient],text:"VERIFY_WORK",expectsReply:true});
         } else if (label === "WORK") {
@@ -97,14 +117,9 @@ const browser: AgentBrowserHost = {
   unshareThread: () => {},
   agentTab: () => null,
   listTabs: () => [],
-  beginTakeover: unused,
-  endTakeover: () => {},
   resolveUploadTarget: unused,
   handleDynamicTool: unused,
-  userControlTabFor: () => null,
-  awaitUserControlRelease: unused,
   onChanged: () => () => {},
-  onControlChanged: () => () => {},
   onDocumentChanged: () => () => {},
   clearControls: () => {},
   endControl: () => {},
@@ -118,11 +133,25 @@ function openHost(scratch: string) {
   const store = new AgentStore(data, join(scratch, "profile"), database);
   const mailbox = new MailboxStore(data, store.sharedRoot, database);
   const sidebar = new SidebarLayoutStore(join(data, "layout.json"));
+  const captures: string[] = [];
   const service = new AgentService({
     store,
     mailbox,
     sidebarLayout: sidebar,
     browser,
+    visualPreview: {
+      capture: ({ html }) => {
+        captures.push(html);
+        return html.includes("FALLBACK")
+          ? Effect.fail(new ChatVisualPreviewFailed({ reason: "The test renderer could not draw this page." }))
+          : Effect.succeed({
+              imageUrl: `data:image/png;base64,${previewPng}`,
+              contentHeight: 1,
+              interactive: html.includes("<button>"),
+              console: [],
+            });
+      },
+    },
     preferredProvider: "codex",
     offProviders: AGENT_PROVIDERS.filter((provider) => provider !== "codex"),
     memoryReviewInterval: () => 0,
@@ -131,7 +160,7 @@ function openHost(scratch: string) {
       return new CodexAppServerClient(join(scratch, "codex"), 5_000);
     },
   });
-  const host = new TelegramAgentHost(service, sidebar, mailbox, database);
+  const host = new TelegramAgentHost(service, sidebar, mailbox, database, () => operationId);
   const replies: TelegramAgentReply[] = [];
   const completions: AgentTurnCompletedEvent[] = [];
   const changed = new EventEmitter();
@@ -139,10 +168,11 @@ function openHost(scratch: string) {
     if (event.type === "turn-completed") completions.push(event);
     changed.emit("change");
   });
-  const unsubscribe = host.onReply((reply) => {
+  const listener = host.replies((reply) => {
     replies.push(reply);
     changed.emit("change");
   });
+  service.on("event", listener.observe);
   function until(label: string, condition: () => boolean) {
     if (condition()) return Promise.resolve();
     return new Promise<void>((done, reject) => {
@@ -161,8 +191,10 @@ function openHost(scratch: string) {
   }
   return {
     service,
+    database,
     mailbox,
     host,
+    captures,
     replies,
     completions,
     until,
@@ -171,7 +203,8 @@ function openHost(scratch: string) {
       await runCauseEffect(service.initialize());
     },
     async close() {
-      unsubscribe();
+      service.off("event", listener.observe);
+      listener.stop();
       try {
         await runCauseEffect(service.stop());
       } finally {
@@ -179,6 +212,112 @@ function openHost(scratch: string) {
       }
     },
   };
+}
+
+/** Drive the persisted cursor with the real reply reader. Remove only the fixture preview between attempts. */
+async function resumeVisualDelivery(scratch: string, current: ReturnType<typeof openHost>, reply: TelegramAgentReply) {
+  const sent: string[] = [];
+  const changes = new EventEmitter();
+  const path = join(scratch, "delivery.json");
+  let ready = true;
+  const config = {
+    path,
+    ownerId,
+    managerId: telegramId,
+    managerToken: "test-credential",
+    ready: () => ready,
+    agents: current.host,
+    directory: {
+      get: (id: number) =>
+        id === telegramId
+          ? {
+              id,
+              name: "Test agent",
+              username: "test_agent",
+              agentId: reply.agentId,
+              operationId,
+              verified: true,
+              ownerConfirmed: true,
+            }
+          : undefined,
+    },
+    api: {
+      getManagedBotToken: () => Effect.die(new Error("Unexpected credential request.")),
+      sendMessage: () => Effect.die(new Error("A visual-only turn must not send text.")),
+      sendFile: (_token: string, chat: number, file: { mimeType: string; bytes: Uint8Array }) =>
+        Effect.sync(() => {
+          assert.equal(chat, ownerId);
+          sent.push(file.mimeType);
+          if (file.mimeType === "image/png") {
+            assert.deepEqual(file.bytes, Buffer.from(previewPng, "base64"));
+            ready = false;
+          } else {
+            assert.deepEqual(file.bytes, reply.files[1]?.bytes);
+          }
+          changes.emit("file");
+        }),
+    },
+  };
+  const sender = new TelegramDelivery(config);
+  try {
+    await Effect.runPromise(sender.start());
+    const photo = once(changes, "file", { signal: AbortSignal.timeout(8_000) });
+    await Effect.runPromise(sender.enqueue(reply));
+    await photo;
+  } finally {
+    await Effect.runPromise(sender.stop());
+  }
+  assert.deepEqual(sent, ["image/png"]);
+  const queue = await readFile(path, "utf8");
+  const saved = JSON.parse(queue);
+  assert.equal(saved.pending[0].file, 1);
+  assert.deepEqual(
+    saved.pending[0].fileIds,
+    reply.files.map((file) => file.attachmentId),
+  );
+  assert.ok(!queue.includes("<html>") && !queue.includes(previewPng));
+  const previewId = reply.files[0]?.attachmentId;
+  assert.ok(previewId);
+  const preview = await runCauseEffect(current.mailbox.resolveAttachment(previewId));
+  assert.ok(preview);
+  await rm(preview.path);
+  ready = true;
+  const resumed = new TelegramDelivery(config);
+  try {
+    const source = once(changes, "file", { signal: AbortSignal.timeout(8_000) });
+    await Effect.runPromise(resumed.start());
+    await source;
+  } finally {
+    await Effect.runPromise(resumed.stop());
+  }
+  assert.deepEqual(sent, ["image/png", "text/html"]);
+  assert.deepEqual(JSON.parse(await readFile(path, "utf8")).pending, []);
+}
+
+async function renderVisual(current: ReturnType<typeof openHost>, agent: string, update: number, label: string) {
+  const before = current.replies.length;
+  await runCauseEffect(current.host.submit(agent, telegramId, ownerId, update, `VERIFY_${label}`));
+  await current.until(`the ${label} visual`, () => current.replies.length > before);
+  const reply = current.replies[before];
+  assert.ok(reply);
+  assert.equal(reply.text, "");
+  const rows = current.database.readTurnAssistantMessages(agent, reply.threadId, reply.turnId);
+  const visuals = rows.filter((row) => row.itemType?.startsWith("visual-reply:"));
+  assert.equal(visuals.length, 1, "A tool retried with the same call ID must have one visual row.");
+  assert.equal(visuals[0]?.attachments?.length, label === "FALLBACK" ? 1 : 2);
+  const html = `<html><body>${label === "INTERACTIVE" ? "<button>INTERACTIVE</button>" : label}</body></html>`;
+  assert.equal(current.captures.filter((captured) => captured === html).length, 1);
+  const types = label === "FALLBACK" ? ["text/html"] : label === "STATIC" ? ["image/png"] : ["image/png", "text/html"];
+  assert.deepEqual(
+    reply.files.map((file) => file.mimeType),
+    types,
+  );
+  for (const file of reply.files) {
+    assert.ok(file.attachmentId);
+    assert.deepEqual(file.bytes, file.mimeType === "image/png" ? Buffer.from(previewPng, "base64") : Buffer.from(html));
+  }
+  assert.equal(await runCauseEffect(current.host.readReply({ ...reply, ownerId: ownerId + 1 })), null);
+  return reply;
 }
 
 async function fixture(scratch: string) {
@@ -242,10 +381,15 @@ async function fixture(scratch: string) {
       const work = current.completions.findLast((event) => event.agentId === second);
       assert.ok(work);
       // A delegated agent's browser request reaches the owner's chat. Its answer never goes there directly.
-      assert.equal(current.host.tracedChat(second, work.turnId, ownerId), telegramId);
-      assert.equal(current.host.tracedChat(second, work.turnId, ownerId + 1), null);
+      const rootAgentForBot = (id: number) => (id === telegramId ? agent : null);
+      assert.equal(current.host.tracedChat(second, work.turnId, ownerId, rootAgentForBot), telegramId);
+      assert.equal(
+        current.host.tracedChat(second, work.turnId, ownerId, () => second),
+        null,
+      );
+      assert.equal(current.host.tracedChat(second, work.turnId, ownerId + 1, rootAgentForBot), null);
       assert.ok(!current.host.ownsTurn(second, work.turnId, telegramId, ownerId));
-      assert.equal(current.host.tracedChat(agent, privateTurn.turnId, ownerId), null);
+      assert.equal(current.host.tracedChat(agent, privateTurn.turnId, ownerId, rootAgentForBot), null);
       assert.deepEqual(
         notices.map((notice) => [notice.from, notice.to, notice.text]),
         [
@@ -257,7 +401,7 @@ async function fixture(scratch: string) {
       stopNotices();
     }
     // A scheduled routine's result goes to the agent's own chat, as it did in the app.
-    current.host.setRoutineChat((id) => (id === agent ? { telegramId, ownerId } : null));
+    current.host.setRoutineChat((id) => (id === agent ? { telegramId, ownerId, generation: operationId } : null));
     const routine = current.service.createRoutine({
       agentId: agent,
       name: "Briefing",
@@ -277,14 +421,82 @@ async function fixture(scratch: string) {
     assert.ok(!current.host.ownsTurn(agent, routineReply.turnId, telegramId + 1, ownerId));
     current.host.setRoutineChat(() => null);
     assert.ok(!current.host.ownsTurn(agent, routineReply.turnId, telegramId, ownerId));
+    const staticVisual = await renderVisual(current, agent, 74, "STATIC");
+    const interactive = await renderVisual(current, agent, 75, "INTERACTIVE");
+    const fallback = await renderVisual(current, agent, 76, "FALLBACK");
+    const requested = await renderVisual(current, agent, 77, "REQUESTED");
+    await current.close();
+    current = openHost(scratch);
+    await current.start();
+    for (const saved of [staticVisual, interactive, fallback, requested]) {
+      const { files, text, ...address } = saved;
+      const reloaded = await runCauseEffect(current.host.readReply(address));
+      assert.deepEqual(reloaded?.files, files);
+      assert.equal(reloaded?.text, text);
+    }
+    assert.equal(current.captures.length, 0);
+    await resumeVisualDelivery(scratch, current, interactive);
     const starts = readFileSync(turns, "utf8").trim().split("\n");
-    for (const label of ["SEED", "OWNER", "PRIVATE", "AFTER", "DELEGATE", "WORK", "SYNTH", "ROUTINE"]) {
+    for (const label of [
+      "SEED",
+      "OWNER",
+      "PRIVATE",
+      "AFTER",
+      "DELEGATE",
+      "WORK",
+      "SYNTH",
+      "ROUTINE",
+      "STATIC",
+      "INTERACTIVE",
+      "REQUESTED",
+      "FALLBACK",
+    ]) {
       assert.equal(
         starts.filter((start) => start === label).length,
         1,
         `${label} must have exactly one provider turn.`,
       );
     }
+    const voiceBytes = Buffer.from("OggS\0voice-note");
+    const update = decodeTelegramUpdate({
+      update_id: 78,
+      message: {
+        message_id: 78,
+        chat: { id: ownerId, type: "private" },
+        from: { id: ownerId, first_name: "Owner", is_bot: false },
+        voice: { file_id: "voice-note", file_size: voiceBytes.length },
+      },
+    });
+    assert.ok(update?.message);
+    const [voice] = update.message.files;
+    assert.ok(voice);
+    const upload = { name: voice.name, mimeType: voice.mimeType, bytes: voiceBytes };
+    await assert.rejects(runCauseEffect(current.service.prepareImportedAttachments([], [upload])), /not supported/);
+    const submitVoice = () =>
+      runCauseEffect(current.host.submit(agent, telegramId, ownerId, update.update_id, "", [upload]));
+    const beforeVoice = current.replies.length;
+    await submitVoice();
+    await current.until("the voice note turn", () => current.replies.length > beforeVoice);
+    await submitVoice();
+    assert.deepEqual(
+      current.database.connection
+        .prepare("SELECT attachment_id FROM projection_attachments WHERE owner_kind = 'draft'")
+        .all(),
+      [],
+    );
+    await current.close();
+    current = openHost(scratch);
+    await current.start();
+    const conversation = await runCauseEffect(current.service.readConversation(agent));
+    const audio = conversation.messages
+      .filter((message) => message.author === "user")
+      .flatMap((message) => message.attachments ?? [])
+      .find((file) => file.name === "voice.ogg");
+    assert.ok(audio);
+    assert.equal(audio.mimeType, "audio/ogg");
+    const stored = await runCauseEffect(current.mailbox.resolveAttachment(audio.id));
+    assert.ok(stored);
+    assert.deepEqual(await readFile(stored.path), voiceBytes);
   } finally {
     await current.close();
   }
@@ -319,10 +531,11 @@ if (process.argv[2] === "--isolated-host") {
       `${JSON.stringify(
         {
           passed,
-          real: ["AgentService", "SQLite", "mailbox", "Codex stdio driver", "TelegramAgentHost"],
-          fixtures: ["Local provider executable", "Telegram send and receipt delivery"],
+          real: ["AgentService", "SQLite", "mailbox", "Codex stdio driver", "TelegramAgentHost", "TelegramDelivery"],
+          fixtures: ["Local provider executable", "HTML preview renderer", "Telegram transport"],
           checks: [
             "owner result",
+            "Telegram voice note bytes after restart",
             "turn provenance",
             "local turn isolation",
             "live replay",
@@ -333,6 +546,10 @@ if (process.argv[2] === "--isolated-host") {
             "agent message notices for bot chats",
             "delegated browser requests trace to the owner's chat",
             "routine results go to the agent's own chat",
+            "visual-only turns deliver a preview, requested source or fallback source",
+            "a repeated html_render call reuses its stored attachments",
+            "a host restart reopens visual replies without rendering",
+            "a delivery restart after the preview sends the original by its saved attachment ID",
           ],
         },
         null,

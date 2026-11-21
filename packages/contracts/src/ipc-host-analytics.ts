@@ -90,9 +90,6 @@ export function decodeHostAnalytics(value: unknown): HostAnalytics {
     ...(value.skills === undefined ? {} : { skills: decodeAnalyticsSkills(value.skills) }),
   };
 }
-export function decodeOptionalHostAnalytics(value: unknown): HostAnalytics | null {
-  return value === null ? null : decodeHostAnalytics(value);
-}
 export function hostAnalyticsQuery(input: HostAnalyticsInput): string {
   const query = new URLSearchParams(analyticsQuery(input));
   if (input.agentId !== undefined) query.set("agentId", input.agentId);

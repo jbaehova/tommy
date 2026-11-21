@@ -43,30 +43,6 @@ export class AgentRoutineStore extends RoutineStore {
     return routine ? toRoutine(routine) : null;
   }
 
-  duplicate(sourceAgentId: string, targetAgentId: string, now = new Date()): Map<string, Routine> {
-    const duplicated = new Map<string, Routine>();
-    for (const routine of this.list(sourceAgentId)) {
-      duplicated.set(
-        routine.id,
-        this.create(
-          {
-            agentId: targetAgentId,
-            name: routine.name,
-            instruction: routine.instruction,
-            active: routine.active,
-            timezone: routine.timezone,
-            schedule: routine.trigger.schedule,
-            ...(routine.limitPolicy ? { limitPolicy: routine.limitPolicy } : {}),
-            ...(routine.missedPolicy ? { missedPolicy: routine.missedPolicy } : {}),
-            ...(routine.runIn ? { runIn: routine.runIn } : {}),
-          },
-          now,
-        ),
-      );
-    }
-    return duplicated;
-  }
-
   create(input: CreateRoutineInput, now = new Date()): Routine {
     const { agentId, ...fields } = input;
     return toRoutine(this.createRoutine(agentId, fields, now));

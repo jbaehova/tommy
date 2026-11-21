@@ -378,14 +378,9 @@ const browser: AgentBrowserHost = {
   unshareThread: () => {},
   agentTab: () => null,
   listTabs: () => [],
-  beginTakeover: unused,
-  endTakeover: () => {},
-  userControlTabFor: () => null,
-  awaitUserControlRelease: unused,
   resolveUploadTarget: unused,
   handleDynamicTool: unused,
   onChanged: () => () => {},
-  onControlChanged: () => () => {},
   onDocumentChanged: () => () => {},
   clearControls: () => {},
   endControl: () => {},
@@ -809,9 +804,6 @@ try {
         mailbox.getDelivery(deliveryId)?.resumeAfterUsageLimit,
     );
     assert.ok(continuation.workSteps.includes("checkpoint-result=stopped"), "The completed action is kept.");
-    await waitFor("the limit to hold the agent", () =>
-      service.getRuntimeSnapshot().usageLimits?.some((limit) => limit.agentId === agent.id),
-    );
     assert.equal(readLog<CodexTurn>(codexLog).length, beforeCodex + 1, "The held work does not run again.");
     // A spent reset credit ends the limit as its reset time does.
     await runCauseEffect(service.resetProviderUsage("codex", DEFAULT_PROVIDER_ACCOUNT_ID));
@@ -873,7 +865,7 @@ try {
       () =>
         mailbox.getDelivery(deliveryId)?.delivery.status === "queued" &&
         turns().length - before === 2 &&
-        service.getRuntimeSnapshot().usageLimits?.some((limit) => limit.agentId === agent.id),
+        Boolean(mailbox.getDelivery(deliveryId)?.resumeAfterUsageLimit),
     );
     assert.deepEqual(
       turns()

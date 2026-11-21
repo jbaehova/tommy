@@ -10,7 +10,7 @@ import { createTommyLogger } from "@tommy/logging";
 //
 // Fails on:
 // - a key that does not start with its module's prefix, or a key in two modules;
-// - a French or Japanese key that English does not have, a placeholder English does not have, or
+// - a Korean key that English does not have, a placeholder English does not have, or
 //   a string where English has plural forms (and the reverse);
 // - a source template that more than one source key can match, so the reverse lookup is ambiguous;
 // - an English key no code names. Write keys as literals, so this check and a search find them.
@@ -23,13 +23,65 @@ import { createTommyLogger } from "@tommy/logging";
 const ROOT = resolve(import.meta.dirname, "..");
 const MESSAGES = resolve(ROOT, "packages/i18n/src/messages");
 /** Files that spread area modules together. They hold no keys of their own. */
-const AGGREGATORS = new Set(["index", "mobile", "source", "shared"]);
+const AGGREGATORS = new Set(["index", "source"]);
 /** Where code that names a key lives. The catalogs themselves are left out. */
 const CODE_ROOTS = ["src", "packages", "scripts"];
 const CODE_EXTENSIONS = /\.(?:ts|tsx)$/;
 const SKIPPED_DIRECTORIES = new Set(["node_modules", "dist", "build", "out", ".expo"]);
 /** Keys that no current code sends, but older hosts still do. Keep them so their text is translated. */
 const RELEASED_SOURCE_KEYS = new Set([
+  // Existing conversations, tool results and workflow runs can contain these messages.
+  "error.agent.lowMemory",
+  "error.agent.screenCaptureDeclined",
+  "error.agent.screenCaptureDisplayMissing",
+  "error.agent.screenCaptureOff",
+  "error.agent.screenCaptureWindowMissing",
+  "error.workflow.discordNoMessage",
+  // Released agent profile and workspace directory routes returned these failures.
+  "error.agent.profileInvalid",
+  "error.agent.profileSectionUnavailable",
+  "error.backend.workspaceFileOutside",
+  "error.backend.workspacePathMissing",
+  "error.backend.workspacePathMissingForMember",
+  "error.backend.workspacePathNotDirectory",
+  "error.backend.workspacePathNotFile",
+  // Released host operations returned these profile, side-question and file errors.
+  "error.agent.changedWhileDuplicating",
+  "error.agent.copyNameFailed",
+  "error.agent.duplicateCleanupFailed",
+  "error.agent.duplicationBusy",
+  "error.agent.profileGenerationBusy",
+  "error.agent.sideQuestionBusy",
+  "error.agent.sideQuestionFailed",
+  "error.agent.waitBeforeDuplicate",
+  "error.backend.fileGone",
+  "error.backend.readBoundaryUnavailable",
+  // Released Vault, live voice and time zone routes returned these errors.
+  "error.host.timezoneInvalid",
+  "error.vault.csvInvalid",
+  "error.voice.live.busy",
+  "error.voice.live.cannotStart",
+  "error.voice.live.codexOnly",
+  "error.voice.live.disconnected",
+  "error.voice.live.signIn",
+  "error.voice.live.timedOut",
+  // Released browser requests, webhook tests, routine results and skill installs returned these errors.
+  "error.backend.authSubmitting",
+  "error.backend.browserCertificateUntrusted",
+  "error.backend.browserInputProtected",
+  "error.backend.browserUserControlBusy",
+  "error.backend.browserViewProtected",
+  "error.backend.routineResultConnectionOff",
+  "error.backend.routineResultNoDelivery",
+  "error.backend.takeoverInactive",
+  "error.backend.webhookTestFailed",
+  "error.backend.webhookTestUnavailable",
+  "error.skill.localHasNoVersion",
+  // Card approvals from older hosts include the old Vault settings instructions.
+  "status.agent.vaultCardFillVault",
+  "status.agent.vaultCardFillVaultFrames",
+  // Existing conversations can contain the original MCP sign-in instruction.
+  "status.agent.mcpSignInRequested",
   "error.agent.noStartingModel",
   "error.provider.cliBusyUpdate",
   // Hosts before side threads send these for the agent-tasks-v1 routes.
@@ -60,7 +112,7 @@ function files(directory: string, match: RegExp): string[] {
   });
 }
 
-/** `mobile/settings` for messages/en/mobile/settings.ts. */
+/** `error/host` for messages/en/error/host.ts. */
 function moduleName(locale: string, path: string): string {
   return relative(resolve(MESSAGES, locale), path).replaceAll(sep, "/").replace(/\.ts$/, "");
 }

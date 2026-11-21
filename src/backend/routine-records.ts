@@ -1,6 +1,4 @@
-import type { RoutineRunFields } from "@tommy/contracts/ipc";
-import type { EventRoutineOwner, EventRoutineRun } from "@tommy/contracts/ipc-events";
-import { ROUTINE_RECOVERY_RUN_ERROR_LIMIT } from "@tommy/contracts/team-protocol/routine-recovery-v1";
+import type { EventRoutineOwner } from "@tommy/contracts/ipc-events";
 import { Effect, Schema } from "effect";
 import type { RoutineScheduler } from "./agent/routine-scheduler";
 import type { ChannelRoutineScheduler } from "./channel-routine-scheduler";
@@ -52,12 +50,6 @@ export class RoutineRecords {
     return owner.kind === "agent" ? this.#options.agentExists(owner.id) : this.#options.channelExists(owner.id);
   }
 
-  list(owner: EventRoutineOwner): OwnedRoutineRecord[] {
-    return owner.kind === "agent"
-      ? this.#options.agentRoutines.listRecords(owner.id)
-      : this.#options.channelRoutines.listRecords(owner.id);
-  }
-
   get(owner: EventRoutineOwner, routineId: string): OwnedRoutineRecord | null {
     return owner.kind === "agent"
       ? this.#options.agentRoutines.getRecord(owner.id, routineId)
@@ -70,19 +62,7 @@ export class RoutineRecords {
       : this.#options.channelRoutines.saveRecord(owner.id, routineId, input);
   }
 
-  /** The newest runs of one routine, with the records of the occurrences it missed. */
-  listRuns(owner: EventRoutineOwner, routineId: string, limit: number): EventRoutineRun[] {
-    if (owner.kind === "agent") {
-      return this.#options.agentRoutines
-        .listRuns({ agentId: owner.id, routineId, limit }, true)
-        .map((run) => ({ ...eventRoutineRun(run), deliveryId: run.deliveryId }));
-    }
-    return this.#options.channelRoutines
-      .listRuns({ channelId: owner.id, routineId, limit }, true)
-      .map((run) => ({ ...eventRoutineRun(run), requestMessageId: run.requestMessageId }));
-  }
-
-  /** Tells open editors to reload, for example after a background route sync stored a webhook URL. */
+  /** Refresh the owner's routine state after its webhook URL changes. */
   changed(owner: EventRoutineOwner): void {
     if (owner.kind === "agent") this.#options.agentRoutines.stateChanged(owner.id);
     else this.#options.channelRoutinesChanged(owner.id);
@@ -97,14 +77,6 @@ export class RoutineRecords {
           try: () => this.#options.channelRoutines.delete({ channelId: owner.id, routineId }, { webhook: true }),
           catch: (cause) => new RoutineRecordFailed({ operation: "delete", cause }),
         });
-  }
-
-  test(owner: EventRoutineOwner, routineId: string): Effect.Effect<void, RoutineRecordFailed> {
-    const run: Effect.Effect<unknown, { readonly cause: unknown }> =
-      owner.kind === "agent"
-        ? this.#options.agentRoutines.test({ agentId: owner.id, routineId }, { webhook: true })
-        : this.#options.channelRoutines.test({ channelId: owner.id, routineId }, { webhook: true });
-    return Effect.mapError(Effect.asVoid(run), failed("test"));
   }
 
   /**
@@ -123,37 +95,4 @@ export class RoutineRecords {
           .receiveWebhook(owner.id, routineId, event)
           .pipe(Effect.mapError(failed("receive")));
   }
-}
-
-/** The fields of a run that `routine-recovery-v1` carries, without its owner. */
-function eventRoutineRun({
-  id,
-  routineId,
-  triggerId,
-  kind,
-  source,
-  scheduledFor,
-  routineName,
-  instruction,
-  status,
-  error,
-  missed,
-  createdAt,
-  updatedAt,
-}: RoutineRunFields): EventRoutineRun {
-  return {
-    id,
-    routineId,
-    triggerId,
-    kind,
-    ...(source === undefined ? {} : { source }),
-    scheduledFor,
-    routineName,
-    instruction,
-    status,
-    error: error?.slice(0, ROUTINE_RECOVERY_RUN_ERROR_LIMIT) ?? null,
-    ...(missed === undefined ? {} : { missed }),
-    createdAt,
-    updatedAt,
-  };
 }

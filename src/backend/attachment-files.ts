@@ -85,11 +85,6 @@ interface TransferManifest {
   }>;
 }
 
-export interface ExportedAttachmentFile {
-  sourcePath: string;
-  relativePath: string;
-}
-
 export interface GeneratedAttachmentSource {
   path: string;
   handle: FileHandle;
@@ -202,8 +197,7 @@ export class AttachmentFiles {
     this: AttachmentFiles,
     paths: string[],
     data: AttachmentDataInput[],
-    /** A voice recording is a WebM file, which the user cannot attach. It never reaches a provider. */
-    options: { voiceRecording?: boolean } = {},
+    source?: "telegram",
   ): Effect.fn.Return<StoredDraft[], AttachmentOperationError> {
     if (paths.some((path) => !path || path.length > INPUT_LIMITS.path)) {
       return yield* attachmentFailure(new Error("An attachment path is invalid."));
@@ -270,7 +264,11 @@ export class AttachmentFiles {
           const targetDirectory = join(this.#draftsRoot, id);
           preparedRoots.push(targetDirectory);
           const name = sanitizeName(item.name || "pasted-image.png");
-          if (!options.voiceRecording) assertSupportedAttachmentName(name);
+          const telegramVoice =
+            source === "telegram" &&
+            extname(name).toLowerCase() === ".ogg" &&
+            /^audio\/ogg(?:;|$)/i.test(item.mimeType);
+          if (!telegramVoice) assertSupportedAttachmentName(name);
           const targetPath = join(targetDirectory, name);
           yield* attachmentCall(() => mkdir(targetDirectory, { recursive: true, mode: 0o700 })).pipe(
             Effect.uninterruptible,
@@ -535,23 +533,6 @@ export class AttachmentFiles {
       ),
     );
   }).bind(this);
-
-  readonly exportAttachment = Effect.fn("AttachmentFiles.exportAttachment")(function* (
-    this: AttachmentFiles,
-    attachment: StoredAttachment,
-    message?: { id: string; index: number },
-  ): Effect.fn.Return<ExportedAttachmentFile | null, AttachmentOperationError> {
-    const resolved = yield* this.resolveTransfer(attachment);
-    if (!resolved) return null;
-    return {
-      sourcePath: resolved.path,
-      relativePath: join(
-        "attachments",
-        message ? `${message.index + 1}-${safeArchiveSegment(message.id)}` : "generated",
-        `${safeArchiveSegment(attachment.id)}-${safeArchiveSegment(attachment.name)}`,
-      ),
-    };
-  }).bind(this);
 }
 
 const resolveManagedAttachmentEffect = Effect.fn("Attachments.resolveManagedAttachment")(
@@ -663,15 +644,6 @@ function sanitizeName(path: string): string {
   return `${stem.slice(0, 180 - extension.length)}${extension}`;
 }
 
-function safeArchiveSegment(value: string): string {
-  return (
-    basename(value)
-      .replace(/[^\p{L}\p{N}._ -]+/gu, "-")
-      .replace(/^\.+/, "")
-      .slice(0, 120) || "item"
-  );
-}
-
 /** `used` holds lower-case names: macOS and Windows see "Report.txt" and "report.txt" as one file. */
 function uniqueName(name: string, used: Set<string>): string {
   if (!used.has(name.toLowerCase())) {
@@ -691,7 +663,7 @@ function attachmentMetadata(
   name: string,
   explicitMimeType?: string,
 ): { kind: AttachmentKind; mimeType: string; previewKind: AttachmentPreviewKind } {
-  const inferred = attachmentMimeTypeForName(name);
+  const inferred = extname(name).toLowerCase() === ".ogg" ? "audio/ogg" : attachmentMimeTypeForName(name);
   // Media, archives and SVG keep the type of their name even if an importer supplies another MIME type.
   const mimeType =
     inferred.startsWith("audio/") ||

@@ -42,10 +42,6 @@ function isHomeSkillSlug(slug: string): boolean {
   return slug !== "" && slug !== "." && slug !== ".." && !/[/\\\0]/u.test(slug);
 }
 
-export function homeSkillTagId(slug: string): string {
-  return `${HOME_SKILL_ID_PREFIX}${slug}`;
-}
-
 /** The slug of a `home:<slug>` tag id, or null for any other id or an unsafe slug. */
 export function homeSkillTagSlug(id: string): string | null {
   if (!id.startsWith(HOME_SKILL_ID_PREFIX)) return null;

@@ -32,11 +32,11 @@ import {
 } from "@tommy/contracts/ipc";
 
 import { isOneOf } from "@tommy/contracts/runtime-values";
-import { RoutineInputError } from "@tommy/team-client/routine-schedule";
 import { Effect } from "effect";
 import { z } from "zod";
 import { tommyToolFailure, tommyToolResult } from "../agent/routine-tools";
 import { ToolOperationFailed, toolStep } from "../agent/tool-operation";
+import { RoutineInputError } from "../routine-schedule";
 import { runtimeFields } from "./workflow-graph";
 import { WorkflowStoreError } from "./workflow-store";
 import type { WorkflowsHandle } from "./workflows";

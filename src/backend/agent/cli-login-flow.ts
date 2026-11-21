@@ -8,7 +8,6 @@ import { causeHelpers } from "../effect-boundary";
 import { stopProcessTree } from "../process-tree";
 import type { AccountReadResult } from "./../protocol";
 import type { ProviderClientOperationError } from "../provider-client-effects";
-import { recordRestartActivity } from "../restart-activity";
 import type { CliCodeLogin, CliCodeLoginFailed } from "./cli-code-login";
 import type { ProviderProcessFailed } from "./provider-status";
 
@@ -103,7 +102,6 @@ export class CliLoginFlow {
         ...(prompt && submit ? { code: { prompt, submit } } : {}),
       };
       this.#pending.set(provider, pending);
-      recordRestartActivity();
       // The login outlives the request; dispose/cancel owns the registered child and task.
       pending.task = yield* Effect.forkIn(
         done.pipe(

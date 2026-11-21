@@ -23,4 +23,6 @@ export const messages = {
   "browser.telegram.vaultTitle": "Vault에 저장",
   "browser.telegram.apiKeyTitle": "API 키 저장",
   "browser.telegram.refresh": "새로고침",
+  "browser.telegram.mcpOpen": "로그인 페이지 열기",
+  "browser.telegram.mcpReturn": "로그인 결과는 요청을 받은 Telegram 대화에서 확인해 주세요.",
 } as const satisfies PartialTranslation<typeof source>;

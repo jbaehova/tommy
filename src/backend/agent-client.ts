@@ -25,7 +25,6 @@ export interface AgentClient {
   readonly running: boolean;
   readonly readHistory?: ReadProviderHistory;
   /** Publishes pending memory/context blocks before Codex starts voice turns itself. */
-  prepareLiveVoiceThread?(threadId: string): Effect.Effect<void, ProviderClientOperationError>;
   /** False when stopping this client would lose a live provider session with no recovery path. */
   readonly canReleaseProcess?: () => boolean;
   start(): void;

@@ -1,4 +1,4 @@
-# Gate A — SQLite schema — `src/backend/tommy-database-schema.ts`
+# SQLite migrations
 
 Triggered by any change to that file or to `src/backend/database/`.
 
@@ -23,7 +23,7 @@ Triggered by any change to that file or to `src/backend/database/`.
   every other one. Derive the bodies from the registry instead:
 
   ```bash
-  git show "<tag>:src/backend/tommy-database-schema.ts" | grep -E '^\s+up: [a-zA-Z]' | sort -u
+  git show "<tag>:src/backend/tommy-database-schema.ts" | grep -E '^[[:space:]]+up: [a-zA-Z]' | sort -u
   ```
 
   Read every hunk of the diff for each function it names, not the stat. A database that already
@@ -69,9 +69,8 @@ Triggered by any change to that file or to `src/backend/database/`.
 - **If the migration executes DDL, `LATEST_SCHEMA_SQL` must be extended in the same change.**
   `createLatestDatabase` execs that SQL and then stamps every `MIGRATIONS` entry as applied
   *without running it*, so a DDL migration missing from it ships new installs a database without
-  the column upgraded installs have. Today `LATEST_SCHEMA_SQL` is derived by `substituteOnce`,
-  which replaces exactly one table in the v8 baseline (the v12 reactions table) and throws on zero
-  or two matches. A second DDL migration must change that mechanism, not append to it.
+  the column upgraded installs have. Inspect the SQL builders and imported schema fragments that
+  feed both the migration and the fresh database.
 - Data-preservation fixtures for every shipped source schema, plus failure, rollback, retry,
   downgrade, missing-version, foreign-key and integrity coverage, per `src/backend/AGENTS.md`.
 - Confirm the downgrade guard still names the new `LATEST_SCHEMA_VERSION` — the test is

@@ -7,7 +7,6 @@
 
 /** The events that a Discord trigger can start on. Signal passes on only messages that mention Tommy. */
 export const WORKFLOW_DISCORD_EVENTS = ["mention"] as const;
-export type WorkflowDiscordEvent = (typeof WORKFLOW_DISCORD_EVENTS)[number];
 
 /** What a Discord output can do. */
 export const WORKFLOW_DISCORD_ACTIONS = ["reply", "post", "react"] as const;
@@ -15,10 +14,6 @@ export type WorkflowDiscordAction = (typeof WORKFLOW_DISCORD_ACTIONS)[number];
 
 /** The emoji that a `react` output can add. */
 export const WORKFLOW_DISCORD_EMOJI = ["✅", "👀", "🎉", "❌"] as const;
-export type WorkflowDiscordEmoji = (typeof WORKFLOW_DISCORD_EMOJI)[number];
 
 /** The `connectionId` of an output that acts on the server of the trigger. */
 export const WORKFLOW_DISCORD_TRIGGER_SERVER = "trigger";
-
-/** The longest `text` filter of a Discord trigger. */
-export const WORKFLOW_DISCORD_TEXT_LIMIT = 200;

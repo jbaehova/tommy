@@ -1,102 +1,10 @@
-# Browser
-
-## Browser client
-
-`apps/auth-api` serves `/app`. Its lazy route mounts the interactive client after browser startup.
-`src/renderer/src/features/web-client` owns the browser composition and its typed
-`WebWorkspaceRuntime` interface. It mounts the existing account login, page rail, server rail,
-sidebar, and full conversation view. `ConversationRuntime` routes host actions through
-the browser connection; its desktop default is the preload API. The desktop `WorkspaceShell` and the
-web client draw the same `WorkspaceFrame` under `LayoutProvider`, so the rail geometry, the sidebar
-resizer and compact modes, the compatibility screen, and the usage report slot are the same on both.
-The overlays that both clients raise - join, marketplace, shared agent, server settings, global
-search and channel creation - are prop-driven views in `WorkspaceOverlayViews.tsx`.
-`WorkspaceOverlays` fills them from the desktop contexts, and the web client fills them from its
-host connection, so what an overlay decides from its server is decided in one place.
-The web client gives `PlatformProvider` a fixed `appInfo` in place of the main-process answer.
-There is no separate web dashboard.
-Small screens switch between the same conversation and workspace components. The shared browser
-panel receives the web live-view runtime and hides unsupported native controls. `BrowserLiveView`
-accepts an explicit runtime; desktop and the existing preview still default to the preload-compatible
-API. The web Storybook runtime uses
-`preview/mock-tommy.ts` through `preview/mock-web-runtime.ts`.
-
-The browser runtime uses `packages/team-client` for the directory, authenticated WebRTC peer,
-Signal recovery, file transfers, and browser-view streams. The stream codec lives in contracts;
-the old main-process import re-exports that codec without changing its wire format. Account
-requests use a closed list of `/api/browser/*` operations. They cannot carry chat requests.
-Browser tickets and session termination require the same account-session hash that created the
-remote session. Existing bearer-token endpoints retain their behavior. The browser edits the
-account's name, avatar, and sessions through `v1/me/profile`, `v1/me/avatar`, and `v1/me/sessions`,
-which call the same `AuthService` methods and avatar storage (`avatar-storage.ts`) as the bearer
-routes. The avatar upload is the one write that is not JSON; the origin and `X-Tommy-Browser`
-checks still apply. `web-account.ts` makes these calls, and the Profile tab of the web Settings dialog
-(`WebAccountSettings.tsx`) shows them.
-
-An owner or admin gets the host controls of a desktop remote admin. Shared components keep their
-desktop port as the default and take injected calls: `web-server-settings.ts` gives
-`ServerSettingsModal` the host identity, MCP, and storage routes through
-`@tommy/team-client/team-admin-requests`, and member and invitation calls through the closed
-`/api/browser/*` list. The Worker applies the same `RemoteControlPlane` role checks as the bearer
-routes. A member or role change revokes every session on the host; the browser reconnects once when
-the directory still lists the host. `ConversationRuntime.admin` carries the skills and shared-table
-calls to the agent settings panel, which shows only Skills and Tables in the browser. Memories,
-routines, and files stay on the desktop. The Permissions select writes access and auto-approve through
-the agent-admin route. `web-marketplace.ts` gives `MarketplaceModal` its calls: the public catalog routes of
-the account service that serves `/app` (`@tommy/team-client/marketplace-catalog`), and installs on
-the host over `skills-admin-v1`, `agent-install-v1`, `agent-update-v1`, and `mcp-servers-v1`. Try skill and a plugin
-prompt add a line to the agent's draft, as on desktop. A shared agent page also links
-`/app?agent=<id>`: `WebApp` reads the id once, removes the query, and keeps it through sign-in;
-`AgentTemplateInstall` then shows the preview, and the host adds the agent over `agent-install-v1`.
-A browser submits nothing to the marketplace. It can publish a host agent's share link over
-`agent-publish-v1`, in `ConversationRuntime.admin.agentTemplates`: the host builds the template,
-checks it for secrets and publishes it with the account signed in on the host; the browser draws only
-the share card from the preview. An agent that the host added from a
-listing gets Update when the host serves `agent-update-v1`; the host downloads the current version.
-`web-provider-admin.ts` answers the desktop `providerAdmin` group over the `providers-v1` routes, so
-the Providers section of `ServerSettingsModal` uses the same runtime, key, custom provider, and code
-sign-in logic (`provider-connection.ts`, `ProviderSettingsSection.tsx`) as the desktop app. On
-desktop the section shows the providers of the active server only, because provider state exists
-only for that server; for another server it offers to switch. The
-browser applies host `status` events, and reads the status every 3 seconds while a code sign-in waits.
-A provider key stays in the dialog input until it is sent to the host.
-
-Browser sign-in, account reads, and connection tickets are always available. No host or D1
-migration is needed. See web client delivery for the seven review scopes, local
-commands, and release checks.
-
-Browser chat pages, drafts, file bytes, and chat visibility preferences stay in memory. A protected
-cookie holds the account credential. Local storage holds account-scoped trusted host public keys,
-the shared file panel's width, and for each account and host the pinned item ids (a copy of the list
-that a host with `sidebar-pins-v1` keeps), collapsed section ids and selected channel id, not chat
-content. The channel UI takes a `ChannelsPort` runtime; its
-desktop default is the preload API. A Web Lock permits one live tab per account
-and host because the existing control plane reuses that credential's logical host session.
-Host switches discard the prior host's chat state. Temporary connection loss keeps drafts; a
-failed send stays in the chat and is never sent again on its own. BroadcastChannel, account
-checks on focus, and signed session invalidation clear access when a session ends.
-
-MP3 and MOV attachments use the existing file attachment contract with no inline preview. Import
-copies and hashes the original bytes under the shared attachment limits; it does not run media
-codecs or extract frames or transcripts. MIME types come from the file extension for these formats,
-so a supplied image or text MIME type cannot enable a preview. Remote support is additive through
-the `media-attachments` capability; released protocol adapters keep their existing meanings.
-
-ZIP attachments use the same contract with `application/zip` and no inline preview. Import copies
-and hashes the archive; Tommy never extracts it. Remote support is additive through the
-`zip-attachments` capability.
-
-MP4 attachments use the MP3 and MOV contract with `video/mp4`. Remote support is additive through
-the `mp4-attachments` capability, because a host with only `media-attachments` refuses MP4.
-
-SVG attachments are stored as `image/svg+xml` with `kind: "file"` and `previewKind: "image"`. The
-type comes from the file extension. Providers take only raster image blocks, so delivery sends the
-path as a mention and the agent reads the SVG text. The attachment schemes serve SVG with a `sandbox`
-policy. The browser client shows an SVG thumbnail from a `data:` URL, never from an object URL: an
-object URL has the origin of the app. Remote support is additive through the
-`svg-attachments` capability, which only protocol 9 peers get.
+# Agent browser
 
 ## Browser tool execution
+
+[BrowserHost](../../src/backend/browser-host.ts) owns tabs, navigation and each tab's operation queue. Provider tool requests go through the [browser tool definitions](../../src/backend/browser-tools.ts). The host checks the calling agent and thread before acting. Element references come from a snapshot of the page. Navigation makes references to the previous page invalid.
+
+Browser profiles and persistent sessions stay on the host. Closing the view in Telegram does not close the agent's tabs. The Electron browser window is sandboxed. Its content has no application preload and cannot call server APIs as the owner.
 
 `browser-tools.ts` defines provider schemas and parses each call into a typed tool and its arguments.
 `browser-tool-actions.ts` maps input tools to CDP operations. It does not own tabs or import the host.
@@ -105,42 +13,15 @@ Targeted typing checks that the target still holds focus before the End key, the
 Enter key. A page focus or input handler that moves focus stops it with an error that says if the
 text is already in the field. The check also reads each frame element that holds the target,
 because a frame in another process can keep its active element after the page takes focus.
-`bun run test:browser --scenario=typing-focus` covers it and writes
-`.tommy-build/browser-typing-focus.json`.
-The browser session and service-worker fallback remove the `Tommy/` and `Electron/` user-agent
-tokens. They keep the installed Chromium version and host platform. Requests to `accounts.google.com`
-keep the `Electron/` token because Google rejects the account identifier step without it. This
-exception does not change the page identity or the identity sent to other sites.
-Electron provides native `navigator.userAgentData` but no client-hint request headers. On HTTPS and
-loopback HTTP, the host supplies the brand list, desktop flag, and platform hints. The brand list must
-be the same as `navigator.userAgentData.brands`, with the GREASE brand and its order (Chromium
-chooses both from the major version). Cloudflare rejects a request whose brands differ from the page.
-It preserves hints supplied by Chromium and does not add high-entropy hints. The focused check is
-`bun run test:browser --scenario=identity`; add `--google-live` for the Google identifier check.
-The local identity report is `.tommy-build/browser-identity.json`.
+
 Website popups are adopted into managed `WebContentsView` tabs through Electron's window creation
 hook. Native guests retain their opener, request body, and the browser session of the opener. Local tab and
 agent tool results expose `openerTabId` while that relationship is live. Independent `noopener`
 tabs survive parent closure; dependent popups close with the parent. Closing a popup returns to its
 opener. Saved popup URLs omit OAuth callback credentials. Popup state is not restored as a live
 JavaScript relationship after an app restart.
-Connected pages in a native opener group can retain references to each other's documents, including
-a document that received a secret. The browser blocks that access between sites, so a secure input
-card is available in a connected tab only when no frame in another live connected tab has the
-secret's site. The host checks this when the card opens and again before the fill; otherwise the tab
-requires human takeover. The site check uses the last two host labels, which can refuse two sites
-under one public suffix but cannot allow one site. Independent tabs remain eligible for secure input. Account selection without secret entry remains automated.
-Agents use `list_tabs` after sign-in actions and inspect the new tab before continuing. Secure input
-and takeover still handle passwords, codes, CAPTCHA, and passkeys. Blocked requests produce a
-reason without including authentication URLs or request data.
-Agent instructions keep the viewport stable during sign-in and require fresh targets after page
-changes or covered-target errors. X Google sign-in starts on the landing page after cookie consent.
-X can retain a Google callback for a removed login dialog and report `Input2SSO: Unsupported provider`.
-For that error in the current attempt, agents may reload the signed-out landing page and retry once,
-then verify authenticated navigation. This recovery does not run during secure handoff or discard
-non-login work. The host does not rewrite site scripts or weaken cross-origin security policies.
-Input dispatch runs inside those checks and queues. Upload staging also uses the shared parser before
-it checks local file access.
+
+The host checks live opener groups before permitting secure input, then checks again before dispatch. A page with a conflicting frame in another connected tab may still be able to read its document. A blocked request sends a reason without its authentication URL or request data. The agent inspects new tabs after a login action and gets fresh element references after a document changes.
 
 An agent tab refuses cookie banners (`browser-consent.ts`). On `dom-ready`, the host runs a small
 script of its own in an isolated world of the main frame. For up to 15 seconds, it looks for one
@@ -149,11 +30,9 @@ refuses optional cookies ("Reject all", "Only necessary", and the same in some o
 inside a dialog, a fixed or sticky box, or a consent container that shows the word "cookie". Text
 such as "consent" alone does not count, because sign-in and terms dialogs show it too. It also
 looks in open shadow roots, because some platforms build the banner from web components. It clicks
-that button once and stops. It never accepts, so a banner with no reject button stays. A tab that a
-person opened keeps its banner, and so does a secret tab. A takeover, user control or secret entry
-stops the script of the current page. The site stores the refusal in the profile of the tab, so a
-later tab on that site in the same profile shows no banner either. Banners in frames (for example
-Sourcepoint) are not handled.
+that button once and stops. It never accepts, so a banner with no reject button stays.
+
+A secure-input request stops consent handling on that document. The site stores the refusal in its browser profile. The handler checks the main frame and open shadow roots.
 
 ### Fill inspected ordinary fields
 
@@ -169,14 +48,13 @@ and checks the full set before any input. It refuses duplicate or unavailable re
 disabled or readonly fields, contenteditable, frames, password inputs, one-time-code autocomplete,
 and payment-card autocomplete. It accepts native input types `text`, `search`, `tel`, `url`, and
 `email`, plus textarea. HTML metadata is not a complete detector for secrets or form side effects.
-Agents must first inspect the ordinary form. Authentication, payments, and uncertain user
-decisions use the existing secure input or takeover flow.
+
+Authentication fields use the private input flow. An action that needs a person's decision stops and reports the request in Telegram.
 
 Each fill rechecks the same native handle, snapshot fingerprint, original field value, editable
 metadata, main-frame document and origin. It does not find a replacement for a changed target.
 The native navigation generation and document node identity detect same-URL reloads. Focus handlers
-receive a second check before trusted input. The host rechecks tab ownership, secret protection,
-and takeover before each field and before it releases a final capture. CDP emulates page focus;
+receive a second check before trusted input. The host rechecks tab ownership and secret protection before each field and before it releases a final capture. CDP emulates page focus;
 the operation requests no native window or application focus.
 
 One tab queue slot owns all fields, one final page settle, and one bounded final semantic snapshot. Successful input is
@@ -193,14 +71,6 @@ that owned work. An external debugger that the host cannot cancel must drain its
 engine releases retained handles and its lease at completion. Known failures use fixed reason
 codes; page exceptions do not enter the new progress result or diagnostic action.
 
-`bun scripts/browser-fill-fields-e2e.ts` compiles only its native fixture and uses an owned hidden
-Electron process with a temporary profile and synthetic loopback forms. It must not make a window
-visible or request native focus to obtain a passing result. It is a local check, not a CI step; on
-Linux, run it under `xvfb-run -a`. The report is `.tommy-build/browser-fill-fields-e2e/report.json`.
-It includes actual runtime versions, completed cases, three warm-up pairs and twenty measured pairs,
-serialized result bytes, and observed snapshot counts. Measurements include tool execution and loopback fixture
-confirmation. They do not measure provider tokens, model speed, or billable cost.
-
 ### Run many steps in one call
 
 Each single action tool takes one model turn, and the model reads the page with a separate snapshot.
@@ -212,29 +82,7 @@ task takes fewer turns.
 `snapshot`), or `step({ action, ...fields })` with the fields of that tool and no `tabId`. Each
 helper sends one step to the host. The script returns a JSON value of at most 64 KB.
 
-An earlier `run_steps` tool took a fixed list of steps. A benchmark with Claude Haiku 5.5 on 10 public
-site tasks (3 repeats) gave `run_script` 118k median input tokens and 30 of 30 correct answers, and
-`run_steps` 130k. With both tools in the catalog, agents used both, at 198k. So the catalog has only
-`run_script` (`bun run bench:browser-tools`). With the shipped guidance and no hint in the prompt,
-agents used 216k until a browser search also returned `run_script` (see
-[Providers](providers.md)); then 149k. These runs were before input actions returned a short status
-in place of a snapshot, so the token counts can be different now.
-
-The script runs each step through the same code as the single tool, with its own tab queue slot.
-Before each step, the host checks the tab again: ownership, secret protection, takeover, and user
-control. The action steps read no result. `evaluate` keeps the scripted-origin
-record and the secret-document check. When a person takes control of the tab, the call stops and
-returns its partial results with status `user_control`. It does not wait for the release. The
-control event uses the released `click` action, so the Team API wire values do not change.
-
-An `evaluate` step returns `null` when the expression gives `undefined`, such as a click statement.
-The single `evaluate` tool still refuses that value. If the step failed after the click, the agent
-would click again. In a script, `waitFor` also takes a page function: the page polls it every
-100 ms until it returns a truthy value, in one `evaluate` step (at most 25 seconds). A script that
-fails without a final snapshot returns the tab's `url`, because the steps before the failure stay
-done and the agent must not start again from the wrong page. When the final snapshot fails after
-the last step, the result keeps the script's value and log. It has `snapshotError`, or the
-`user_control` status when a person took the tab.
+The script sends each step through the corresponding tool's input checks and queue. Failure preserves the effects of completed steps. The result can contain the final URL, value, log and a separate snapshot error. Inspect the page before deciding which actions are safe to repeat.
 
 The script runs in a QuickJS WebAssembly sandbox (`src/backend/browser-script.ts`), not in
 `node:vm`, because the backend process holds the vault. The sandbox has no modules, network, files,
@@ -243,10 +91,6 @@ of `timeoutMs` (default 60 seconds, at most 120 seconds). An interrupt handler s
 loops without steps. Each script gets its own runtime, which the host disposes at the end. The
 backend bundle keeps the QuickJS packages external, so the WebAssembly file loads from
 `node_modules`.
-
-`bun run test:browser-steps` compiles its native fixture and drives a hidden Electron process with
-loopback pages, like the fill fields check. CI runs it in the `browser` job under `xvfb-run -a`.
-The report is `.tommy-build/browser-steps-e2e/report.json`.
 
 ### Browser sessions
 
@@ -263,12 +107,7 @@ Named profiles are rows of the `browser_profiles` table (migration 45). Many age
 profile, so they share its sign-ins; a profile has no owner agent, and the tab rules below do not
 change. The name is a label only and never becomes a path or a partition, so a rename keeps the
 data. An agent with `browserProfileId` also has `ownBrowserSession: true`. After a downgrade, an
-older build thus opens such an agent in a session of its own, never in the shared one. A duplicate
-and an imported agent start with Shared. The user's tabs in an agent's panel use the agent's partition, so
-the user can sign in for the agent there.
-
-`openPrivate` opens a sign-in page for another person in an in-memory partition. The tab is not
-saved, and its storage is cleared when its last tab closes.
+older build thus opens such an agent in a session of its own, never in the shared one.
 
 A tab keeps its partition for its life, and its popups use the same partition. The state file
 saves an agent key as `agentSession`, and a named profile as `profile` together with an
@@ -278,177 +117,35 @@ version, opens in the shared partition. A tab with a malformed key or profile id
 deleted profile, is dropped, so it never opens signed in to another account. A new tab for an agent
 whose profile no longer exists fails with `browserProfileMissing`; it never falls back to Shared.
 `#configureSession` applies the same user agent, headers, permissions and download policy to every
-partition. Shutdown and `flushPersistentStorage` flush every persistent partition.
-
-`src/main/browser-profile-service.ts` owns the operations: list, create (name of 1 to 60
-characters, unique, at most 100 profiles), update (name or color), clear data, delete, and assign.
-Clear and delete close the tabs in the partition before they clear its storage and cache. Delete also
-moves the profile's agents to Shared. Each named profile has a color (`hue`), one of the agent avatar
-hues. Create gives the color that the fewest profiles use (`nextBrowserProfileHue`); Server settings >
-Browser profiles changes it. The browser view shows a profile label with its color on the toolbar, a line in
-that color under the tab, and the name in the tab tooltip of a tab outside the shared profile
-(`agent:admin:list-browser-tab-profiles`). The select marks Shared with a gray dot, a color that no
-named profile has. "Only this agent" has no color, and the select offers it only to an agent that
-already uses it, so the agent keeps its sign-ins. An owner or admin of a joined server uses the same
-operations through `browser-profiles-v1` (`route-browser-profiles.ts`); each member reads the labels of
-the tabs that they can see, and a private tab is hidden from a member. A host without the capability
-answers `agentSettingsUnsupported`, and the client shows no select, section or label for it. A host
-with `browser-profiles-events-v1` sends `browser-profiles-changed` after each change, so every open
-list and agent setting reads the profiles again. The phone shows the same operations in Server
-settings > Browser profiles and in Agent info > Advanced > Browser profile.
+partition. Shutdown flushes persistent session storage.
 
 ### Tab lifetime
 
-The agent decides when a tab closes. Nothing closes a tab when a turn ends: `close_tab` is the only
-cleanup path, and the prompt asks the agent to use it once a task no longer needs the tab. A tab
-therefore outlives its turn by design, which is what lets the next turn in the same thread carry on in
-the page the last one left, and what lets the user read the result afterwards.
-
-There is no user-owned tab. A tab carries `ownerThreadId` and `ownerAgentId`, and an agent may read
-and close any tab in its own thread, including one the user opened there. The one hard block is a
-takeover: while the user holds a tab, no agent tool touches it. That is enforced in
-`BrowserHost.#requireToolTab`, which is the lowest point every tab-bearing tool passes through, so it
-holds for callers that never reach `AgentService` -- the view gateway and remote hosts. The agent-wide
-refusal in `AgentService` stays beside it rather than being folded in: it also covers `open` and
-`list_tabs`, which name no tab, and it answers with a refusal instead of an error.
-
-| Event | Tabs |
-| --- | --- |
-| Turn succeeds | Stay open unless the agent called `close_tab`. |
-| Cancelled, interrupted, or failed | Stay open. Completion clears the control session only. |
-| Retry | Same thread and agent, so the same tabs are still reachable. |
-| Restart | Restored from the browser's own state file. |
-| Idle 30 min (5 min when memory is low) | Stays open, but its page unloads and its renderer process ends. The next use loads the page again. |
-| Agent deleted | That agent's tabs are closed, including a legacy tab holding only its thread id. Its own browser session is cleared. |
-| Browser profile changed | That agent's tabs are closed. Its next tab opens in the profile it chose. Both profiles keep their data. |
-| Profile cleared or deleted | Every tab in that profile is closed, then its data is cleared. |
-| Takeover held | No agent tool touches that tab, `close_tab` included. |
-
-Deleting an agent is the one sweep, and it exists because those tabs are otherwise unreachable: no
-agent passes the owner check for them, and the renderer lists tabs per agent, so they would hold a
-view the user cannot see to close, across restarts. Closing is idempotent -- `close()` returns early
-on an id it does not hold -- and tab ids are UUIDs with no reorder feature at any layer, so a stale id
-can never name a tab that took its place.
+The tab owner is its agent and thread. A turn completing, failing or being interrupted leaves its tabs available to the next turn. `close_tab` releases a tab when the task is done. Idle tabs can unload after 30 minutes, or 5 minutes under memory pressure. The URL and partition remain available to restore them on demand. A restart restores saved tabs with their recorded session identifiers. Each tab ID names one lifetime.
 
 ### Page dialogs
 
-A page `alert` or `confirm` that an agent action opens goes to that agent; every other dialog stays in
-Electron's native box for a person. `runTabAction` watches for a dialog only while the agent's own
-input action runs (`BrowserDialogTurn` names the thread and turn), and until the page settles after it.
-The engine then sends `Page.enable` on its own debugger and keeps the debugger attached while a watch
-runs, so it also sees a dialog that a page load or a timer opens with no command in flight. A tab
-queue drain ends the watch. `Page.javascriptDialogOpening` ends the action with the dialog:
-an opaque id, the type, and the message, scrubbed and redacted like snapshot text. A `run_script` step
-stops with status `dialog`. The agent answers with `handle_dialog`, which sends
-`Page.handleJavaScriptDialog` and returns the next dialog or the page status. Until then, every other
-tool on that tab is refused; `close_tab` still works.
+A watched agent input can open an alert or confirmation dialog. The browser engine listens during the action and its page settle. It returns an opaque dialog ID and a redacted message. A script stops with status `dialog`. The agent can use `handle_dialog` to answer. Further tab actions wait or refuse the open dialog. The tab can still be closed. A dialog created outside the watched action is never attributed to that turn.
 
-Electron shows its own box for the same dialog, after the CDP event. After the CDP answer, the engine
-emits Electron's internal `-cancel-dialogs` on the tab, which aborts the box without its callback. The
-agent gets a dialog only when the engine owns the debugger and Electron has a `-cancel-dialogs`
-listener. Otherwise, for example under an external debugger, the result says that a person must answer.
-`scripts/browser-dialogs-e2e.ts` fails if an Electron upgrade changes these internal events.
+Electron also creates a native dialog. When the engine owns the debugger it uses the CDP answer, then cancels the matching native box. After a turn ends its dialog handle expires. A site that requires a person to interact directly can be reported to the originating Telegram chat.
 
-| Event | Dialog |
-| --- | --- |
-| Person's click, or a tool that is not an input action | Native box. The agent is not told. |
-| Turn ends | Handed off: the box stays for a person, and the agent can no longer answer it. |
-| Person answers first | `handle_dialog` fails with "This dialog is closed". |
-| Tab closed or browser destroyed | The engine detaches its debugger, so the tab queue drains. Then it cancels every box of the tab, a person's box too, also a box that shows after the close: Electron keeps a box open after its page closes. |
-| `prompt()` or `beforeunload` | Electron answers `prompt` with no box, and `will-prevent-unload` handles `beforeunload`. Not intercepted. |
+## Screenshots
 
-The agent never gets a dialog that an `evaluate`, `wait_for`, or `fill_fields` call opens, or one in a
-cross-origin frame: those dialogs stay native.
-
-A member on a remote server cannot see the host's tab, because the tab is a native view on the host's
-own screen. `browser-view-gateway.ts` answers that with a session and a websocket: `BrowserHost`
-streams the tab through CDP, and the gateway sends each frame as bytes and dispatches the pointer and
-key input that comes back, in fractions of the last frame, through the same access checks. Frames stay
-outside the per-tab operation queue, so watching never delays a tool call. `browser-view-client.ts` is
-the client half, and it reuses the Remote Desktop websocket tunnel rather than adding a WebRTC channel.
-The `browser-view` capability says whether a host has both.
-
-The mobile app (iOS and Android) draws the pointer itself, so it needs the page's cursor. A host with
-`browser-view-cursor` sends a `cursor` text message, from the tab's `cursor-changed` event, to a
-socket opened with `cursor=1`; desktop and web clients do not ask. The phone uses the
-`browser-view-clipboard` inputs of the desktop and web clients: `paste`, `copy` (answered with
-`copied` or `copyTooLarge`) and `cut`, and Cmd+A for Select All. A client that reads only the
-`copied` answer never asks for a cursor or a menu, so it gets no other text message. A host with
-`browser-view-context-menu` sends the menu of a
-right-click to the socket that made it (opened with `menu=1`) as a `context-menu` message, and opens
-no native menu: that menu would show on the host's screen. Only http and https addresses go in the
-message. A host with `browser-view-viewport` holds the page at the size a socket asks for with
-`viewport=WxH` while that socket is open, through the same device metrics override as an agent's
-`set_environment`, so a resize of the host's window does not change the page. A tab with a custom
-size from `set_environment` keeps it. The phone asks for 1280x800. On the phone, the view runs in the
-hidden page that holds the Team peer (`features/browser/model/browser-view-bridge.ts`). That page
-sends each frame to the screen as base64 and holds the newest frame until the screen has drawn the
-previous one. Back, forward, reload, new tab and close tab use the released `browser-control`
-routes. A host that serves `browser-view` shows its browser on the phone; no other flag decides it.
+The owner can use `/browser` in the manager chat or an agent's chat to open the Mini App and request a current screenshot. An ordinary request for manual interaction can deliver a single screenshot to the conversation that started the turn, including a turn delegated to a different agent. The host checks the owner, chat binding, current tab and capture permission. The image allows the owner to inspect the page. Telegram does not send clicks or keys to it.
 
 ## Secure browser authentication
 
-`tommy_browser.submit_secret` uses the existing attention/takeover lifecycle with optional public
-secret-request metadata. The attention registry creates a fresh request ID and owns the pending
-response. The secret travels through a dedicated typed IPC endpoint or the optional
-`browser-secret-handoff` Team API capability, never a prompt answer or provider tool argument.
-Frozen protocol projections continue to show ordinary takeover to older clients. Current codecs
-carry validated metadata beside those projections. There is no database schema change.
+A password or one-time code uses the private Mini App form. The host verifies Telegram launch data and matches the pending request to its owner and page. The value goes to the browser through the protected input path. Secret entry blocks capture of sensitive page content. A card fill requires the applicable Vault permission or explicit owner approval.
 
-A password can also go to the Vault of the server that runs the agent. The local app sends
-`saveToVault` over IPC. A remote client sends the same submit on `browser-secret-vault-v1`, which
-only an owner or admin can use; the released route keeps its fields. The card shows the save box on
-every password request, and for a member or an older host it shows the box off with the reason.
+Cancel, expiry, tab replacement or a changed chat binding can invalidate the request. An agent must report a sign-in that requires unsupported direct interaction. It must never ask the owner to send credentials in chat.
 
-One form can ask for the account name and the password together. The agent passes `usernameTarget`
-beside the password target, and `username` when it knows the name. The request then has `askUsername`,
-which a client gets under `browser-secret-login-v1`, and the client answers on that capability's route.
-A client without it shows only the password, and the host fills `username` from the tool call when the
-agent gave one. The card has no takeover action: the agent asks for a takeover only for a step that a
-person must do in the page.
+The [Mini App handler](../../src/main/telegram-mini-app.ts) owns the HTTP boundary. [Computer Use](computer-use.md) runs on a separate agent display.
 
-`tommy_browser.request_vault_item` asks the user to add a login, a card or contact info that the
-Vault does not have. The attention registry surfaces a `form` UI block with `uiBlock.vault.kind`.
-The agent can fill in the fields that are not secret; the password, card number and security code
-are secret form fields, so the stored block never holds them. The desktop card opens the Vault
-dialog with the agent's values. The host saves the answer through `VaultItems.addEntered` (owner or
-admin only) and answers the tool with only the item's id, kind and name. The `ui-blocks-v1` wire
-leaves out `vault`; `ui-block-vault-v1` (protocol 9) adds it back, and the mobile app then shows the
-same card, which opens its Vault item form with the agent's values and answers the prompt with the
-form's field ids. Another remote client shows the ordinary form. Messaging threads refuse the tool.
+The host serializes entry behind prior tab work and resolves the fields before consent. It rechecks the document and origin just before sending input. While a document might hold a secret, capture, evaluation, recording and page diagnostics are restricted. Same-document navigation alone cannot clear those restrictions.
 
-`tommy_browser.list_vault_items` also lists the Credit Card items that `OP_SERVICE_ACCOUNT_TOKEN` can
-read (`SharedCards`, ids that start with `1password:`). `fill_card` reads the number and the security
-code again with the `op` CLI for each fill, for the page only.
+After a completed submit, the host waits up to five seconds for a new document. If the same document remains, the host clears the filled values and checks the page and its open shadow roots for the secret. A clean result permits the next step of a single-page sign-in while keeping evaluation and recording restricted. Otherwise, a GET reload replaces the document without replaying the form. If that reload fails, the host tries a blank page. When no replacement succeeds the document stays protected. A failed fill reports its reason and requires a new answer before retry.
 
-The approval below does not protect these cards from an agent that has a shell. Agents inherit the
-same token, so such an agent can read a card with `op`. Keep cards out of the vaults of that service
-account if agents must not be able to read them.
-
-The first fill of a card on a site shows an approval with the amount that the agent read from the
-page, the card, the site and the payment frames. `fill_card` requires the amount. Only the owner can
-answer the approval, also with Full access. The text stays under the 240 characters of the runtime
-snapshot, because a phone that has only a cut copy shows no Allow button. The approval of a Vault
-card stays in the Vault file. The approval of a 1Password card stays in memory until Tommy restarts,
-because the Vault page, where a user removes a site, lists only Vault cards.
-
-The browser host owns the protection state and serializes entry behind existing browser work. CDP
-resolves fields before consent and checks the document and origin again before entry. The host
-stops recording, suppresses page diagnostics, blocks inspection and capture, rejects remote input,
-and invalidates existing live-view streams. Capture protection remains after same-document navigation
-or an uncertain submission. After a completed submit action without document replacement, the host
-waits up to five seconds, then empties the filled fields. When every field is empty and an automation-world scan finds the
-value in no title, URL, text node, value, or attribute, including open shadow roots, it keeps the
-document so a single-page sign-in can show its next step, and blocks evaluation and recording in the
-opener group until a main-frame navigation, which also clears history. Otherwise it loads the current
-URL with GET to replace the document without replaying a form POST. When that load fails, a blank page
-replaces the document, so no tab stays locked after a sign-in. A fill that is not confirmed answers the
-agent with `status: failed` and its reason, and the agent asks again; the user does not take over the tab.
-If no load works, protection stays, and `close_tab` is the one tool that works. A new document releases it
-and clears navigation history. Secrets are not retried without a new answer from the user.
-`bun scripts/browser-secure-login-e2e.ts` drives the host in a hidden window and writes
-`.tommy-build/browser-secure-login-e2e/report.json`. Authentication inside unsupported frames,
-unclear OAuth account selection, CAPTCHA, passkeys, and payment confirmation use takeover.
+Run `bun scripts/browser-secure-login-e2e.ts` for the hidden Electron fixture. It writes `.tommy-build/browser-secure-login-e2e/report.json`.
 
 An agent script marks the document and any reachable opener or popup document. A saved-login or
 card fill waits until those scripted documents navigate or close. The host also clears the site's
@@ -460,15 +157,4 @@ Browser scripts keep at most 1 MiB of internal result data. Model-facing results
 64 KiB. Large snapshots omit hidden branches before spending the visible element budget. A chat
 owns its tab limit; restoring tabs applies that limit without taking focus.
 
-An optional profile proxy is an encrypted host setting. The UI receives its address without a
-password and a hasPassword flag. Keeping a saved password requires the same scheme, endpoint and
-user. HTTP, HTTPS and authenticated SOCKS5 connect from the host. A proxy failure stops navigation;
-there is no direct fallback. Changing or clearing a proxy closes profile tabs and sockets before
-the next navigation. Clearing restores the host system proxy and keeps profile storage. No client
-computer becomes an exit node. Proxied views disable non-proxied WebRTC UDP.
-
-Browser and thread tags carry validated IDs and display names. The host resolves their current
-context and permissions at delivery time. A human can share an owned tab with another thread of
-the same agent; text from an agent, routine or external message cannot grant that share. URLs in
-tag context omit credentials, query strings and fragments. A thread tag can read only that agent's
-thread and respects its latest context reset.
+The first Vault card fill displays the amount the agent read, the selected card, the site and any payment-frame origins. A saved approval remains scoped to that card and site. A 1Password card's site approval lasts only for this process. For each 1Password fill, the host fetches the number and security code again for the page. A service account token accessible to an agent's shell grants that shell the token's own permissions.

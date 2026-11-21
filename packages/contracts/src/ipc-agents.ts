@@ -58,10 +58,6 @@ export const DEFAULT_AGENT_DEFAULTS: AgentDefaults = {
   quickAcknowledgement: false,
 };
 
-export function isAgentDefaults(value: unknown): value is AgentDefaults {
-  return isDynamicRecord(value) && AGENT_DEFAULT_KEYS.every((key) => isBoolean(value[key]));
-}
-
 export function agentAutomationAllowed(
   agent: { allowAutomation?: boolean | undefined },
   defaults: AgentDefaults,
@@ -157,17 +153,6 @@ export interface AgentPendingRuntime extends AgentModelChoice {
 
 export function isAgentPendingRuntime(value: unknown): value is AgentPendingRuntime {
   return isDynamicRecord(value) && isAgentModelChoice(value) && isReasoningEffort(value.reasoningEffort);
-}
-
-/**
- * The account of the next turn. A queued runtime without an account uses the provider's own
- * sign-in, not the account of the running turn.
- */
-export function agentNextProviderAccountId(agent: {
-  providerAccountId?: string | undefined;
-  pendingRuntime?: AgentPendingRuntime | undefined;
-}): string | undefined {
-  return agent.pendingRuntime ? agent.pendingRuntime.providerAccountId : agent.providerAccountId;
 }
 
 export function isAgentBackupModels(value: unknown): value is AgentBackupModels {

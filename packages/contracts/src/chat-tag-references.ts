@@ -23,23 +23,6 @@ export interface ChatTagReference {
 
 const CHAT_TAG_REFERENCE_PATTERN = /@\[([^\]\r\n]+)\]\((agent|skill|mcp|quote|tab|thread)(\+uri)?:([^)\r\n]+)\)/gu;
 
-/*
- * Quoted text is any text, and Markdown reads the marker as a link. A bracket, a backslash, a
- * backtick or an angle bracket in it could end the link early or open a span past its end.
- */
-const UNSAFE_QUOTE_NAME = /[[\]\\`<\r\n]/u;
-
-/**
- * Encoded, a long passage could pass the message limit. At 9 encoded characters each, this many
- * stays far below it, and the start of the passage is enough to find it again.
- */
-const QUOTE_TEXT_LIMIT = 2000;
-
-/** The quoted text that a quote tag keeps. Code points keep a surrogate pair whole. */
-export function limitedQuoteText(text: string): string {
-  return Array.from(text).slice(0, QUOTE_TEXT_LIMIT).join("").trimEnd();
-}
-
 /**
  * A passage of a workspace file, a shared file or an attachment. The lines start at 1 and include
  * the last. An attachment has no path on the agent's computer, so its quote names it by its id and
@@ -52,17 +35,6 @@ export type FileQuoteTarget = (
 
 const FILE_QUOTE_ID = /^(workspace|shared|attachment)-file:(.+?)(?:#L(\d+)(?:-(\d+))?)?$/u;
 
-/**
- * The id of a quote of a file passage, for example `workspace-file:docs/plan.md#L12-18` or
- * `attachment-file:<attachment id>/notes.md#L3`.
- */
-export function fileQuoteId(target: FileQuoteTarget): string {
-  const lines = target.lines;
-  const suffix = !lines ? "" : lines.end > lines.start ? `#L${lines.start}-${lines.end}` : `#L${lines.start}`;
-  const file = target.source === "attachment" ? `${target.attachmentId}/${target.name}` : target.path;
-  return `${target.source}-file:${file}${suffix}`;
-}
-
 /** The file passage that a quote id names, or null for a quote of a message. */
 export function fileQuoteTarget(id: string): FileQuoteTarget | null {
   const match = FILE_QUOTE_ID.exec(id);
@@ -74,30 +46,6 @@ export function fileQuoteTarget(id: string): FileQuoteTarget | null {
   const slash = file.indexOf("/");
   if (slash < 1 || slash === file.length - 1) return null;
   return { source: "attachment", attachmentId: file.slice(0, slash), name: file.slice(slash + 1), lines };
-}
-
-/**
- * The most characters of a tab or thread title that a tag keeps. The provider reads the current
- * title when the message is delivered, so the tag needs only enough to show what it names.
- */
-const REFERENCE_NAME_LIMIT = 80;
-
-/** The name of a tab or thread tag: one line, at most `REFERENCE_NAME_LIMIT` characters. */
-export function referenceName(name: string): string {
-  const characters = Array.from(name.replace(/[\p{Cc}\p{Cf}\s]+/gu, " ").trim());
-  return characters.length > REFERENCE_NAME_LIMIT
-    ? `${characters
-        .slice(0, REFERENCE_NAME_LIMIT - 1)
-        .join("")
-        .trimEnd()}…`
-    : characters.join("");
-}
-
-export function serializeChatTagReference(kind: ChatTagKind, name: string, id: string): string {
-  // A quote, a page title and a thread title are any text, so they get the strict rule.
-  const unsafeName = kind === "quote" || kind === "tab" || kind === "thread" ? UNSAFE_QUOTE_NAME : /[\]\r\n]/u;
-  if (name && id && !unsafeName.test(name) && !/[)\r\n]/u.test(id)) return `@[${name}](${kind}:${id})`;
-  return `@[${encodeChatTagComponent(name)}](${kind}+uri:${encodeChatTagComponent(id)})`;
 }
 
 export function chatTagReferences(value: string): ChatTagReference[] {
@@ -225,13 +173,6 @@ function fileQuoteHeading(file: FileQuoteTarget): string {
 function expandedChatTag(kind: "agent" | "skill" | "mcp", name: string): string {
   if (kind === "agent") return `@${name}`;
   return kind === "mcp" ? `${name} (MCP server)` : `${name} (skill)`;
-}
-
-function encodeChatTagComponent(value: string): string {
-  return encodeURIComponent(value).replace(
-    /[!'()*]/gu,
-    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
-  );
 }
 
 function decodeChatTagComponent(value: string, encoded: boolean): string {

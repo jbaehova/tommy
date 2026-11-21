@@ -37,10 +37,8 @@ export class LocalSkillLibrary {
     private readonly agents: () => AgentSummary[],
   ) {}
 
-  list(limit?: number, summaries = false): Effect.Effect<MarketplaceSkillDetail[], LocalSkillFailure> {
+  list(): Effect.Effect<MarketplaceSkillDetail[], LocalSkillFailure> {
     return Effect.gen({ self: this }, function* (): Effect.fn.Return<MarketplaceSkillDetail[], LocalSkillFailure> {
-      if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1))
-        return yield* new LocalSkillFailure({ cause: new Error("Invalid local skill list limit.") });
       yield* localIO(() => mkdir(this.root, { recursive: true, mode: 0o700 }));
       const entries = yield* localIO(() => readdir(this.root, { withFileTypes: true }));
       const published = [];
@@ -49,15 +47,7 @@ export class LocalSkillLibrary {
         const revisions = yield* localIO(() => readdir(join(this.root, entry.name)));
         if (revisions.some((name) => /^[1-9]\d*$/u.test(name))) published.push(entry.name);
       }
-      const selected = limit === undefined ? published : published.sort().slice(0, limit);
-      const results = yield* Effect.forEach(
-        selected,
-        (id) =>
-          this.get(id).pipe(
-            Effect.map((detail) => (summaries ? { ...detail, instructions: "", files: [], iconUrl: null } : detail)),
-          ),
-        { concurrency: limit === undefined ? "unbounded" : 1 },
-      );
+      const results = yield* Effect.forEach(published, (id) => this.get(id), { concurrency: "unbounded" });
       return results.sort((a, b) => a.name.localeCompare(b.name));
     });
   }
@@ -313,20 +303,6 @@ export class LocalSkillLibrary {
       }
       return null;
     });
-  }
-
-  /** Removes a revision a failed import published. A skill left with no revision is removed too. */
-  withdraw(id: string, revision: number): Effect.Effect<void, LocalSkillFailure> {
-    return this.serialize(
-      Effect.gen({ self: this }, function* () {
-        const directory = yield* localSync(() => this.directory(id));
-        const path = join(directory, String(yield* this.revision(id, revision)));
-        yield* rejectLinks(this.root, path);
-        yield* localIO(() => rm(path, { recursive: true, force: true }));
-        if (!(yield* localIO(() => readdir(directory))).some((name) => /^[1-9]\d*$/u.test(name)))
-          yield* localIO(() => rm(directory, { recursive: true, force: true }));
-      }),
-    );
   }
 
   private sourceEffect(agentId: string, sourcePath: string): Effect.Effect<Uint8Array, LocalSkillFailure> {

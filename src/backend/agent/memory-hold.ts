@@ -63,9 +63,7 @@ export class MemoryHold {
   held(agentId: string): void {
     if (this.#told.has(agentId)) return;
     this.#told.add(agentId);
-    const message = this.#memory?.hostedPlan
-      ? sourceText("error.agent.lowMemory")
-      : sourceText("error.agent.lowMemoryServer");
+    const message = sourceText("error.agent.lowMemoryServer");
     this.#hooks.emitError("host_memory_low", new Error(message), agentId);
   }
 

@@ -69,8 +69,7 @@ The server is an Electron build run as a systemd service on a virtual display, s
 browser and Computer Use work without a screen. The SQLite database on the server is the source
 of truth.
 
-nginx forwards the Telegram paths and the signed workflow webhooks to the loopback listener of
-Tommy. Nothing else is public.
+nginx forwards the Telegram webhook, Mini App and MCP callback paths to the loopback listener. It also accepts the configured signed workflow webhooks. The operator socket and the local scripts API stay on the server.
 
 ## Local data
 

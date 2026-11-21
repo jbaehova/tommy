@@ -128,15 +128,6 @@ export interface CancelMcpSignInInput {
 }
 
 /**
- * The address that the browser shows at the end of a relayed sign-in. The user pastes it when this
- * computer did not take the callback. Main sends only its query to the host.
- */
-export interface CompleteMcpSignInRelayInput {
-  url: string;
-  address: string;
-}
-
-/**
  * A sign-in of a joined server that waits in the browser of this computer (`sign-in-relay-v1`): the
  * host name of the page, and whether this computer listens for the callback. When it does not, the
  * user pastes the address that the browser shows. A page that returns nowhere, such as a device page,
@@ -224,10 +215,6 @@ export function mcpConfigErrors(config: McpServerConfig): McpConfigErrors {
   }
   if (!isHttpUrl(config.url)) errors.url = "Enter an http or https address.";
   return errors;
-}
-
-export function mcpConfigIsValid(config: McpServerConfig): boolean {
-  return Object.keys(mcpConfigErrors(config)).length === 0;
 }
 
 export function isReservedMcpServerName(name: string): boolean {
@@ -411,12 +398,6 @@ export function decodeMcpSignInRelayPage(value: unknown): McpSignInRelayPage | n
   )
     throw new Error("Invalid MCP server response.");
   return { authorizeHost: value.authorizeHost, listening: value.listening, pasteable: value.pasteable };
-}
-
-/** The host tab that shows a remote sign-in page, or `null` while there is none. */
-export function decodeMcpSignInPage(value: unknown): string | null {
-  if (value !== null && !isBounded(value, INPUT_LIMITS.identifier)) throw new Error("Invalid MCP server response.");
-  return value;
 }
 
 export function decodeMcpSignInAppState(value: unknown): McpSignInAppState {

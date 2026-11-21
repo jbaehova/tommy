@@ -1,18 +1,9 @@
-/**
- * A loopback listener that takes the callback of a browser sign-in: the MCP grant listener of this
- * computer, and the listener of a sign-in that this computer relays to a joined server.
- *
- * Every refusal that does not depend on the sign-in is here, so each listener makes the same checks:
- * the `Host` header names the loopback address, the method is GET or HEAD, and the path is the one
- * the sign-in sent. The page the browser is left on is a fixed catalog message. The code is in the
- * request line, and a page that repeated it would put a credential in the browser's history.
- */
-
+/** Serve local OAuth redirects on loopback and reject requests addressed to another host. */
 import { createServer, type Server } from "node:http";
 import type { Socket } from "node:net";
 import type { AppTextKey } from "@tommy/i18n";
 import type { LanguageService } from "./language-service";
-import { listenLoopback, listenLoopbackExact } from "./listen-loopback";
+import { listenLoopback } from "./listen-loopback";
 
 /** The names a request may claim to have reached. Anything else is a page rebinding a name here. */
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost"]);
@@ -38,8 +29,8 @@ export interface LoopbackCallbackServerOptions {
   receive: (url: URL) => CallbackAnswer;
   /** Read on each request, so the page uses the language that is set at that time. */
   language: Pick<LanguageService, "locale" | "translate">;
-  /** `exact` binds that port or fails; `preferred` tries it first and then takes any free port. */
-  port: { exact: number } | { preferred?: number | undefined };
+  /** Try this port first, then bind any free loopback port. */
+  preferredPort?: number | undefined;
   noPort: () => Error;
 }
 
@@ -69,6 +60,7 @@ export async function startLoopbackCallbackServer(
         // The grant is in this request's own URL. A page kept on disk keeps the URL that fetched
         // it, and nothing here is worth a second read anyway.
         "cache-control": "no-store",
+        "referrer-policy": "no-referrer",
       })
       .end(callbackPage(options.language.locale, options.language.translate(answer.message)));
   });
@@ -77,10 +69,7 @@ export async function startLoopbackCallbackServer(
     socket.on("close", () => sockets.delete(socket));
   });
 
-  const port =
-    "exact" in options.port
-      ? await listenLoopbackExact(server, options.noPort, options.port.exact)
-      : await listenLoopback(server, options.noPort, options.port.preferred);
+  const port = await listenLoopback(server, options.noPort, options.preferredPort);
   return {
     port,
     close: async () => {

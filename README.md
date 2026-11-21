@@ -47,8 +47,12 @@ conversations and the database stay on your server.
 ### When a site asks for a password
 
 Each agent has a private browser on your server. When a page asks for a password or a code, the
-agent's chat shows an **Open Tommy** button. It opens a Mini App inside Telegram, where you see the
-agent's screen and type the value. The value goes to the page. It is not added to the chat.
+agent's chat shows an **Open Tommy** button. Enter the value in the private Mini App form. The
+server delivers it to the page. Use `/browser` to see a screenshot when the page allows capture.
+A step that needs you to click inside the site ends with a notice in the chat.
+
+When an MCP service needs authorization, tap **Connect** in the chat that requested it. Open the
+provider from the Mini App and sign in there. Tommy sends the result to the same chat.
 
 ## Install
 
@@ -138,7 +142,7 @@ The app lives in `/opt/Tommy`, the data in `/var/lib/tommy`, and the settings in
 - **Your choice of model.** Run Claude, Codex, Cursor and Pi side by side. Tommy downloads and pins
   each provider CLI, so every agent gets a known-good runtime.
 - **Agents that work together.** Agents hand work to each other inside Tommy, and answers come back
-  formatted.
+  formatted. An HTML result can include a preview image and the original file.
 - **You see long work.** During a long task, one status message says what the agent does now. It
   changes in place and goes away when the answer comes.
 - **Browser and Computer Use.** Agents drive a sandboxed browser on the server. You see its screen

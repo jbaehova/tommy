@@ -30,11 +30,6 @@ export interface AgentWaitsSnapshot {
   waits: AgentWait[];
 }
 
-export interface CancelAgentWaitInput {
-  agentId: string;
-  waitId: string;
-}
-
 function isAgentWait(value: unknown): value is AgentWait {
   return (
     isDynamicRecord(value) &&

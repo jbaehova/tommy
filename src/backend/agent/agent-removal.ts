@@ -13,7 +13,6 @@ import { isRecord } from "../protocol";
 import type { ContextCompaction } from "./context-compaction";
 import type { ConversationRuntime } from "./conversation-runtime";
 import type { DrainScheduler } from "./drain-scheduler";
-import type { DuplicationGate } from "./duplication-gate";
 import type { RoutineScheduler } from "./routine-scheduler";
 import type { ThreadLifecycle } from "./thread-lifecycle";
 import type { AgentBrowserHost, TurnLifecycle } from "./turn-lifecycle";
@@ -42,7 +41,6 @@ export interface AgentRemovalOptions {
   browser: AgentBrowserHost;
   channels: ChannelService;
   routines: RoutineScheduler;
-  duplication: DuplicationGate;
   drain: DrainScheduler;
   threads: ThreadLifecycle;
   turn: TurnLifecycle;
@@ -74,7 +72,6 @@ export class AgentRemoval {
   readonly #browser: AgentBrowserHost;
   readonly #channels: ChannelService;
   readonly #routines: RoutineScheduler;
-  readonly #duplication: DuplicationGate;
   readonly #drain: DrainScheduler;
   readonly #threads: ThreadLifecycle;
   readonly #turn: TurnLifecycle;
@@ -91,7 +88,6 @@ export class AgentRemoval {
     this.#browser = options.browser;
     this.#channels = options.channels;
     this.#routines = options.routines;
-    this.#duplication = options.duplication;
     this.#drain = options.drain;
     this.#threads = options.threads;
     this.#turn = options.turn;
@@ -121,12 +117,11 @@ export class AgentRemoval {
     const agent = yield* removalStep(() => this.#deletable(agentId));
     yield* Effect.acquireUseRelease(
       removalStep(() => {
-        const gate = this.#duplication.releaseForDelete(agentId);
         this.#deleting.add(agentId);
         const releaseDeliveries = this.#mailbox.blockAgentDeliveries(agentId);
-        return { ...gate, releaseDeliveries };
+        return releaseDeliveries;
       }),
-      ({ wasPending }) =>
+      () =>
         Effect.gen({ self: this }, function* () {
           // The drain and the model moves now leave this agent alone. Work that started before can still
           // start a queued message, a compaction or a model move, so wait for it and check again.
@@ -140,13 +135,11 @@ export class AgentRemoval {
           yield* this.deleteData(current ?? { id: agentId, threadId: null });
           yield* removalStep(() => {
             this.#channels.removeDeletedMembers(new Set(this.#store.list().map((candidate) => candidate.id)));
-            this.#duplication.forget(agentId);
-            if (!wasPending) this.#hooks.emit({ type: "agents-changed", agents: this.#hooks.listAgents() });
+            this.#hooks.emit({ type: "agents-changed", agents: this.#hooks.listAgents() });
           });
         }),
-      ({ release, releaseDeliveries }) =>
+      (releaseDeliveries) =>
         Effect.sync(() => {
-          release();
           releaseDeliveries();
           this.#deleting.delete(agentId);
           this.#routines.arm();

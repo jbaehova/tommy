@@ -12,14 +12,14 @@
 
 import type { RoutineSchedule, WorkflowGraph } from "@tommy/contracts/ipc";
 import { createTommyLogger } from "@tommy/logging";
+import { Effect } from "effect";
 import {
   collapseMissedOccurrences,
   nextValidRoutineOccurrence,
   normalizeRoutineSchedule,
   RoutineInputError,
   validateRoutineSchedule,
-} from "@tommy/team-client/routine-schedule";
-import { Effect } from "effect";
+} from "../routine-schedule";
 import type { ReceivedWebhookEvent } from "../routine-store";
 import type { RoutineDueSource } from "../routine-timer";
 import { EXTERNAL_EVENT_END, EXTERNAL_EVENT_START } from "../webhook-trigger";

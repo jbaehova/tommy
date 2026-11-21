@@ -7,7 +7,6 @@
 
 /** The events that a Slack trigger can start on. Slack sends `app_mention` for a message that names Tommy. */
 export const WORKFLOW_SLACK_EVENTS = ["mention"] as const;
-export type WorkflowSlackEvent = (typeof WORKFLOW_SLACK_EVENTS)[number];
 
 /** What a Slack output can do. */
 export const WORKFLOW_SLACK_ACTIONS = ["reply", "post", "react"] as const;
@@ -19,6 +18,3 @@ export type WorkflowSlackEmoji = (typeof WORKFLOW_SLACK_EMOJI)[number];
 
 /** The `connectionId` of an output that acts on the workspace of the trigger. */
 export const WORKFLOW_SLACK_TRIGGER_WORKSPACE = "trigger";
-
-/** The longest `text` filter of a Slack trigger. */
-export const WORKFLOW_SLACK_TEXT_LIMIT = 200;

@@ -1,11 +1,11 @@
-import { lstat, mkdir, readdir, readFile, realpath, rename, rmdir, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, rename, rmdir, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { agentProviderDescriptor } from "@tommy/contracts/agent-providers";
-import type { AgentSummary, InstalledSkill } from "@tommy/contracts/ipc";
-import { isDynamicRecord } from "@tommy/contracts/runtime-values";
+
+import type { AgentSummary } from "@tommy/contracts/ipc";
+
 import { createTommyLogger, toLogValue } from "@tommy/logging";
 import { Effect, Result, Schema } from "effect";
-import { parse as parseYaml } from "yaml";
+
 import { causeHelpers } from "../backend/effect-boundary";
 import { isMissingFileError } from "../backend/file-errors";
 import { SKILL_OWNERSHIP_MARKER } from "../backend/home-skills";
@@ -272,50 +272,6 @@ const optionalText = Effect.fn("ManagedSkill.optionalText")((path: string) =>
 function isFileExistsError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "EEXIST";
 }
-
-/** Read only Tommy-owned skills from the active provider's skill folder. */
-export const listManagedSkillsForChat = Effect.fn("ManagedSkill.listForChat")(function* (agent: AgentSummary) {
-  const root = yield* managedIO(() => realpath(agent.workspacePath));
-  const reads = agentProviderDescriptor(agent.provider).skillFolders;
-  const directory = join(root, MANAGED_SKILL_FOLDERS.find((folder) => reads.includes(folder)) ?? reads[0]);
-  const skills: InstalledSkill[] = [];
-  yield* Effect.gen(function* () {
-    yield* verifySafeDirectory(root, directory);
-    for (const entry of yield* managedIO(() => readdir(directory, { withFileTypes: true }))) {
-      if (!entry.isDirectory()) continue;
-      yield* Effect.gen(function* () {
-        const folder = join(directory, entry.name);
-        yield* verifySafeDirectory(root, folder);
-        const marker = join(folder, OWNERSHIP_MARKER);
-        const file = join(folder, "SKILL.md");
-        yield* rejectSymlink(marker);
-        yield* rejectSymlink(file);
-        if (
-          (yield* optionalText(marker)) !== `${JSON.stringify({ managedBy: "tommy", slug: entry.name, version: 1 })}\n`
-        )
-          return;
-        const content = yield* managedIO(() => readFile(file, "utf8"));
-        const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(content)?.[1];
-        if (!frontmatter) return;
-        const metadata = yield* managedSync(() => parseYaml(frontmatter));
-        if (!isDynamicRecord(metadata) || metadata.name !== entry.name || typeof metadata.description !== "string")
-          return;
-        skills.push({
-          skillId: entry.name,
-          slug: entry.name,
-          name: entry.name,
-          description: metadata.description,
-          installedVersion: 1,
-          availableVersion: 1,
-          enabled: true,
-          state: "installed",
-          origin: "managed",
-        });
-      }).pipe(Effect.catch(() => Effect.void));
-    }
-  }).pipe(Effect.catch(() => Effect.void));
-  return skills;
-});
 
 class ManagedSkillFailure extends Schema.TaggedError<ManagedSkillFailure>()("ManagedSkillFailure", {
   cause: Schema.Defect(),

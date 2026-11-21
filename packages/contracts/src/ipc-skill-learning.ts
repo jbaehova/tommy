@@ -46,7 +46,6 @@ export interface ConversationSkillSuggestion {
 }
 /** Additive metadata is sent only with skill-learning-v1; old clients show the question text. */
 export type SkillLearningMessage = ConversationMessage & { skillSuggestion?: ConversationSkillSuggestion };
-export type SkillSuggestionEvent = SkillSuggestionTarget & { skillName: string; question: string };
 export function isLocalLibrarySkill(skillId: string): boolean {
   return LOCAL_SKILL_ID.test(skillId);
 }
@@ -70,13 +69,6 @@ export function skillSuggestionTarget(message: ConversationMessage): SkillSugges
   if (rest === "create") return { action: "create" };
   const skillId = rest?.startsWith("update:") ? rest.slice("update:".length) : null;
   return skillId && isIdentifier(skillId) && isLocalLibrarySkill(skillId) ? { action: "update", skillId } : null;
-}
-export function skillSuggestionEvent(message: SkillLearningMessage): SkillSuggestionEvent | null {
-  if (message.status !== "completed") return null;
-  const target = skillSuggestionTarget(message);
-  const skillName = message.skillSuggestion?.name.trim();
-  const question = message.text.trim();
-  return target && skillName && question ? { ...target, skillName, question } : null;
 }
 export interface SaveSkillSuggestionInput {
   agentId: string;
