@@ -263,6 +263,8 @@ export class QueueControls {
           threadId: session,
           expectedTurnId: turnId,
           clientUserMessageId: input.deliveryId,
+          // A person's own message opens T3 Code to the rest of the turn (`t3-tool-gate.ts`).
+          userRequested: context.delivery.sender.kind === "user",
           input: deliveryPromptInput(context, {
             agentNames: agentNamesById(this.#store.list()),
             tags: this.#hooks.tagReferences?.(agent.id, publicThreadId),

@@ -151,6 +151,8 @@ export const messages = {
     "{name} 에이전트가 비공개 답을 기다려요. Tommy를 열어 답하세요. 답은 이 채팅에 남지 않아요.",
   "status.messaging.telegramHandoffWork": "📥 {source}에서 세션을 넘겨받았어요. 에이전트가 이어서 작업합니다.",
   "status.messaging.telegramAskNotice": "❓ {source}에서 이 에이전트에게 질문했어요. 답은 그쪽에도 전달됩니다.",
+  "status.messaging.telegramKnowledgeNotice":
+    "📝 {source}에서 이 에이전트에게 지식베이스 수정을 요청했어요. 답은 그쪽에도 전달됩니다.",
   "status.messaging.telegramHandoffRecord":
     "📥 {source}에서 세션 기록을 넘겨받았어요. 에이전트는 기록만 하고 작업하지 않습니다.",
   "status.messaging.telegramStopped": "진행 중인 작업을 멈췄어요.",
@@ -170,4 +172,32 @@ export const messages = {
   "status.messaging.telegramMcpDenied": "{name} 로그인이 거부되었어요.",
   "status.messaging.telegramMcpExpired": "{name} 로그인 요청이 만료되었어요.",
   "status.messaging.telegramMcpFailed": "{name}에 연결하지 못했어요.",
+  "status.messaging.remoteMcpCode":
+    "🔐 {client}이(가) Tommy 데이터(메모리, 대화, 지식 폴더)를 읽으려고 해요. 읽기만 가능해요. 로그인 코드: {code}\n10분 안에 Tommy 로그인 페이지에 입력해 주세요. 직접 시작한 로그인이 아니라면 코드를 어디에도 입력하지 마세요.",
+  "status.messaging.remoteMcpCodeSave":
+    "🔐 {client}이(가) Tommy 데이터(메모리, 대화, 지식 폴더)를 읽고, 지식 폴더 수정 요청을 보내려고 해요. 로그인 코드: {code}\n10분 안에 Tommy 로그인 페이지에 입력해 주세요. 직접 시작한 로그인이 아니라면 코드를 어디에도 입력하지 마세요.",
+  "status.messaging.remoteMcpConnected":
+    "✅ 이제 {client}이(가) Tommy 데이터를 읽을 수 있어요(읽기 전용). 연결을 끊으려면 Tommy 서버에서 sudo tommy connector revoke --all 을 실행해 주세요.",
+  "status.messaging.remoteMcpConnectedSave":
+    "✅ 이제 {client}이(가) Tommy 데이터를 읽고, 지식 담당 에이전트에게 지식 폴더 수정을 요청할 수 있어요. 연결을 끊으려면 Tommy 서버에서 sudo tommy connector revoke --all 을 실행해 주세요.",
+  "status.messaging.remoteMcpTitle": "Tommy에 연결",
+  "status.messaging.remoteMcpBody":
+    "Tommy가 Telegram 매니저 채팅으로 로그인 코드를 보냈어요. 코드를 입력하면 메모리, 대화, 지식 폴더를 읽기 전용으로 열어 줘요.",
+  "status.messaging.remoteMcpBodySave":
+    "Tommy가 Telegram 매니저 채팅으로 로그인 코드를 보냈어요. 코드를 입력하면 메모리, 대화, 지식 폴더를 읽고 지식 폴더 수정 요청을 보낼 수 있게 열어 줘요.",
+  "status.messaging.remoteMcpClient": "요청한 곳",
+  "status.messaging.remoteMcpCodeLabel": "로그인 코드",
+  "status.messaging.remoteMcpAllow": "접근 허용",
+  "status.messaging.remoteMcpDeny": "거부",
+  "status.messaging.remoteMcpWrongCode": "코드가 틀렸어요. 남은 횟수: {count}",
+  "status.messaging.remoteMcpEndedTitle": "이 로그인은 끝났어요",
+  "status.messaging.remoteMcpEndedBody":
+    "요청이 만료되었거나, 이미 쓰였거나, 틀린 코드가 너무 많았어요. 앱에서 연결을 다시 시작해 주세요.",
+  "status.messaging.remoteMcpInvalidTitle": "이 로그인을 받을 수 없어요",
+  "status.messaging.remoteMcpInvalidBody": "앱이 이 서버에서 받지 않는 로그인 요청을 보냈어요.",
+  "status.messaging.remoteMcpBusyTitle": "로그인 요청이 너무 많아요",
+  "status.messaging.remoteMcpBusyBody": "한 시간 뒤에 연결을 다시 시작해 주세요.",
+  "status.messaging.remoteMcpUnavailableTitle": "코드를 보낼 수 없어요",
+  "status.messaging.remoteMcpUnavailableBody":
+    "이 서버에서 Telegram이 준비되지 않아서 로그인 코드를 보낼 수 없어요. 나중에 다시 시도해 주세요.",
 } as const satisfies PartialTranslation<typeof source>;

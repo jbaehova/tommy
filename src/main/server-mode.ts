@@ -85,6 +85,12 @@ export interface ServerModeOptions {
     }>;
     unlink: (name: string) => Promise<{ name: string; origin: string }>;
   };
+  /** The sign-ins of the remote MCP endpoint, such as a claude.ai connector. */
+  connector?: {
+    list: () => { id: string; client: string; createdAt: string; refreshedAt: string; expiresAt: string }[];
+    /** Ends one sign-in by id, or all with "all". Resolves to the count that ended. */
+    revoke: (id: string) => Promise<number>;
+  };
   /** Tests only. */
   uid?: number;
 }
@@ -275,6 +281,19 @@ export class ServerMode {
         if (!name) return failure(400, "invalid");
         const removed = await t3.unlink(name);
         return { status: 200, lines: { name: removed.name, origin: removed.origin } };
+      }
+      case "GET /v1/connector": {
+        const connector = this.#options.connector;
+        return connector
+          ? { status: 200, lines: { grants: JSON.stringify(connector.list()) } }
+          : failure(404, "not_found");
+      }
+      case "POST /v1/connector/revoke": {
+        const connector = this.#options.connector;
+        if (!connector) return failure(404, "not_found");
+        const id = body.get("id")?.trim() ?? "";
+        if (!/^(all|[0-9a-f]{12})$/.test(id)) return failure(400, "invalid");
+        return { status: 200, lines: { revoked: await connector.revoke(id) } };
       }
       default:
         return failure(404, "not_found");

@@ -16,6 +16,7 @@ import {
 import { redactText } from "@tommy/logging";
 import { automationRunCommand } from "../automation-command";
 import type { HomeSkill } from "../home-skills";
+import { t3Instruction } from "../t3-tool-gate";
 import type { PromptInstructionsFile } from "./workspace-instructions";
 import { existingAgentFolders, workspaceExcludedFolders } from "./workspace-sandbox";
 
@@ -79,6 +80,8 @@ export interface DeveloperInstructionOptions {
    * in `exec`, and no request names them, so the instructions do.
    */
   deferredMcpServers?: readonly string[];
+  /** The agent's MCP servers that reach T3 Code (`t3-<name>`). Omitted or empty, no T3 Code rule. */
+  t3McpServers?: readonly string[];
   /** The name of the agent's instruction file in its workspace. Omitted, `AGENTS.md`. */
   instructionsFileName?: AgentInstructionFileName;
   /**
@@ -363,6 +366,7 @@ export function developerInstructions(
           `Your MCP servers: ${options.deferredMcpServers.join(", ")}. When a tool of one is not in your tool list, find it with tool_search. When you have exec instead, read ALL_TOOLS in an exec cell, where MCP tool names start with mcp__, and call the tool on tools; forward an image block with image(result.content[0])`,
         ]
       : []),
+    ...(options.t3McpServers?.length ? [t3Instruction(options.t3McpServers)] : []),
     ...(options.httpMcpServers
       ? [
           "When an MCP server's tools are missing or fail with an authorization, sign-in, or client registration error, describe and call tommy.test_mcp_server with the server name: Tommy then shows a Sign in card in this chat. Do not send the user to /mcp or Server settings to sign in.",

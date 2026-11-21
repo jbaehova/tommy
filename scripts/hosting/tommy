@@ -32,6 +32,11 @@ Usage: tommy <command>
                        or full-access. Agents get the tools of T3 Code from their next turn.
                        A link lasts 30 days. Telegram tells you 3 days before it ends.
   t3 unlink <name>     Remove a T3 Code link. Revoke it in T3 Code too, under Sharing & access.
+  connector [list] [--json]
+                       List the sign-ins of the remote MCP endpoint (TOMMY_REMOTE_MCP), such as
+                       a claude.ai connector. Each can read memories, chats and knowledge folders.
+  connector revoke <id|--all>
+                       End one sign-in, or all of them. The client must sign in again.
   logs                 Follow the log of the service.
   restart              Restart the service (sudo).
 EOF
@@ -195,6 +200,33 @@ for l in links: print(l["name"], l["origin"], l["access"], "until " + l["expires
         echo "Removed the T3 Code link $(value name). Revoke it in T3 Code at $(value origin) too, under Sharing & access."
         ;;
       *) fail "Usage: tommy t3 [list|link|unlink]" ;;
+    esac
+    ;;
+  connector)
+    case ${2:-list} in
+      list | --json)
+        control GET http://tommy/v1/connector
+        [ "$(value status)" = 404 ] && fail "Remote MCP is off. Set TOMMY_REMOTE_MCP=on in /etc/tommy/server.env."
+        check_answer
+        grants=$(value grants)
+        if [ "${2:-}" = --json ] || [ "${3:-}" = --json ]; then
+          printf '%s\n' "$grants"
+        else
+          python3 -c 'import json,sys
+grants = json.loads(sys.argv[1])
+if not grants: print("No sign-ins. A client signs in with a code from the Telegram manager chat.")
+for g in grants: print(g["id"], g["client"], "since " + g["createdAt"], "last refresh " + g["refreshedAt"], "until " + g["expiresAt"], sep="\t")' "$grants"
+        fi
+        ;;
+      revoke)
+        id=${3:-}
+        [ "$id" = --all ] && id=all
+        [ -n "$id" ] || fail "Usage: tommy connector revoke <id|--all>"
+        control POST http://tommy/v1/connector/revoke --data-urlencode "id=$id"
+        check_answer
+        echo "Ended $(value revoked) sign-in(s). A client that used one must sign in again."
+        ;;
+      *) fail "Usage: tommy connector [list|revoke <id|--all>]" ;;
     esac
     ;;
   logs) exec journalctl --unit "$UNIT" --follow ;;
