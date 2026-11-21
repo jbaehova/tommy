@@ -2572,7 +2572,10 @@ function claudeRateLimits(value: unknown, model: string | null): AccountRateLimi
 }
 
 /** The weekly window a reading shows: the one of the model's family when Claude reports it, else the overall one. */
-function claudeWeeklyKey(rateLimits: DynamicRecord, model: string | null): string {
+function claudeWeeklyKey(
+  rateLimits: DynamicRecord,
+  model: string | null,
+): "seven_day_opus" | "seven_day_sonnet" | "seven_day" {
   const name = model?.toLowerCase() ?? "";
   const familyKey = name.includes("opus") ? "seven_day_opus" : name.includes("sonnet") ? "seven_day_sonnet" : null;
   return familyKey && claudeUsageWindow(rateLimits[familyKey], 10_080) ? familyKey : "seven_day";

@@ -14,7 +14,7 @@ import type { DrainScheduler } from "./drain-scheduler";
 import type { ProviderRuntime } from "./provider-runtime";
 import type { ThreadLifecycle } from "./thread-lifecycle";
 
-export function sessionSettingsIdentity(agent: AgentSummary): string {
+export function sessionSettingsIdentity(agent: AgentSummary): AgentSummary["provider"] {
   return agent.provider;
 }
 

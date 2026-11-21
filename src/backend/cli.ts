@@ -446,7 +446,7 @@ export function resolveInstalledFirst<Cli extends AgentCliInfo, E>(
 }
 
 /** The command name of a provider's CLI on `PATH`. */
-function cliCommandName(provider: AgentProviderId): string {
+function cliCommandName(provider: AgentProviderId): AgentProviderId | "cursor-agent" {
   return provider === "cursor" ? "cursor-agent" : provider;
 }
 
@@ -679,8 +679,6 @@ function posixFallbackPaths(
   const command = cliCommandName(provider);
   const paths = [posix.join(userHome, ".local", "bin", command)];
   if (command === "claude") paths.push(posix.join(userHome, ".claude", "local", "claude"));
-  if (command === "opencode") paths.push(posix.join(userHome, ".opencode", "bin", "opencode"));
-  if (command === "grok") paths.push(posix.join(userHome, ".grok", "bin", "grok"));
   paths.push(
     posix.join(userHome, ".npm-global", "bin", command),
     posix.join(userHome, ".volta", "bin", command),
