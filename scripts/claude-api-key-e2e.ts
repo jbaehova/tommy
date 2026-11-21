@@ -218,7 +218,7 @@ try {
   const plan = await runCase("plan-and-key", KEY);
   report.cases.push(plan);
   assert.deepEqual(plan.account, {
-    account: { type: "claude", email: "owner@example.invalid", planType: "max" },
+    account: { type: "claude", email: "owner@example.invalid", planType: "max", organization: "org-owner" },
     requiresOpenaiAuth: false,
   });
   assert.ok(
@@ -230,7 +230,7 @@ try {
   const keyOnly = await runCase("key-only", KEY, { signedOut: true });
   report.cases.push(keyOnly);
   assert.deepEqual(keyOnly.account, {
-    account: { type: CLAUDE_API_KEY_ACCOUNT_TYPE, email: null, planType: null },
+    account: { type: CLAUDE_API_KEY_ACCOUNT_TYPE, email: null, planType: null, organization: null },
     requiresOpenaiAuth: false,
   });
   const keyOnlyStatus = keyOnly.starts.filter((entry) => entry.args[0] === "auth");
@@ -261,7 +261,7 @@ try {
   const none = await runCase("no-key", null);
   report.cases.push(none);
   assert.deepEqual(none.account, {
-    account: { type: "claude", email: "owner@example.invalid", planType: "max" },
+    account: { type: "claude", email: "owner@example.invalid", planType: "max", organization: "org-owner" },
     requiresOpenaiAuth: false,
   });
   assert.ok(
