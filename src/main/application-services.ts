@@ -133,6 +133,8 @@ const MCP_OAUTH_PROXY_FILE = "tommy-mcp-oauth-proxy-v1.json";
 const T3_LINKS_FILE = "tommy-t3-links-v1.json";
 /** The clients and sign-ins of the remote MCP endpoint. It holds only hashes of their tokens. */
 const REMOTE_MCP_GRANTS_FILE = "tommy-remote-mcp-grants-v1.json";
+/** Copies of the knowledge files before each request of the remote MCP save tool. */
+const REMOTE_MCP_KNOWLEDGE_BACKUPS = "remote-mcp-knowledge-backups";
 /** The logins, payment cards and contact info of the Vault, with the same cipher. */
 const VAULT_FILE = "tommy-vault-v1.json";
 /** The port that the reverse proxy forwards to on loopback. */
@@ -783,8 +785,9 @@ export async function createApplicationServices({
       await Effect.runPromise(runtime.stop);
     });
   }
-  // Read-only MCP for outside clients such as claude.ai connectors. The owner approves each
-  // sign-in with a code that the Telegram manager chat shows, so it needs Telegram.
+  // MCP for outside clients such as claude.ai connectors. The owner approves each sign-in with a
+  // code that the Telegram manager chat shows, so it needs Telegram. The tools read, and with a
+  // knowledge agent one tool sends knowledge base requests to that agent.
   const remoteMcpSettings = readRemoteMcpSettings(process.env, telegramSettings?.publicOrigin ?? null);
   let remoteMcp: { endpoint: RemoteMcpEndpoint; grants: RemoteMcpGrants } | null = null;
   if (remoteMcpSettings.settings && telegram) {
@@ -799,12 +802,22 @@ export async function createApplicationServices({
     );
     if (loaded) {
       const reader = new RemoteMcpReader(store.database);
+      const knowledgeAgent = remoteMcpSettings.settings.knowledgeAgent;
       const tools = new RemoteMcpTools({
         agents: () => service.listAgents().filter((agent) => agent.hiddenAt === undefined),
         memories: (agentId) => service.listMemories(agentId),
         sharedMemories: () => service.listSharedMemories(),
         messages: reader,
         folders: remoteMcpSettings.settings.folders,
+        ...(knowledgeAgent
+          ? {
+              saveKnowledge: ({ client, text, timeoutSeconds }) =>
+                Effect.runPromise(
+                  owner.ask({ agent: knowledgeAgent, source: client, text, timeoutSeconds, purpose: "knowledge" }),
+                ).then((answer) => ({ agentName: answer.agentName, status: answer.status, text: answer.text })),
+              backupFolder: join(userData, REMOTE_MCP_KNOWLEDGE_BACKUPS),
+            }
+          : {}),
       });
       const endpoint = new RemoteMcpEndpoint({
         settings: remoteMcpSettings.settings,
@@ -870,6 +883,7 @@ export async function createApplicationServices({
         public_listener: publicHttp.listening ? "listening" : "stopped",
         telegram: telegramSettings ? "on" : "off",
         remote_mcp: remoteMcp ? "on" : "off",
+        ...(remoteMcp && remoteMcpSettings.settings?.knowledgeAgent ? { remote_mcp_save: "on" } : {}),
       }),
       memory: hostMemory,
       onError: (message, error) => logger.warn(message, toLogValue(error)),
