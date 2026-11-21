@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,8 +41,16 @@ const message: RemoteMcpMessageRow = {
   text: `Remember the trip to Busan. The key is ${FAKE_KEY}`,
 };
 
+interface SaveCall {
+  client: string;
+  text: string;
+  timeoutSeconds: number;
+}
+
 interface Harness {
   origin: string;
+  saves: SaveCall[];
+  backups: string;
   notices: string[];
   folder: string;
   outside: string;
@@ -51,7 +59,7 @@ interface Harness {
   close(): Promise<void>;
 }
 
-async function start(): Promise<Harness> {
+async function start(options: { save?: boolean } = {}): Promise<Harness> {
   const root = await mkdtemp(join(tmpdir(), "remote-mcp-"));
   const folder = join(root, "wiki");
   const outside = join(root, "private");
@@ -66,6 +74,8 @@ async function start(): Promise<Harness> {
   let clock = Date.now();
   const grants = new RemoteMcpGrants({ path: join(root, "grants.json"), now: () => clock });
   await Effect.runPromise(grants.load());
+  const saves: SaveCall[] = [];
+  const backups = join(root, "backups");
   const tools = new RemoteMcpTools({
     agents: () => [{ id: "agent-1", name: "Tommy", title: "Root", description: "The root agent" }],
     memories: () => [memory("agent-1", "The owner likes the Busan sea")],
@@ -75,6 +85,16 @@ async function start(): Promise<Harness> {
       around: () => [message],
     },
     folders: [folder],
+    ...(options.save
+      ? {
+          saveKnowledge: async (input: SaveCall) => {
+            saves.push(input);
+            await writeFile(join(folder, "concepts", "travel.md"), "Busan in summer.\n");
+            return { agentName: "Tommy", status: "completed" as const, text: `Updated concepts/travel.md ${FAKE_KEY}` };
+          },
+          backupFolder: backups,
+        }
+      : {}),
   });
   const notices: string[] = [];
   let endpoint: RemoteMcpEndpoint | null = null;
@@ -89,7 +109,12 @@ async function start(): Promise<Harness> {
   if (!address || typeof address === "string") throw new Error("Missing test port");
   const origin = `http://127.0.0.1:${address.port}`;
   endpoint = new RemoteMcpEndpoint({
-    settings: { origin, folders: [folder], redirectUris: [...DEFAULT_REMOTE_MCP_REDIRECT_URIS] },
+    settings: {
+      origin,
+      folders: [folder],
+      redirectUris: [...DEFAULT_REMOTE_MCP_REDIRECT_URIS],
+      knowledgeAgent: options.save ? "Tommy" : null,
+    },
     grants,
     tools,
     tellOwner: (text) =>
@@ -101,6 +126,8 @@ async function start(): Promise<Harness> {
   });
   return {
     origin,
+    saves,
+    backups,
     notices,
     folder,
     outside,
@@ -163,6 +190,32 @@ async function exchange(origin: string, body: Record<string, string>) {
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(body),
   });
+}
+
+/** Signs in and connects an MCP client with the access token. */
+async function connect(harness: Harness) {
+  const { answer, clientId, verifier } = await signIn(harness);
+  const code = new URL(answer?.headers.get("location") ?? "").searchParams.get("code") ?? "";
+  const exchanged = await exchange(harness.origin, {
+    grant_type: "authorization_code",
+    code,
+    client_id: clientId,
+    redirect_uri: REDIRECT,
+    code_verifier: verifier,
+  });
+  const tokens = z.object({ access_token: z.string() }).parse(await exchanged.json());
+  const client = new Client({ name: "test", version: "1.0.0" });
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL(`${harness.origin}/mcp`), {
+      requestInit: { headers: { Authorization: `Bearer ${tokens.access_token}` } },
+    }),
+  );
+  const call = async (name: string, args: Record<string, string>) => {
+    const result = CallToolResultSchema.parse(await client.callTool({ name, arguments: args }));
+    const parts = result.content.flatMap((item) => (item.type === "text" ? [item.text] : []));
+    return { text: parts.join("\n"), isError: result.isError === true };
+  };
+  return { client, call };
 }
 
 describe("remote MCP endpoint", () => {
@@ -284,5 +337,54 @@ describe("remote MCP endpoint", () => {
     });
     expect(afterReuse.status).toBe(401);
     expect(harness.grants.list()).toHaveLength(0);
+  });
+});
+
+describe("remote MCP knowledge saving", () => {
+  let harness: Harness;
+  afterEach(async () => {
+    await harness.close();
+  });
+
+  it("offers no save tool when the server has no knowledge agent", async () => {
+    harness = await start();
+    const { client, call } = await connect(harness);
+    expect((await client.listTools()).tools.map((tool) => tool.name)).not.toContain("save_knowledge");
+    const refused = await call("save_knowledge", { request: "Add a page" });
+    expect(refused.isError).toBe(true);
+    expect(harness.saves).toHaveLength(0);
+    await client.close();
+  });
+
+  it("copies the knowledge files, then gives the request to the knowledge agent", async () => {
+    harness = await start({ save: true });
+    expect(harness.notices.length).toBe(0);
+    const { client, call } = await connect(harness);
+    expect(harness.notices[0]).toContain("status.messaging.remoteMcpCodeSave");
+    expect(harness.notices.at(-1)).toContain("status.messaging.remoteMcpConnectedSave");
+    const tools = (await client.listTools()).tools;
+    const save = tools.find((tool) => tool.name === "save_knowledge");
+    expect(save?.annotations?.readOnlyHint).toBe(false);
+    expect(tools.filter((tool) => tool.name !== "save_knowledge").every((tool) => tool.annotations?.readOnlyHint)).toBe(
+      true,
+    );
+
+    const result = await call("save_knowledge", { request: "Busan is in summer now", content: "Busan in summer" });
+    expect(result.isError).toBe(false);
+    expect(result.text).toContain("Updated concepts/travel.md");
+    expect(result.text).not.toContain(FAKE_KEY);
+    // The client is named by its redirect host, not by the name it registered.
+    expect(harness.saves).toEqual([
+      expect.objectContaining({ client: new URL(REDIRECT).host, text: expect.stringContaining("Busan in summer") }),
+    ]);
+    const [backup] = await readdir(harness.backups);
+    expect(backup).toBeDefined();
+    const copied = await readFile(join(harness.backups, backup ?? "", "wiki", "concepts", "travel.md"), "utf8");
+    expect(copied).toContain("Busan in spring");
+    // The backup holds the folder's text files only: never what a link inside it names.
+    const listing = await readdir(join(harness.backups, backup ?? "", "wiki"));
+    expect(listing).not.toContain("linked.md");
+    expect(listing).not.toContain("keys.pem");
+    await client.close();
   });
 });

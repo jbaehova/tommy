@@ -11,7 +11,7 @@ import { readBodyWithin } from "../http-body";
 import type { RemoteMcpGrants, RemoteMcpTokens } from "./remote-mcp-grants";
 import { type RemoteMcpPageText, remoteMcpPage } from "./remote-mcp-page";
 import type { RemoteMcpSettings } from "./remote-mcp-settings";
-import { REMOTE_MCP_INSTRUCTIONS, REMOTE_MCP_TOOL_LIST, type RemoteMcpTools } from "./remote-mcp-tools";
+import type { RemoteMcpTools } from "./remote-mcp-tools";
 
 const logger = createTommyLogger("remote-mcp");
 
@@ -380,9 +380,12 @@ export class RemoteMcpEndpoint {
     };
     const shownClient = new URL(redirectUri).host;
     const told = yield* this.#options
-      .tellOwner((t) =>
-        t("status.messaging.remoteMcpCode", { client: shownClient, code: `${code.slice(0, 4)} ${code.slice(4)}` }),
-      )
+      .tellOwner((t) => {
+        const params = { client: shownClient, code: `${code.slice(0, 4)} ${code.slice(4)}` };
+        return this.#options.settings.knowledgeAgent
+          ? t("status.messaging.remoteMcpCodeSave", params)
+          : t("status.messaging.remoteMcpCode", params);
+      })
       .pipe(Effect.orElseSucceed(() => false));
     if (!told) {
       const t = translateFor(this.#locale(request));
@@ -416,7 +419,9 @@ export class RemoteMcpEndpoint {
       status,
       {
         title: t("status.messaging.remoteMcpTitle"),
-        body: t("status.messaging.remoteMcpBody"),
+        body: this.#options.settings.knowledgeAgent
+          ? t("status.messaging.remoteMcpBodySave")
+          : t("status.messaging.remoteMcpBody"),
         form: {
           request: pending.id,
           client: target.host,
@@ -548,7 +553,13 @@ export class RemoteMcpEndpoint {
       }
       this.#tokens(response, granted.success);
       const client = new URL(code.redirectUri).host;
-      yield* this.#options.tellOwner((t) => t("status.messaging.remoteMcpConnected", { client })).pipe(Effect.ignore);
+      yield* this.#options
+        .tellOwner((t) =>
+          this.#options.settings.knowledgeAgent
+            ? t("status.messaging.remoteMcpConnectedSave", { client })
+            : t("status.messaging.remoteMcpConnected", { client }),
+        )
+        .pipe(Effect.ignore);
       return;
     }
     if (grantType === "refresh_token") {
@@ -618,18 +629,21 @@ export class RemoteMcpEndpoint {
       return sendJson(response, 400, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error." } });
     }
     const tools = this.#options.tools;
+    // The client's redirect host names it in the owner's chats. Its registered name is its own text.
+    const redirect = this.#options.grants.client(access.clientId)?.redirectUris[0];
+    const caller = { client: redirect ? (URL.parse(redirect)?.host ?? "a remote MCP client") : "a remote MCP client" };
     const server = new Server(
       { name: "tommy", title: "Tommy", version: this.#options.version },
-      { capabilities: { tools: {} }, instructions: REMOTE_MCP_INSTRUCTIONS },
+      { capabilities: { tools: {} }, instructions: tools.instructions },
     );
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: REMOTE_MCP_TOOL_LIST }));
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: tools.list() }));
     server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
       try {
-        const result = await tools.call(params.name, params.arguments);
+        const result = await tools.call(params.name, params.arguments, caller);
         return { content: [{ type: "text" as const, text: result.text }], isError: result.isError };
       } catch (error) {
         logger.warn("A remote MCP tool failed.", { tool: params.name, error: toLogValue(error) });
-        return { content: [{ type: "text" as const, text: "Tommy could not read this data now." }], isError: true };
+        return { content: [{ type: "text" as const, text: "Tommy could not do this now." }], isError: true };
       }
     });
     // No `sessionIdGenerator`: the transport runs stateless, one transport for each request.

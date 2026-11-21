@@ -389,6 +389,14 @@ the owner approves each sign-in with a one-time code that the manager chat shows
    `https://<domain>/mcp` as the URL and leave the OAuth fields empty. Connect, then type the code
    from the Telegram manager chat on the Tommy page.
 
+To let the client also add to and update the knowledge folders, name the agent that keeps them,
+for example the one with the wiki skill: `TOMMY_REMOTE_MCP_KNOWLEDGE_AGENT=<agent id or name>`.
+The client then gets a `save_knowledge` tool. It does not write files itself: it sends the request
+to that agent, which follows the knowledge base's own rules, and the agent's Telegram chat shows
+each request. Before each request Tommy copies the text files of the folders into
+`~/.config/Tommy/remote-mcp-knowledge-backups/` of the service user and keeps the last 30 copies.
+`tommy status` shows `remote_mcp_save=on`.
+
 Only the addresses of the claude.ai connectors can register. Add another client's HTTPS redirect
 address with `TOMMY_REMOTE_MCP_REDIRECT_URIS` (comma-separated). `sudo tommy connector` lists the
 sign-ins, and `sudo tommy connector revoke --all` ends them. The tools redact secrets, but chat

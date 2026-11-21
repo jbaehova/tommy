@@ -15,11 +15,16 @@ export interface RemoteMcpSettings {
   /** The folders that the knowledge tools read, as absolute paths. */
   folders: string[];
   redirectUris: string[];
+  /**
+   * The agent (id or name) that takes knowledge base requests from the save tool, or null when the
+   * tools only read. That agent keeps the folders by their own rules, such as its skill.
+   */
+  knowledgeAgent: string | null;
 }
 
 export type RemoteMcpSettingsResult =
   | { settings: RemoteMcpSettings }
-  | { settings: null; problem: "off" | "telegram" | "folders" | "redirects" };
+  | { settings: null; problem: "off" | "telegram" | "folders" | "redirects" | "knowledge" };
 
 /** An extra redirect address: HTTPS, or HTTP on loopback for a local test client. */
 function validRedirect(value: string): boolean {
@@ -32,6 +37,7 @@ function validRedirect(value: string): boolean {
 /**
  * Reads the server settings of the remote MCP endpoint. It is off unless `TOMMY_REMOTE_MCP=on`. It
  * needs the Telegram interface: the owner approves each sign-in with a code in the manager chat.
+ * `TOMMY_REMOTE_MCP_KNOWLEDGE_AGENT` adds the save tool.
  */
 export function readRemoteMcpSettings(env: NodeJS.ProcessEnv, telegramOrigin: string | null): RemoteMcpSettingsResult {
   if (env.TOMMY_REMOTE_MCP !== "on") return { settings: null, problem: "off" };
@@ -46,11 +52,16 @@ export function readRemoteMcpSettings(env: NodeJS.ProcessEnv, telegramOrigin: st
     .map((value) => value.trim())
     .filter(Boolean);
   if (!extra.every(validRedirect)) return { settings: null, problem: "redirects" };
+  const knowledgeAgent = env.TOMMY_REMOTE_MCP_KNOWLEDGE_AGENT?.trim() || null;
+  // The save tool changes the knowledge folders, so it needs at least one.
+  if (knowledgeAgent && (folders.length === 0 || knowledgeAgent.length > 256))
+    return { settings: null, problem: "knowledge" };
   return {
     settings: {
       origin: telegramOrigin,
       folders: [...new Set(folders.map((folder) => resolve(folder)))],
       redirectUris: [...new Set([...DEFAULT_REMOTE_MCP_REDIRECT_URIS, ...extra])],
+      knowledgeAgent,
     },
   };
 }
