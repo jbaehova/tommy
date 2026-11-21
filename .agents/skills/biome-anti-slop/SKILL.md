@@ -55,12 +55,12 @@ setup. Preserve unrelated work and adapt to the repository's package manager and
          },
          "nursery": {
            "noMisleadingReturnType": "error",
-           "noUnsafeTypeAssertion": "error",
-           "useReduceTypeParameter": "error"
+           "noUnsafeTypeAssertion": "error"
          },
          "style": {
            "noNonNullAssertion": "error",
-           "useAsConstAssertion": "error"
+           "useAsConstAssertion": "error",
+           "useReduceTypeParameter": "error"
          },
          "suspicious": {
            "noExplicitAny": "error",

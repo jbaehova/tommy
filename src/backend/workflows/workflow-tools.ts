@@ -568,7 +568,7 @@ const PROBLEM_TEXT: Record<string, string> = {
 };
 
 /** The first rule that the graph breaks, as a sentence for the model, or null. */
-function graphProblem(graph: WorkflowGraph): string | null {
+function graphProblem(graph: WorkflowGraph) {
   if (!isWorkflowGraph(graph)) return "The workflow is over a limit or has an invalid node or field.";
   const found = workflowGraphProblemAt(graph);
   if (!found) return null;

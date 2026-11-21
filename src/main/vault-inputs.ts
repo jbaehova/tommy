@@ -103,7 +103,7 @@ function siteList(value: unknown): string[] {
  * A login's two-step key as the Vault keeps it. Undefined keeps the saved key, and "" removes it. A
  * text that is not a TOTP setup key or `otpauth://totp/` link is refused.
  */
-function vaultTwoStepKey(value: unknown): string | undefined {
+function vaultTwoStepKey(value: unknown) {
   if (value === undefined) return undefined;
   const key = text(value, "twoStepKey", TWO_STEP_KEY_LIMIT);
   if (key === "") return "";
