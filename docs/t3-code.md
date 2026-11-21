@@ -82,6 +82,10 @@ under Settings, Sharing & access, Authorized clients (Tommy shows there as `Tomm
 - The token is in the MCP server row in the Tommy database, like other MCP keys. Tommy masks it in
   logs. The link file `tommy-t3-links-v1.json` in the data folder holds no secret.
 - Every agent of the server gets the T3 Code tools. Choose the access for what any agent may do.
+- An agent works with T3 Code only when the user's own message asks for it. A plan or a goal in
+  the message, a routine run, a teammate message, or the agent's own idea is not such a request.
+  The instructions of every agent say so. A Claude agent also refuses the T3 Code tools, and the
+  `t3`, `vps-t3` and `tommy-t3` commands, in a turn that no user message started.
 - An agent that reads a web page or a message can be told to misuse a tool. Use `full-access` only
   when you accept that risk for the other computer.
 

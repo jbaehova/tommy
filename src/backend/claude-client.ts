@@ -9,6 +9,7 @@ import {
   type CanUseTool,
   createSdkMcpServer,
   type ElicitationResult,
+  type HookCallbackMatcher,
   type ModelInfo,
   type OnElicitation,
   type Options,
@@ -143,6 +144,7 @@ import {
 } from "./provider-client-effects";
 import type { ReadProviderHistory } from "./provider-history";
 import { endProcessGroupOnExit, PROVIDER_PROCESS_GROUP } from "./provider-process-group";
+import { isClaudeT3ToolCall, T3_TURN_REFUSAL } from "./t3-tool-gate";
 
 const execFileAsync = promisify(execFile);
 const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -298,6 +300,11 @@ interface ActiveTurn {
   usageLimit: { resetsAt: number | null; text: string | null } | null;
   /** Set by an `api_retry` until the next reply frame, which shows that the request got through. */
   retrying: boolean;
+  /**
+   * A person's own message started or joined this turn, so the agent may work with T3 Code in it
+   * (`t3-tool-gate.ts`). A routine run, a teammate message and a turn of the CLI's own have false.
+   */
+  userRequested: boolean;
   /** The CLI started this turn itself, with no message from Tommy, such as after a background task ended. */
   unprompted: boolean;
 }
@@ -1173,12 +1180,16 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
             // environment has the CPU limit module there (`agentProcessEnvironment`), so it goes into
             // the flag settings, whose `env` the CLI gives to the Bash tool and its hooks.
             ...(flagSettingsFile ? { settings: flagSettingsFile.path } : {}),
-            ...(config.workspaceOnly
-              ? {
-                  hooks: claudeWorkspaceHooks(config.cwd, config.additionalDirectories, config.excludedFolders),
-                  managedSettings: CLAUDE_WORKSPACE_MANAGED_SETTINGS,
-                }
-              : {}),
+            hooks: {
+              PreToolUse: [
+                ...(config.workspaceOnly
+                  ? (claudeWorkspaceHooks(config.cwd, config.additionalDirectories, config.excludedFolders)
+                      .PreToolUse ?? [])
+                  : []),
+                this.#t3TurnHook(threadId),
+              ],
+            },
+            ...(config.workspaceOnly ? { managedSettings: CLAUDE_WORKSPACE_MANAGED_SETTINGS } : {}),
             ...(plugins.length ? { plugins } : {}),
             mcpServers,
             env: {
@@ -1316,7 +1327,7 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
     if (runtime.activeTurn) return yield* providerFailure(this.#turnActiveError(runtime.activeTurn));
     // Only now: a model or effort change that fails above leaves the idle timer armed, so the
     // pool can still release the thread.
-    this.#beginTurn(runtime, turnId, false);
+    this.#beginTurn(runtime, turnId, false, isRecord(params) && params.userRequested === true);
     // Blocks of their own, so that history readers can tell them from the text of the turn. A slash
     // command gets none: the CLI can drop the blocks before it, and `/clear` empties the context,
     // so the next turn sends the full blocks.
@@ -1337,6 +1348,30 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
     return { turn: { id: turnId, status: "inProgress" } };
   });
 
+  /**
+   * Refuses T3 Code in a turn that no person's message started or joined: a routine run, a teammate
+   * message, or a turn of the CLI's own. A hook runs for every call, also when the user's Claude
+   * settings allow the tool, which `canUseTool` would never hear about.
+   */
+  #t3TurnHook(threadId: string): HookCallbackMatcher {
+    return {
+      hooks: [
+        async (input) => {
+          if (input.hook_event_name !== "PreToolUse" || !isClaudeT3ToolCall(input.tool_name, input.tool_input))
+            return {};
+          if (this.#threads.get(threadId)?.activeTurn?.userRequested === true) return {};
+          return {
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse",
+              permissionDecision: "deny",
+              permissionDecisionReason: T3_TURN_REFUSAL,
+            },
+          };
+        },
+      ],
+    };
+  }
+
   /** A turn of the CLI's own ends with its own result, so the message waits for it rather than joining it. */
   #turnActiveError(turn: ActiveTurn): Error {
     return turn.unprompted
@@ -1344,7 +1379,7 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
       : new Error("The Claude thread already has an active turn.");
   }
 
-  #beginTurn(runtime: ThreadRuntime, turnId: string, unprompted: boolean): ActiveTurn {
+  #beginTurn(runtime: ThreadRuntime, turnId: string, unprompted: boolean, userRequested = false): ActiveTurn {
     const turn: ActiveTurn = {
       id: turnId,
       itemId: `${turnId}:assistant`,
@@ -1365,6 +1400,7 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
       usageLimit: null,
       retrying: false,
       unprompted,
+      userRequested,
     };
     runtime.activeTurn = turn;
     runtime.nextTurnId = null;
@@ -1404,6 +1440,7 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
     }
     const clientId = getString(params, "clientUserMessageId");
     const messageId = clientId && isUuid(clientId) ? clientId : randomUUID();
+    if (isRecord(params) && params.userRequested === true) runtime.activeTurn.userRequested = true;
     runtime.input.push({
       type: "user",
       message: { role: "user", content: readInputText(params) },

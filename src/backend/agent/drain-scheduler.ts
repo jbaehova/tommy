@@ -903,6 +903,8 @@ export class DrainScheduler {
                   this.#store.list().find((current) => current.id === agent.id) ?? agent,
                 ),
                 clientUserMessageId: delivery.id,
+                // Only a person's own message opens T3 Code to the turn (`t3-tool-gate.ts`).
+                userRequested: batch.every((item) => item.delivery.sender.kind === "user"),
                 // The delivery stays the same; a continuation must not overwrite the first turn's items.
                 ...((context.resumeAfterUsageLimit || planNote !== undefined) && client.provider !== "codex"
                   ? { clientTurnId: randomUUID() }

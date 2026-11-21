@@ -45,6 +45,7 @@ import {
   usableMcpServers,
 } from "../mcp-provider-shapes";
 import { decodeRecordResponse, decodeThreadResponse, getString, type ResponseDecoder } from "../protocol";
+import { isT3McpServerName } from "../t3-tool-gate";
 import { TimeoutError, withTimeout } from "../with-timeout";
 import type { AgentMemories } from "./agent-memories";
 import { readCodexMcpConfig } from "./codex-mcp-config";
@@ -1290,6 +1291,9 @@ export class ThreadLifecycle {
       workspaceSkills,
       computerUse: mcpServers.some((config) => config.id === AGENT_DESKTOP_MCP_SERVER_ID),
       httpMcpServers: mcpServers.some((config) => config.transport === "http"),
+      t3McpServers: mcpServers
+        .filter((config) => config.enabled && isT3McpServerName(config.name))
+        .map((config) => config.name),
       deferredMcpServers:
         client.provider === "codex" ? codexDeferredMcpServers(mcpServers).map((config) => config.name) : [],
       instructionsFileName: instructionsFile.fileName,
