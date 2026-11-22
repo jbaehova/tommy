@@ -57,6 +57,19 @@ user in one line which teammates it told. It does not pass on facts that a teamm
 fact does not go round. The recipient saves a lasting fact with `tommy.remember`. A fact that every
 agent needs does not go by message: it becomes a shared memory (see [Shared memories](#shared-memories)).
 
+Tommy does not depend on the agent for this. `NewsShare` (`src/backend/agent/news-share.ts`) checks
+each completed turn that the user or a routine started, outside a channel. One generation without
+tools, on the model and the reasoning effort of the agent, reads what was said, the tool steps,
+the answer, the remits of the other agents, and the latest messages that the agent sent. For each
+fact that a teammate needs, Tommy queues a message in the agent's name with `expectsReply` false,
+so both chats show it as a message between agents. The check sends nothing to a teammate that the
+agent told in that turn, nothing when the user asks to keep the turn private, and it does not read
+a turn that a teammate's message started. Text is redacted before the model reads it and before a
+message goes out. The provider's smaller background model is not used here: the user chose the
+model of the agent, and which smaller model can make this decision changes with the provider and
+with time. The turns that wait for their check are in memory only, so a restart
+drops them. `bun scripts/news-share-e2e.ts` checks this path with a scripted model answer.
+
 An agent that delegates work can follow and stop it. `tommy.list_agents` reports each agent's
 description to 300 characters (`read_agent` returns all of it), its
 `status` (a starting delivery and a context compaction count as `working`), `queuedMessages`

@@ -152,7 +152,7 @@ export function memoryReviewUsageObserver(
 
 /** Each side session has its own counter and charges only the calling agent. */
 export function sideSessionUsageObserver(
-  kind: "memory-review" | "web-search",
+  kind: "memory-review" | "news-share" | "web-search",
   usage: AgentUsage,
   agentId: string,
   provider: ProviderSession["provider"],

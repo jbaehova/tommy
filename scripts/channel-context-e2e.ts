@@ -408,6 +408,8 @@ const agents = new AgentService({
   offProviders: AGENT_PROVIDERS.filter((provider) => provider !== "codex"),
   timezone: () => "UTC",
   channelRemotePerson: (memberId) => memberId !== PERSON.id,
+  // This check counts the provider sessions of the turns.
+  newsShare: false,
 });
 const channels = () => agents.channels;
 const events: { code: string; agentId?: string; message: string }[] = [];

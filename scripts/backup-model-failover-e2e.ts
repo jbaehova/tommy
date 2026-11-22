@@ -447,6 +447,8 @@ function startService() {
     browser,
     preferredProvider: "claude",
     offProviders: AGENT_PROVIDERS.filter((provider) => provider !== "claude" && provider !== "codex"),
+    // This check counts the provider sessions of the turns.
+    newsShare: false,
     clientFactory: (provider, cli) => {
       if (provider === "codex") return new CodexAppServerClient(cli.executable, 30000);
       const client = new ClaudeStandIn(cli);
