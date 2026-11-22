@@ -54,6 +54,7 @@ import { markIncompleteImageGeneration } from "./image-generation";
 import { type InstructionsChanges, instructionsChangeMessage } from "./instructions-changes";
 import type { MailboxSync } from "./mailbox-sync";
 import { memoryChangesMessage } from "./memory-changes-message";
+import type { FinishedTurn } from "./news-share";
 import { type PlanContinuation, waitsForUser } from "./plan-continuation";
 import { PLAN_UPDATED_METHOD, planFromNotification } from "./plan-updates";
 import {
@@ -204,6 +205,11 @@ export interface TurnHooks {
     counts: boolean,
     memoryCommitted: boolean,
   ): Effect.Effect<void>;
+  /**
+   * A turn that the user or a routine started completed outside a channel, with an answer. The
+   * check for news that a teammate needs reads it.
+   */
+  newsTurnEnded(turn: FinishedTurn): Effect.Effect<void>;
   /** Whether the user stopped this turn, in the agent's own chat (`taskId` null) or in a task. */
   turnStopped(agentId: string, taskId: string | null, turnId: string): boolean;
   /** Whether the agent has an open wait for one of these deliveries. */
@@ -1531,6 +1537,32 @@ export class TurnLifecycle {
         const memoryCommitted = memoryChanges.some((change) => change.action !== "notChanged");
         const sideThreadId = taskTurn ? snapshot.threadId : null;
         yield* this.#hooks.conversationTurnEnded(agentId, sideThreadId, counts, memoryCommitted);
+      }
+      // What members learn in a channel does not leave it, and a fact from a teammate does not go round.
+      if (
+        outcome === "completed" &&
+        reportedFailure === undefined &&
+        !continuation &&
+        !channelTurn &&
+        !quiet &&
+        !markerAnswer &&
+        latestAssistant &&
+        deliveries.length > 0 &&
+        deliveries.every(({ delivery }) => delivery.sender.kind !== "agent")
+      ) {
+        yield* this.#hooks.newsTurnEnded({
+          agentId,
+          turnId,
+          said: deliveries.map(({ delivery }) => ({
+            from: delivery.sender.kind === "routine" ? ("routine" as const) : ("user" as const),
+            text: delivery.text,
+          })),
+          steps: (trace?.steps ?? []).flatMap((step) => {
+            const text = step.kind === "tool" ? (step.command ?? step.text)?.trim() : undefined;
+            return text ? [text] : [];
+          }),
+          answer: latestAssistant.text,
+        });
       }
       if (shouldCompact) yield* this.#compaction.request(agentId, threadId);
       else this.#hooks.scheduleDrain(agentId);

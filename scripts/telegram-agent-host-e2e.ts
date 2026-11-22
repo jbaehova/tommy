@@ -65,14 +65,16 @@ createInterface({input:process.stdin}).on("line", line => {
     case "turn/start": {
       const threadId = params.threadId, turnId = randomUUID();
       const input = params.input.map(item => item.text || "").join("\\n");
-      const label = Array.from(input.matchAll(/VERIFY_(SEED|OWNER|PRIVATE|AFTER|DELEGATE|WORK|SYNTH|ROUTINE|STATIC|INTERACTIVE|REQUESTED|FALLBACK)/g)).at(-1)?.[1] || "OTHER";
+      // The check of a finished turn for news quotes the turn, so its markers do not count.
+      const news = input.includes("for news that a teammate needs");
+      const label = news ? "NEWS" : Array.from(input.matchAll(/VERIFY_(SEED|OWNER|PRIVATE|AFTER|DELEGATE|WORK|SYNTH|ROUTINE|STATIC|INTERACTIVE|REQUESTED|FALLBACK)/g)).at(-1)?.[1] || "OTHER";
       appendFileSync(${JSON.stringify(log)}, label + "\\n");
       result({turn:{id:turnId,status:"inProgress",items:[]}});
       setImmediate(() => {
         write({method:"turn/started",params:{threadId,turn:{id:turnId}}});
         const visual = ["STATIC", "INTERACTIVE", "REQUESTED", "FALLBACK"].includes(label);
         const finish = (ok = true) => {
-          if (!ok || !visual) write({method:"item/completed",params:{threadId,turnId,item:{id:randomUUID(),type:"agentMessage",phase:"final_answer",text:"Result " + (ok ? label : "FAILED")}}});
+          if (!ok || !visual) write({method:"item/completed",params:{threadId,turnId,item:{id:randomUUID(),type:"agentMessage",phase:"final_answer",text:news ? '{"private":false,"shares":[]}' : "Result " + (ok ? label : "FAILED")}}});
           write({method:"turn/completed",params:{threadId,turn:{id:turnId,status:"completed"}}});
         };
         const tool = args => {
@@ -457,6 +459,7 @@ async function fixture(scratch: string) {
         `${label} must have exactly one provider turn.`,
       );
     }
+    assert.ok(starts.includes("NEWS"), "A turn that the owner started must get a check for news.");
     const voiceBytes = Buffer.from("OggS\0voice-note");
     const update = decodeTelegramUpdate({
       update_id: 78,

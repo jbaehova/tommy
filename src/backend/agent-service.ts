@@ -163,6 +163,7 @@ import {
   startingModel,
 } from "./agent/model-choice";
 import { ModelMoves, toModelMoveFailed } from "./agent/model-moves";
+import { NewsShare } from "./agent/news-share";
 import { PlanContinuation } from "./agent/plan-continuation";
 import { ProfileClients } from "./agent/profile-clients";
 import {
@@ -315,6 +316,12 @@ export interface AgentServiceOptions {
    */
   memoryReviewInterval?: () => number;
   /**
+   * False turns off the check of each finished turn for news that a teammate needs (`NewsShare`).
+   * The check is one more provider session after a turn, so a check that counts sessions turns it
+   * off. Omitted, on.
+   */
+  newsShare?: boolean;
+  /**
    * The server timezone, for a routine an agent creates without a zone from the tool call or the
    * sender. The main process owns the preference. Omitted, the host system zone.
    */
@@ -404,6 +411,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   readonly #memories: AgentMemories;
   readonly #instructionChanges = new InstructionsChanges();
   readonly #memoryReview: MemoryReview;
+  readonly #newsShare: NewsShare;
   readonly #conversationRemoval: ConversationRemoval;
   readonly #webSearch: WebSearch;
   readonly #waits: AgentWaits;
@@ -605,6 +613,58 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       ...(options.skillLearning ? { skillLearning: options.skillLearning } : {}),
       ...(options.skillLearner ? { skillLearner: options.skillLearner } : {}),
       ...(options.memoryReviewCursors ? { cursors: options.memoryReviewCursors } : {}),
+    });
+    this.#newsShare = new NewsShare({
+      listAgents: () => this.listAgents(),
+      canGenerate: () => this.#profileClients.hasSpare(),
+      generate: (agent, prompt) =>
+        Effect.gen({ self: this }, function* () {
+          yield* this.#providers.ensureProvider(agent.provider);
+          // The model and the reasoning effort that the user gave the agent, as its own turns use them.
+          // Not the provider's smaller background model: which model is good enough for this decision
+          // changes with the provider and with time, and the user already chose one for this agent.
+          const own = this.#providers
+            .listModels(agent)
+            .find((item) => item.provider === agent.provider && item.id === agent.model);
+          if (!own) return null;
+          const model = { ...own, defaultReasoningEffort: agent.reasoningEffort };
+          const client = this.#providers.createProfileClient(agent.provider, agent.providerAccountId);
+          return yield* this.#profileClients.run(client, (cancelled) =>
+            generateTextWithoutTools(
+              client,
+              model,
+              prompt,
+              cancelled,
+              sideSessionUsageObserver("news-share", this.#store.database.usage, agent.id, agent.provider, model.id),
+            ),
+          );
+        }),
+      sentMessages: (agentId) =>
+        this.#mailbox
+          .conversationMessages(agentId)
+          .flatMap((message) =>
+            message.exchange?.direction === "outgoing"
+              ? [{ recipientAgentIds: message.exchange.recipientAgentIds, text: message.text }]
+              : [],
+          ),
+      toldInTurn: (agentId, turnId, recipientAgentId) =>
+        this.#mailbox.hasAgentMessageFromTurnTo(agentId, turnId, recipientAgentId, new Set()),
+      send: ({ senderAgentId, recipientAgentId, text }) =>
+        Effect.gen({ self: this }, function* () {
+          const receipt = yield* this.#mailbox.enqueue({
+            sender: { kind: "agent", agentId: senderAgentId },
+            recipientAgentIds: [recipientAgentId],
+            text,
+            replyToMessageId: null,
+            expectsReply: false,
+          });
+          for (const delivery of receipt.deliveries) yield* this.#steerAgentMessage(recipientAgentId, delivery.id);
+          // This also puts the message in the sender's chat, where the user reads who was told.
+          this.#mailboxSync.emitQueue(recipientAgentId);
+          this.#drain.scheduleDrain(recipientAgentId);
+        }).pipe(Effect.uninterruptible),
+      redact: (text) => this.#mcp.redact(text),
+      stopping: () => this.#stopping,
     });
     // One timer for every routine owner. The sources are read lazily because `channels` and its
     // scheduler are built further down, and because an owner's earliest routine changes constantly.
@@ -1371,6 +1431,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         closeRoutineSession: (externalThreadId) => this.#threads.closeRoutineThread(externalThreadId),
         conversationTurnEnded: (agentId, sideThreadId, counts, memoryCommitted) =>
           this.#memoryReview.turnEnded(agentId, sideThreadId, counts, memoryCommitted),
+        newsTurnEnded: (turn) => (options.newsShare === false ? Effect.void : this.#newsShare.turnEnded(turn)),
         turnStopped: (agentId, taskId, turnId) =>
           this.#stoppedTurn(agentId, taskId) === turnId || (taskId === null && this.#requestedNewChats.has(agentId)),
         hasOpenWait: (agentId, deliveryIds) =>
@@ -3652,6 +3713,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   readonly stop = Effect.fn("AgentService.stop")(function* (this: AgentService) {
     this.#stopping = true;
     yield* this.#memoryReview.dispose();
+    yield* this.#newsShare.dispose();
     const channelStop = yield* Effect.forkChild(
       this.channels
         .stop()
